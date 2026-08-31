@@ -37,7 +37,15 @@ coasts and rivers, the mountain interior is empty.*
   high, reported incomes are a bit wrong, and ages get rounded to fives. The survey file
   shows only what respondents reported; the truth stays on file for grading.
 
+- **Years passing.** The country ages: everyone gets older, deaths follow an
+  age-specific mortality curve, babies join their mother's household, and young adults
+  leave home, mostly for the cities. Every event lands in a vital-events register, and
+  the books balance to the person: next year's population equals this year's plus births
+  minus deaths. Thirty years of 2.4 million people simulate in about ten seconds.
+
 ![Who lives there](renders/meridia-nation-20260831-demographics.png)
+
+![Thirty years pass](renders/meridia-nation-20260831-thirty-years.png)
 
 ## Rules the code follows
 
@@ -52,17 +60,18 @@ coasts and rivers, the mountain interior is empty.*
 ## Run it
 
 ```bash
-python -m pytest tests/                        # 26 tests
+python -m pytest tests/                        # 32 tests
 python scripts/render_first_nation.py          # terrain and rivers map
 python scripts/render_first_nation_population.py   # population map
 python scripts/build_first_nation_microdata.py     # people, households, demographics
 python scripts/render_day_night.py             # the day animation
+python scripts/run_thirty_years.py             # thirty years of the country
 ```
 
 Python 3.11+, NumPy, pandas, matplotlib, Pillow.
 
 ## Planned
 
-Weather and climate. Births, deaths, and migration, so the country ages year by year.
-Administrative registers with known linkage truth. Epidemics and commuting. More
-nations, including sealed ones.
+Weather and climate. Administrative registers with known linkage truth (the
+vital-events register is the start). Epidemics and commuting. More nations, including
+sealed ones.
