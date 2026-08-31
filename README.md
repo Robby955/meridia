@@ -47,6 +47,29 @@ coasts and rivers, the mountain interior is empty.*
 
 ![Thirty years pass](renders/meridia-nation-20260831-thirty-years.png)
 
+![Six nations from six seeds](renders/meridia-six-nations.png)
+
+## A research instrument, not just a testbed
+
+Because a nation costs seconds, the unit of replication stops being a sample and becomes
+the whole world. That allows studies real data can never support:
+
+- **Sampling distributions of entire pipelines.** Run an estimator, or an AI research
+  agent, across two hundred seeded nations and you get the true distribution of its
+  whole workflow: editing, imputation, weighting, inference, end to end, scored against
+  exact truth in every world.
+- **Shift and shock experiments.** Worlds can branch: the same nation with and without a
+  break year (a mortality spike, a migration wave). Robustness under distribution shift
+  becomes a controlled experiment where the counterfactual actually exists.
+- **Measured power for study designs.** Whether a proposed experiment can detect what it
+  claims gets answered by generating worlds under both hypotheses and counting, before
+  any real compute is spent.
+- **Verifiable training data.** Agent runs on world tasks carry rewards computed against
+  exact truth, with no judge models and no label noise.
+
+Evaluation stays clean through sealing: development worlds are open instruments; worlds
+used for grading are generated at registered seeds and never looked at, by anyone.
+
 ## Rules the code follows
 
 - Same seed, same world, byte for byte.
@@ -66,6 +89,7 @@ python scripts/render_first_nation_population.py   # population map
 python scripts/build_first_nation_microdata.py     # people, households, demographics
 python scripts/render_day_night.py             # the day animation
 python scripts/run_thirty_years.py             # thirty years of the country
+python scripts/render_many_nations.py          # six worlds in about two seconds
 ```
 
 Python 3.11+, NumPy, pandas, matplotlib, Pillow.
