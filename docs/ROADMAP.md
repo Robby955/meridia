@@ -1,0 +1,49 @@
+# Meridia roadmap
+
+Where the project is going, in build order. Everything below follows the same rules as
+what exists: plain Python with NumPy and SciPy, seeded determinism end to end, an exact
+conservation or identity test for every layer, and retained truth underneath every
+observed record.
+
+## Built
+
+- Terrain, rivers (exact runoff accounting), census, persons and households, survey
+  instrument with planted defects, year-by-year demography with a vital-events register,
+  weather with orographic rain and lagged river response.
+- World character: each seed draws its society's inequality, demography, wealth
+  gradients, urban structure, and institutional densities from declared ranges.
+- In review on a side branch: persistent truth identities, dwelling stock, and a
+  business layer (enterprises, establishments, jobs) with payroll conserved to the cent.
+
+## Next
+
+1. **Hospitals and encounters.** Capacity from the world's character draw; patient
+   encounters linking people to facilities.
+2. **Event histories.** Append-only monthly event tables (births, deaths, moves, job
+   changes, business openings and closures) from which any date's snapshot
+   reconstructs exactly.
+3. **Sealing protocol.** Evaluation worlds generated at registered seeds and never
+   inspected, with hash-sealed manifests.
+4. **Shock dial.** Break years: a mortality spike, a migration wave, an economic break,
+   each a parameter change with retained truth, so methods can be tested across
+   structural change with a counterfactual that exists.
+5. **Observed registers.** Imperfect population, business, income, and health registers
+   over the sealed truth: duplicates, stale addresses, split and merged identifiers,
+   reporting delays, each by an explicit recorded mechanism. This is what makes record
+   linkage and census coverage estimation real problems rather than database joins.
+6. **The production chain.** Surveys drawn from imperfect frames; editing, imputation,
+   weighting, estimation, variance, and disclosure control as scored stages; a full
+   national release audited against retained truth.
+
+## Further out
+
+Epidemics and commuting; climate beyond weather; multiple planets with independent
+geographies and institutions; a persistent universe where sealed worlds serve blinded
+evaluation and open worlds serve method research.
+
+## Standing invariants
+
+- Truth identifiers never appear in any participant-facing file.
+- Observed identifiers are never derivable from truth identifiers.
+- The parameter ranges of a world's character are public; a sealed world's draw is not.
+- A picture of the world is drawn from stored state, or it does not ship.

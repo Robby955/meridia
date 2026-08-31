@@ -31,6 +31,11 @@ CHARACTER_RANGES = {
     "leave_home_rate": (0.10, 0.24),       # internal migration intensity
     "zipf_exponent": (0.75, 1.30),         # city-size primacy
     "background_share": (0.06, 0.20),      # rural share of settlement mass
+    "jobs_per_adult": (0.55, 0.80),        # employment rate among working-age adults
+    "establishment_size_alpha": (1.4, 2.2), # establishment size tail (lower = bigger firms)
+    "multi_establishment_rate": (0.08, 0.30),  # enterprises with several locations
+    "payroll_level": (0.75, 1.30),         # national wage level multiplier
+    "hospital_beds_per_1000": (1.8, 6.5),  # hospital capacity per capita
 }
 
 
@@ -50,8 +55,12 @@ def draw_world_character(seed: int) -> dict:
                          fertility_rate=draw["fertility_rate"],
                          gompertz_a=draw["gompertz_a"],
                          leave_home_rate=draw["leave_home_rate"])
+    business = {name: draw[name] for name in
+                ("jobs_per_adult", "establishment_size_alpha",
+                 "multi_establishment_rate", "payroll_level",
+                 "hospital_beds_per_1000")}
     return {"draw": draw, "population": population, "microdata": microdata,
-            "demography": demography}
+            "demography": demography, "business": business}
 
 
 def gini(income: np.ndarray) -> float:

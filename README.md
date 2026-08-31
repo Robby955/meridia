@@ -114,6 +114,8 @@ Python 3.11+, NumPy, pandas, matplotlib, Pillow.
 
 ## Planned
 
-Weather and climate. Administrative registers with known linkage truth (the
+The full build order is in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+Administrative registers with known linkage truth (the
 vital-events register is the start). Epidemics and commuting. More nations, including
 sealed ones.
