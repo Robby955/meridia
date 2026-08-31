@@ -1,15 +1,18 @@
 # Meridia
 
-A generator for made-up countries where every number has a known true answer.
+Meridia generates synthetic countries for testing statistical methods and AI research
+agents. One seed produces terrain, rivers, settlements, and a population of individual
+people with households, ages, and incomes; the national population size is drawn from
+the seed as well, so nations differ in scale the way countries do. Surveys are then
+drawn from that population with the defects real collection has: unit and item
+nonresponse, measurement error, rounding. Because the complete population is retained,
+the error of any estimate computed from a survey is known exactly, and stated
+uncertainty can be checked against true coverage. No judge models, no real data.
 
-One seed produces a nation: mountains, rivers, cities, and 2.4 million simulated people
-with ages, households, and incomes. It then produces survey data about those people with
-the flaws real survey data has: people who refuse to answer, wrong answers, missing
-values. The generator keeps the true value of everything it makes, so any estimate
-computed from the survey data can be checked exactly.
-
-That is the point. Statistical methods and AI research agents can be tested on this
-data, and the grading is against true values, not against another model's opinion.
+The intended use is a full statistical production chain: the world is observed
+imperfectly by a survey; the observations are edited and imputed; estimates are
+published with uncertainty; retained truth decides whether the release held. Each stage
+of that chain is a benchmark task; the world keeps them mutually consistent.
 
 ![One day over the first nation](renders/meridia-nation-20260831-day.gif)
 
@@ -40,8 +43,8 @@ coasts and rivers, the mountain interior is empty.*
 - **Years passing.** The country ages: everyone gets older, deaths follow an
   age-specific mortality curve, babies join their mother's household, and young adults
   leave home, mostly for the cities. Every event lands in a vital-events register, and
-  the books balance to the person: next year's population equals this year's plus births
-  minus deaths. Thirty years of 2.4 million people simulate in about ten seconds.
+  next year's population equals this year's plus births minus deaths, exactly. Thirty
+  years of 2.4 million people simulate in about ten seconds.
 
 ![Who lives there](renders/meridia-nation-20260831-demographics.png)
 

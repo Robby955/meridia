@@ -9,24 +9,23 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
-from meridia.population import build_population
+from meridia.population import build_population, draw_national_total
 from meridia.render import hillshade
 from meridia.terrain import generate_elevation
 
 H, W = 192, 256
-TOTAL = 1_200_000
 SETTLEMENTS = 16
 SEEDS = (11, 23, 47, 89, 131, 20260831)
 
 
-def nation_rgb(seed: int) -> np.ndarray:
+def nation_rgb(seed: int) -> tuple:
     world = generate_elevation(seed, H, W)
     outlets = ~world["land"]
     outlets[0, :] = outlets[-1, :] = outlets[:, 0] = outlets[:, -1] = True
     filled = fill_depressions(world["elevation"], world["sea_level"])
     direction = flow_directions(filled, outlets)
     accumulation = flow_accumulation(direction, outlets)
-    people = build_population(world, accumulation, TOTAL, SETTLEMENTS)
+    people = build_population(world, accumulation, None, SETTLEMENTS, seed=seed)
 
     elevation = world["elevation"]
     land = world["land"]
@@ -47,7 +46,7 @@ def nation_rgb(seed: int) -> np.ndarray:
     glow /= max(glow.max(), 1e-9)
     lights = (np.clip(glow - 0.42, 0.0, 1.0) / 0.58) ** 1.6
     warm = np.array([1.00, 0.82, 0.40])
-    return np.clip(rgb * (1.0 - 0.85 * lights[..., None]) + warm * lights[..., None], 0, 1)
+    return np.clip(rgb * (1.0 - 0.85 * lights[..., None]) + warm * lights[..., None], 0, 1), people["total"]
 
 
 import matplotlib
@@ -57,10 +56,11 @@ import matplotlib.pyplot as plt
 t0 = time.time()
 fig, axes = plt.subplots(2, 3, figsize=(13.5, 7), dpi=170)
 for ax, seed in zip(axes.flat, SEEDS):
-    ax.imshow(nation_rgb(seed), interpolation="nearest")
+    rgb, total = nation_rgb(seed)
+    ax.imshow(rgb, interpolation="nearest")
     ax.set_axis_off()
-    ax.set_title(f"seed {seed}", fontsize=9, color="#555555", loc="left")
-fig.suptitle("Six nations, six seeds, 1.2 million people each: same laws, different worlds",
+    ax.set_title(f"seed {seed}: {total:,} people", fontsize=9, color="#555555", loc="left")
+fig.suptitle("Six nations from six seeds: geography, cities, and population size all drawn from the seed",
              fontsize=12)
 fig.tight_layout()
 out = Path(__file__).resolve().parents[1] / "renders" / "meridia-six-nations.png"

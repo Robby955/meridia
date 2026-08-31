@@ -82,3 +82,18 @@ def test_capital_is_densest_neighborhood():
         rr, cc = land_idx[i]
         samples.append(grid[max(0, rr - 4):rr + 5, max(0, cc - 4):cc + 5].sum())
     assert capital >= max(samples)
+
+
+def test_drawn_totals_vary_and_conserve():
+    from meridia.population import draw_national_total
+    world = generate_elevation(SEED, H, W)
+    outlets = ~world["land"]
+    outlets[0, :] = outlets[-1, :] = outlets[:, 0] = outlets[:, -1] = True
+    filled = fill_depressions(world["elevation"], world["sea_level"])
+    direction = flow_directions(filled, outlets)
+    accumulation = flow_accumulation(direction, outlets)
+    totals = [draw_national_total(s, int(world["land"].sum())) for s in (1, 2, 3, 4)]
+    assert len(set(totals)) == 4
+    people = build_population(world, accumulation, None, 8, seed=SEED)
+    assert int(people["population"].sum()) == people["total"]
+    assert people["total"] == draw_national_total(SEED, int(world["land"].sum()))

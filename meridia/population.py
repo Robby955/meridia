@@ -37,6 +37,16 @@ class PopulationParams:
     background_share: float = 0.12   # mass spread by habitability alone (rural floor)
 
 
+def draw_national_total(seed: int, land_cells: int) -> int:
+    """National population drawn from the seed: a lognormal density per land cell.
+
+    Nations differ in size the way real countries do; the drawn total is still an exact
+    integer that the allocation conserves to the person."""
+    rng = np.random.default_rng(np.random.SeedSequence([seed, 0x707A]))
+    density = float(rng.lognormal(mean=np.log(30.0), sigma=0.55))
+    return int(round(density * land_cells))
+
+
 def grid_distance(sources: np.ndarray) -> np.ndarray:
     """Chebyshev-metric BFS distance (in cells) from the nearest True cell; inf if none."""
     height, width = sources.shape
@@ -128,10 +138,17 @@ def population_grid(habitability_grid: np.ndarray, sites: list[tuple[int, int]],
     return floors.reshape(height, width)
 
 
-def build_population(world: dict, accumulation: np.ndarray, total: int, n_settlements: int,
-                     params: PopulationParams = PopulationParams()) -> dict:
-    """One call from verified layers to a conserved population grid."""
+def build_population(world: dict, accumulation: np.ndarray, total: int | None, n_settlements: int,
+                     params: PopulationParams = PopulationParams(), seed: int | None = None) -> dict:
+    """One call from verified layers to a conserved population grid.
+
+    Pass ``total=None`` with a ``seed`` to draw the national total from the world itself.
+    """
+    if total is None:
+        if seed is None:
+            raise ValueError("drawing a national total requires a seed")
+        total = draw_national_total(seed, int(world["land"].sum()))
     hab = habitability(world, accumulation, params)
     sites = seed_settlements(hab, n_settlements, params)
     grid = population_grid(hab, sites, total, params)
-    return {"habitability": hab, "settlements": sites, "population": grid}
+    return {"habitability": hab, "settlements": sites, "population": grid, "total": total}
