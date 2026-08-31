@@ -14,10 +14,12 @@ imperfectly by a survey; the observations are edited and imputed; estimates are
 published with uncertainty; retained truth decides whether the release held. Each stage
 of that chain is a benchmark task; the world keeps them mutually consistent.
 
-![One day over the first nation](renders/meridia-nation-20260831-day.gif)
+![Seventy-two hours over the first nation](renders/meridia-72-hours.gif)
 
-*One simulated day. Sunlight crosses the map from east to west; at night the cities
-light up. Every frame is drawn from the same arrays the tests check.*
+*Three simulated days. Weather is state, not decoration: a wind field advects moisture,
+mountains wring rain out of it, the rain routes down the verified drainage tree and the
+rivers swell afterward, and the cities light up at night. Every frame is drawn from
+stored world state.*
 
 ![The first nation at night](renders/meridia-nation-20260831-population.png)
 
@@ -27,8 +29,8 @@ coasts and rivers, the mountain interior is empty.*
 ## What exists so far
 
 - **Terrain.** Seeded elevation with mountain chains and a coast.
-- **Rivers.** Water routing where every unit of runoff is accounted for. The books
-  balance exactly and a test proves it.
+- **Rivers.** Water routing where every unit of runoff is accounted for, exactly,
+  with a test proving it.
 - **Census.** People are placed where land is livable (low, flat, near water), with
   bigger and smaller cities. The map's cell counts add up to the national total exactly,
   to the person.
@@ -40,6 +42,10 @@ coasts and rivers, the mountain interior is empty.*
   high, reported incomes are a bit wrong, and ages get rounded to fives. The survey file
   shows only what respondents reported; the truth stays on file for grading.
 
+- **Weather.** A wind field advects moisture; the sea recharges it; slopes facing the
+  wind get the rain (tested); routed precipitation makes river discharge rise with a
+  lag after storms (tested). This is the layer that will drive storm-related data
+  collection failures in survey tasks.
 - **Years passing.** The country ages: everyone gets older, deaths follow an
   age-specific mortality curve, babies join their mother's household, and young adults
   leave home, mostly for the cities. Every event lands in a vital-events register, and
@@ -90,7 +96,7 @@ python -m pytest tests/                        # 32 tests
 python scripts/render_first_nation.py          # terrain and rivers map
 python scripts/render_first_nation_population.py   # population map
 python scripts/build_first_nation_microdata.py     # people, households, demographics
-python scripts/render_day_night.py             # the day animation
+python scripts/render_72_hours.py              # three days of weather over the nation
 python scripts/run_thirty_years.py             # thirty years of the country
 python scripts/render_many_nations.py          # six worlds in about two seconds
 ```
