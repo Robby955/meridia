@@ -58,6 +58,14 @@ coasts and rivers, the mountain interior is empty.*
 
 ![Six nations from six seeds](renders/meridia-six-nations.png)
 
+Worlds differ socially as well as physically. Each seed draws the society's parameters
+from declared ranges: how unequal income is, how wealth concentrates in cities, how
+young or old the population runs, how dominant the largest city is. Across a handful of
+seeds that yields nations from 280 thousand to 1.6 million people, Gini coefficients
+from 0.40 to 0.55, and life expectancies from 69 to 78. The ranges are public; a sealed
+evaluation world's specific draw is not, so a method must estimate the society it is in
+from the data.
+
 ## A research instrument, not just a testbed
 
 Because a nation costs seconds, the unit of replication stops being a sample and becomes
@@ -99,6 +107,7 @@ python scripts/build_first_nation_microdata.py     # people, households, demogra
 python scripts/render_72_hours.py              # three days of weather over the nation
 python scripts/run_thirty_years.py             # thirty years of the country
 python scripts/render_many_nations.py          # six worlds in about two seconds
+python scripts/world_characters.py             # the character sheet of five societies
 ```
 
 Python 3.11+, NumPy, pandas, matplotlib, Pillow.
