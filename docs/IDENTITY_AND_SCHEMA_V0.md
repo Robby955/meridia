@@ -1,0 +1,234 @@
+# Meridia identity and institutional schema v0
+
+Status: implementation contract for `codex/institutions-v0`.
+
+This document defines identity, table, and history rules for Meridia's social and
+institutional layers. It sits above the existing geography, weather, population,
+microdata, survey, and demography modules. Those modules remain the source of terrain,
+cells, persons, households, and dynamics; this layer imports their outputs without
+changing them.
+
+The first implementation governed by this contract is the dwelling stock. Businesses,
+hospitals, jobs, encounters, and imperfect registers will use the same identity and
+history rules in later additive modules.
+
+## 1. Two identity domains
+
+Meridia has two deliberately separate identity domains.
+
+### Sealed truth identity
+
+Every real entity in a generated world receives a persistent truth identity. Truth IDs
+exist only inside the retained world state and verifier-side crosswalks. They are never
+written into a participant-facing survey, register, release, or task packet.
+
+A truth identity is the composite:
+
+```
+(truth_world_id, truth_entity_id)
+```
+
+`truth_world_id` is a deterministic `uint64` derived from the world seed and generator
+identity. `truth_entity_id` is a `uint64` with an 8-bit entity namespace followed by a
+56-bit never-reused sequence number. The composite is globally scoped; the entity ID
+alone is scoped to one world.
+
+The v0 namespace codes are frozen:
+
+| Code | Entity |
+| ---: | --- |
+| 1 | person |
+| 2 | household |
+| 3 | dwelling |
+| 4 | business |
+| 5 | hospital |
+| 6 | job |
+| 7 | encounter |
+| 8 | event |
+| 9 | observed-record source |
+
+Sequence numbers are allocation order, not row numbers. Initial persons and households
+inherit their allocation order from the deterministic microdata snapshot. New entities
+take the next unused sequence in their namespace. IDs are never reassigned after death,
+closure, demolition, merger, or record correction. Sorting, filtering, and snapshot
+materialization may change row positions but cannot change IDs.
+
+Core array indices are import keys only. In particular, `person[17]` and household index
+`17` are not persistent identities. An identity map is created when a core snapshot
+enters this layer, and all institutional relationships use its truth IDs.
+
+### Observed identity
+
+Registers and surveys receive source-specific observed identifiers generated independently
+of truth IDs. An observed identifier may be:
+
+- missing;
+- stale after a move or status change;
+- duplicated across two observed records;
+- split, so one truth entity has multiple observed IDs;
+- merged, so records for different truth entities share an observed ID;
+- mistyped or transposed according to a recorded error mechanism.
+
+Observed IDs are not hashes, encodings, prefixes, suffixes, or arithmetic transforms of
+truth IDs. A verifier-side crosswalk records the source, observed record ID, truth entity
+ID, mechanism, and validity interval. The crosswalk is never exported. Participant files
+may contain the observed ID attached to its observed record, but never the corresponding
+truth ID or hidden mechanism annotation.
+
+Participant-facing schema checks must reject any column named `truth_*`, any truth-world
+identifier, and any hidden crosswalk or mechanism field not explicitly declared visible.
+
+## 2. Columnar table convention
+
+Engine tables are dictionaries of one-dimensional NumPy arrays. Every column in a table
+has the same row count. Tables carry scalar metadata outside the column dictionary:
+
+```
+{
+    "truth_world_id": uint64,
+    "generator_version": int,
+    "snapshot_tick": int64,
+    "<table_name>": {"column": ndarray, ...},
+    "n_<entities>": int,
+}
+```
+
+The `truth_world_id` is retained truth metadata and is never copied into an observed
+table. Integer codes are used for finite categories, with codebooks declared beside the
+module. Required foreign keys are `uint64`. Nullable truth foreign keys use `0` only
+when a separate boolean state column makes the absence explicit; no allocated truth ID
+is zero. Time is an integer world tick. Floats are `float64`, categorical codes are
+`int8` or `int16`, counts are sized to their supported range, and grid cells use `int64`
+flat indices compatible with the core modules.
+
+Current-state tables are materialized views. They are replaceable outputs of a
+deterministic replay, not the historical authority.
+
+## 3. Append-only history
+
+Once event modules land, institutional changes are recorded in append-only event tables.
+Existing event rows are never mutated or deleted. Corrections append a new event that
+supersedes an earlier event by ID and gives the reason.
+
+Every event will contain at least:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_event_id` | `uint64` | persistent event identity |
+| `tick` | `int64` | effective world tick |
+| `recorded_tick` | `int64` | tick at which the event entered the ledger |
+| `entity_type` | `int8` | namespace code of the subject |
+| `truth_entity_id` | `uint64` | subject identity |
+| `event_type` | `int16` | module-specific event code |
+| `supersedes_event_id` | `uint64` | zero or an earlier event ID |
+| `cause_code` | `int16` | explicit generative mechanism |
+
+Event order is canonical: `(tick, recorded_tick, truth_event_id)`. Replaying the same
+initial state and ordered ledger must reconstruct the current-state tables byte for byte.
+Late reporting is represented by `recorded_tick > tick`; history is never back-edited.
+
+## 4. Initial identity snapshot
+
+For the initial microdata snapshot:
+
+- there is exactly one truth person ID for each person row;
+- there is exactly one truth household ID for each household index;
+- every person's household import key resolves to exactly one truth household ID;
+- the composite IDs are deterministic in the world seed and core snapshot counts;
+- person and household namespaces are disjoint by construction.
+
+Births, household formation, and future migrations will be integrated by an additive
+identity-aware dynamics wrapper. It will retain survivor IDs and allocate new IDs for
+births and newly formed households rather than treating post-filter array positions as
+identity.
+
+## 5. Dwelling current-state table v0
+
+The initial dwelling stock has one occupied dwelling for every household and an explicit
+vacant stock allocated across inhabited cells. V0 does not yet model multiple households
+sharing one dwelling or institutional residences. Those are future event/schema changes,
+not silent reinterpretations of v0 rows.
+
+Required columns:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_dwelling_id` | `uint64` | persistent sealed dwelling identity |
+| `cell` | `int64` | flat geography-cell index |
+| `dwelling_type` | `int8` | detached, attached, low-rise, or high-rise |
+| `tenure` | `int8` | owner, mortgage, private rent, social rent, or vacant |
+| `bedrooms` | `int8` | bedroom count |
+| `floor_area_m2` | `float64` | current usable floor area |
+| `year_built` | `int16` | construction year in the synthetic calendar |
+| `assessed_value` | `float64` | synthetic current value |
+| `monthly_rent` | `float64` | zero for non-rental and vacant units |
+| `is_occupied` | `bool` | whether a household occupies the dwelling |
+| `truth_household_id` | `uint64` | occupying truth household, or zero if vacant |
+| `resident_count` | `int32` | residents linked through the occupying household |
+
+The table is generated from the imported household cells, person-to-household mapping,
+urbanity field, seed, and declared parameters. Occupied dwellings remain in the same cell
+as their household. Vacancies are assigned by an exact largest-remainder allocation of a
+declared national vacant-stock target over cells in proportion to household counts.
+
+The initial stock must satisfy all of these identities exactly:
+
+```
+occupied_dwellings = households
+occupied_dwellings + vacant_dwellings = dwellings
+sum(resident_count) = persons
+resident_count[dwelling_of(h)] = household_size[h]  for every household h
+cell[dwelling_of(h)] = household_cell[h]            for every household h
+unique(nonzero truth_household_id) = households
+unique(truth_dwelling_id) = dwellings
+```
+
+No tolerance is permitted for these checks. Economic and physical attributes may be
+stochastic, but the seeded replay must be byte-identical.
+
+## 6. Reserved current-state relationships
+
+Later modules will add the following tables without changing the dwelling contract:
+
+- `business`: location, industry, legal form, ownership, size, revenue, payroll, opening
+  and closure state;
+- `hospital`: location, capacity, services, staffing, ownership, and operational state;
+- `job`: person-business relationship, occupation, hours, earnings, start and end state;
+- `encounter`: person-hospital relationship, admission and discharge ticks, service,
+  diagnosis group, outcome, and cost.
+
+Required truth foreign keys always refer to entities in the same `truth_world_id`. A job
+cannot reference a closed business at its start tick; an encounter cannot reference a
+hospital before opening; a household move changes its dwelling relationship through an
+event and does not change either persistent identity.
+
+Each layer must introduce at least one exact identity or conservation test. Planned examples
+are payroll equals the sum of active job earnings, staffed hospital positions reconcile to
+health-sector jobs, occupied beds reconcile to open encounters, and register error counts
+reconcile exactly to their recorded mechanisms.
+
+## 7. Determinism and versioning
+
+Generation uses only the Python standard library plus NumPy/SciPy already allowed by the
+engine. Each additive module receives an explicit seed and uses a module-specific
+`SeedSequence` component so adding draws in one module does not perturb another module's
+stream. No global random state, clock time, process ID, filesystem order, or network state
+may affect an output.
+
+Schema version, generator version, parameters, source table digests, and output table
+digests belong in the future world manifest. A schema change increments the schema version.
+An algorithm change increments the generator version. Existing canonical timelines remain
+replayable; a new version extends or forks them and never rewrites their past.
+
+## 8. Delivery order
+
+1. This identity-and-schema contract.
+2. Initial identity mapping and dwelling current-state table with exact tests.
+3. Business and hospital current-state tables, then jobs and encounters.
+4. Append-only institutional event histories and deterministic replay.
+5. Imperfect source registers and sealed truth crosswalks.
+6. The capstone production contract consuming observed records only.
+
+Sealing protocol, shock-dial implementation, geography, weather, population, microdata,
+survey, demography, and rendering remain outside this branch's ownership. This branch imports
+their public outputs and does not modify their code.
