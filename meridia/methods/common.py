@@ -122,11 +122,11 @@ def rows_from_draws(point: dict, draws: dict, extra_half: dict | None = None) ->
         sample = sample[np.isfinite(sample)]
         if not np.isfinite(v):
             v, lower, upper = 0.0, 0.0, 0.0
-        elif len(sample) < 10:
-            lower, upper = v, v
         else:
-            lo, hi = np.percentile(sample, [5, 95])
-            half = 0.5 * (hi - lo)
+            half = 0.0
+            if len(sample) >= 10:
+                lo, hi = np.percentile(sample, [5, 95])
+                half = 0.5 * (hi - lo)
             if extra_half and key in extra_half:
                 half = float(np.sqrt(half ** 2 + extra_half[key] ** 2))
             lower, upper = v - half, v + half

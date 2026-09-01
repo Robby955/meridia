@@ -117,6 +117,40 @@ def estimate_rates(data: dict, tick: int) -> dict:
             "cube": cube, "hh_size": hh_size}
 
 
+def projected_tertiary_share(persons, age: np.ndarray, county: np.ndarray, county_state: np.ndarray,
+                             years: int, gompertz_a: float, gompertz_b: float) -> dict:
+    """Tertiary share among persons 25+ at the horizon, from today's cohorts.
+
+    Education is fixed per person in the world's dynamics, so the horizon share among
+    those aged 25 and over is the share among today's persons aged 25 minus the horizon
+    and over, each weighted by their survival to the horizon; the young cohorts
+    entering the base carry their own education, which is what moves the share.
+    """
+    n_counties = len(county_state)
+    n_states = int(county_state.max()) + 1
+    q = mortality_probability(np.arange(MAX_AGE + 1), DemographyParams(gompertz_a=gompertz_a, gompertz_b=gompertz_b))
+    survival_to_horizon = np.ones(MAX_AGE + 1)
+    for a in range(MAX_AGE + 1):
+        s = 1.0
+        for k in range(years):
+            s *= 1.0 - q[min(a + k, MAX_AGE)]
+        survival_to_horizon[a] = s
+    education = persons["education"].to_numpy()
+    eligible = (age >= max(25 - years, 0)) & (education >= 0)
+    w = survival_to_horizon[np.clip(age, 0, MAX_AGE)] * eligible
+    tert = w * (education >= 2)
+    out = {}
+    for level, members, units in (("county", county, n_counties), ("state", county_state[county], n_states),
+                                  ("nation", np.zeros(len(county), int), 1)):
+        base = np.bincount(members, weights=w, minlength=units)
+        top = np.bincount(members, weights=tert, minlength=units)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            share = np.where(base > 0, top / base, np.nan)
+        for u in range(units):
+            out[("tertiary_share_25_plus", level, u)] = float(share[u])
+    return out
+
+
 def project_cohorts(cube: np.ndarray, rates: dict, years: int, rng: np.random.Generator,
                     params: MethodParams, perturb: bool) -> tuple[np.ndarray, np.ndarray]:
     """Advance single-year cohorts per county; returns the final cube and admissions."""
@@ -217,6 +251,8 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
         adm_draws.append(adm_k)
     # The point projection is the median of the shock-aware replicates.
     point = {key: float(np.nanmedian(v)) for key, v in draws.items()}
+    point.update(projected_tertiary_share(persons, age, county, county_state, years,
+                                          rates["gompertz_a"], rates["gompertz_b"]))
     for e in COUNT_ITEMS:   # counts add exactly: rebuild state and nation from counties
         county_points = np.asarray([point[(e, "county", c)] for c in range(n_counties)])
         st = np.bincount(county_state, weights=county_points, minlength=n_states)
