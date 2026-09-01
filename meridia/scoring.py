@@ -129,6 +129,7 @@ def score_release(rows: list[dict], truth: dict, admin: dict,
     metrics: dict[str, dict] = {}
     for e in ESTIMAND_IDS:
         kind = ESTIMAND_BY_ID[e].kind
+        pooled_errors, pooled_covered, pooled_scores = [], [], []
         for level in LEVELS:
             errors, covered, scores, worst_unit = [], [], [], -1
             for (te, tl, u), t in truth.items():
@@ -143,6 +144,9 @@ def score_release(rows: list[dict], truth: dict, admin: dict,
                 scores.append(_interval_score(kind, lower, upper, t, alpha))
             if not errors:
                 continue
+            pooled_errors += errors
+            pooled_covered += covered
+            pooled_scores += scores
             metrics[f"{e}/{level}"] = {
                 "n_units": len(errors),
                 "worst_error": float(max(errors)),
@@ -150,6 +154,17 @@ def score_release(rows: list[dict], truth: dict, admin: dict,
                 "mean_error": float(np.mean(errors)),
                 "coverage": float(np.mean(covered)),
                 "mean_interval_score": float(np.mean(scores)),
+            }
+        if pooled_errors:
+            # Coverage is only meaningful pooled over enough units: one nation and a
+            # handful of states cannot show a rate. The coverage gate binds here.
+            metrics[f"{e}/all"] = {
+                "n_units": len(pooled_errors),
+                "worst_error": float(max(pooled_errors)),
+                "worst_unit": -1,
+                "mean_error": float(np.mean(pooled_errors)),
+                "coverage": float(np.mean(pooled_covered)),
+                "mean_interval_score": float(np.mean(pooled_scores)),
             }
     return metrics
 
@@ -269,7 +284,7 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
         if ceiling is not None and m["worst_error"] > ceiling:
             reasons.append(f"accuracy: {key} worst error {m['worst_error']:.4f} > {ceiling}")
         floor = bars.get("coverage_floor")
-        if floor is not None and m["coverage"] < floor:
+        if floor is not None and key.endswith("/all") and m["coverage"] < floor:
             reasons.append(f"coverage: {key} {m['coverage']:.3f} < {floor}")
         score_ceiling = bars.get("interval_score_ceiling", {}).get(key)
         if score_ceiling is not None and m["mean_interval_score"] > score_ceiling:

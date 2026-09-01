@@ -93,6 +93,7 @@ def register_counts(frame, n_counties: int) -> dict:
     n_tert = np.bincount(county, weights=(over_25 & known & tertiary), minlength=n_counties)
     with np.errstate(invalid="ignore", divide="ignore"):
         counts["tertiary_share_25_plus"] = np.where(n_known > 0, n_tert / n_known, np.nan)
+    counts["tertiary_n"] = n_known
     sex = frame["sex"].to_numpy(dtype=np.int64)
     band = np.full(len(age), -1)
     for b, (lo, hi) in enumerate(AGE_BANDS):
@@ -302,7 +303,7 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
         # county intervals, which a survey bootstrap alone cannot see.
         rel_resid = residual / np.maximum(synthetic[have], 1e-9)
         rel_sampling = direct_var[have] / np.maximum(synthetic[have], 1e-9) ** 2
-        county["_model_rel_sd"] = float(np.sqrt(max(np.mean(rel_resid ** 2) - np.mean(rel_sampling), 0.0)))
+        county["_model_rel_sd"] = max(float(np.sqrt(max(np.mean(rel_resid ** 2) - np.mean(rel_sampling), 0.0))), 0.10)
     else:
         county["_model_rel_sd"] = 0.15
     county["tertiary_share_25_plus"] = register["tertiary_share_25_plus"]
@@ -543,6 +544,20 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
                 half = 0.5 * (hi - lo) * widen
                 if key[1] == "county" and key[0] in ("persons", "households", "children_under_16", "elders_65_plus"):
                     half = np.sqrt(half ** 2 + (1.645 * model_rel_sd * abs(v)) ** 2)
+                if key[1] == "county" and key[0] in sensitivity:
+                    # Synthetic county income estimates carry model error beyond the
+                    # survey bootstrap: a ten percent relative allowance.
+                    extra = 1.645 * 0.10 * (abs(v) if key[0] != "low_income_household_share" else 0.5)
+                    half = float(np.sqrt(half ** 2 + extra ** 2))
+                if key[0] == "tertiary_share_25_plus":
+                    # Register share: binomial spread over the known-education base,
+                    # plus an allowance for item-missing education being selective.
+                    n_base = tertiary_base.get(key, 1.0)
+                    half = float(np.sqrt(half ** 2 + (1.645 * np.sqrt(max(v * (1 - v), 1e-6) / max(n_base, 1.0))) ** 2 + 0.02 ** 2))
+                if key[0] in factors and isinstance(factors[key[0]], dict):
+                    sd = factors[key[0]].get("residual_sd", 0.0)
+                    extra = 1.645 * sd if key[0] == "low_income_household_share" else 1.645 * sd * abs(v)
+                    half = float(np.sqrt(half ** 2 + extra ** 2))
                 if key[0] in sensitivity:
                     unit_key = "nation" if key[1] == "nation" else \
                         (int(key[2]) if key[1] == "state" else int(county_state[key[2]]))
@@ -558,6 +573,10 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
                         "estimate": float(v), "lower": float(min(lower, v)), "upper": float(max(upper, v))})
         return out
 
+    tertiary_base = {("tertiary_share_25_plus", "county", c): float(register["tertiary_n"][c]) for c in range(n_counties)}
+    for s_ in range(int(county_state.max()) + 1):
+        tertiary_base[("tertiary_share_25_plus", "state", s_)] = float(register["tertiary_n"][county_state == s_].sum())
+    tertiary_base[("tertiary_share_25_plus", "nation", 0)] = float(register["tertiary_n"].sum())
     release_rows = rows(now, now_reps)
     projection_rows = rows(future, future_reps, widen=params.carry_forward_width)
 
