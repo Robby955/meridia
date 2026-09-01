@@ -65,11 +65,53 @@ def load_detailed(path: Path, n_counties: int) -> np.ndarray:
     return cube
 
 
+SUBMISSION_FILES = ("release.csv", "detailed.csv", "projection.csv", "allocation.csv")
+OPTIONAL_FILES = ("totals.csv",)
+TOTAL_KINDS = {"county_age": ("county", "age_band"), "county_sex": ("county", "sex"),
+               "county": ("county",), "age_sex": ("age_band", "sex")}
+
+
+def load_totals(path: Path, n_counties: int) -> dict[str, np.ndarray]:
+    """Published totals of the detailed table: kind, county, age_band, sex, count.
+
+    Every published total enters the disclosure audit as a linear constraint. A total
+    published anywhere else is not a total the verifier missed: any file outside the
+    declared set fails the submission outright.
+    """
+    frame = _read_csv(path)
+    band_index = {label: i for i, label in enumerate(AGE_BAND_LABELS)}
+    sex_index = {label: i for i, label in enumerate(SEX_LABELS)}
+    shapes = {"county_age": (n_counties, len(AGE_BAND_LABELS)), "county_sex": (n_counties, len(SEX_LABELS)),
+              "county": (n_counties,), "age_sex": (len(AGE_BAND_LABELS), len(SEX_LABELS))}
+    totals = {kind: np.full(shape, np.nan) for kind, shape in shapes.items()}
+    for r in frame.itertuples():
+        kind = str(r.kind)
+        if kind not in TOTAL_KINDS:
+            raise ValueError(f"unknown total kind {kind!r}")
+        idx = []
+        for axis in TOTAL_KINDS[kind]:
+            v = getattr(r, axis)
+            idx.append(int(v) if axis == "county" else (band_index[str(v)] if axis == "age_band" else sex_index[str(v)]))
+        value = r.count
+        totals[kind][tuple(idx)] = np.nan if (value is None or (isinstance(value, float) and math.isnan(value))) else float(value)
+    return {kind: t for kind, t in totals.items() if np.isfinite(t).any()}
+
+
 def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None = None,
                       alpha: float = 0.10) -> dict:
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
     contract = json.loads((packet_dir / "participant" / "contract.json").read_text())
     admin = admin_from_packet(packet_dir)
+    # Fail closed on the file set: exactly the declared files, optionally totals.csv.
+    present = sorted(p.name for p in submission_dir.iterdir() if p.is_file())
+    unexpected = [n for n in present if n not in SUBMISSION_FILES + OPTIONAL_FILES]
+    missing = [n for n in SUBMISSION_FILES if n not in present]
+    if unexpected or missing:
+        return {"pass": False, "reasons": [f"file set: unexpected {unexpected}, missing {missing}"],
+                "schema_errors": [], "additivity_errors": [], "metrics": {},
+                "disclosure": {"pass": False, "n_protected": 0, "n_suppressed": 0,
+                               "published_protected": [], "recoverable": []},
+                "projection_metrics": {}, "allocation": {"feasible": False}}
     retained = packet_dir / "retained"
     truth_now = load_truth(retained / "truth_revised.csv")
     truth_future = load_truth(retained / "truth_horizon.csv")
@@ -81,7 +123,9 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
     metrics = score_release(release, truth_now, admin, alpha)
 
     published = load_detailed(submission_dir / "detailed.csv", admin["n_counties"])
-    disclosure = disclosure_audit(published, detailed_truth, int(contract["disclosure_threshold"]))
+    marginals = load_totals(submission_dir / "totals.csv", admin["n_counties"]) \
+        if (submission_dir / "totals.csv").exists() else None
+    disclosure = disclosure_audit(published, detailed_truth, int(contract["disclosure_threshold"]), marginals)
 
     projection = load_rows(submission_dir / "projection.csv")
     projection_schema = validate_release(projection, admin)
