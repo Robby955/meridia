@@ -98,8 +98,24 @@ A release passes only if every gate holds:
 Bars, floors, and ceilings are frozen from two executed strong pipelines before any trial
 and shipped with the packet. Nothing in a free-text narrative is score bearing.
 
+## Stage ten: projection and allocation
+
+The release closes with a look ahead. The participant publishes the same estimand table
+for the next vintage, in the same schema, and commits an allocation: one non-negative
+number per county whose sum does not exceed the stated budget. The world then runs forward
+under its own dynamics, shocks included, and the future table is exact truth.
+
+- The projection is scored exactly like the release: worst-unit error, coverage, and
+  interval score against the future truth.
+- The allocation is scored on realized loss: the share of true future demand left unmet.
+  Demand in v0 is the future count of persons aged 65 and over by county. The oracle loss
+  is what a perfect forecast could reach with the same budget, so regret, the difference,
+  is what the participant's forecast cost. An allocation that is negative, non-finite, or
+  over budget is infeasible and fails outright. A point commitment cannot be hedged with a
+  wide interval.
+
 ## Not yet in v0
 
-Movement classification between vintages, the executable audit trail, and the forward
-projection with a committed allocation are scored by later versions of this contract; the
-same error, coverage, and interval-score definitions apply to them.
+Movement classification between vintages and the executable audit trail are scored by
+later versions of this contract; the same error, coverage, and interval-score definitions
+apply to them.
