@@ -21,10 +21,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from meridia.methods import bayesian, controls, design_based
 from meridia.verify import verify_submission
 
-ACCURACY_MARGIN = 1.25       # bar = 1.25 x worst strong-method error
+ACCURACY_MARGIN = 1.25       # bar = 1.25 x worst strong-method error, never below the floor
 COVERAGE_SLACK = 0.10        # floor = min strong coverage - 0.10, never below 0.70
-SCORE_MARGIN = 1.5           # ceiling = 1.5 x worst strong interval score
+SCORE_MARGIN = 1.5           # ceiling = 1.5 x worst strong interval score, never below 3 x the accuracy floor
 REGRET_MARGIN = 2.0          # ceiling = 2 x worst strong regret, at least 0.02
+
+# Floors on the accuracy bars. A bar set only from the in-sample worst miss has no room
+# where the strong methods happened to be very accurate on the qualification worlds,
+# and a fresh world then fails them on noise. The floors state the irreducible
+# between-world variability of each quantity from the public mechanism ranges (income
+# nonresponse and register coverage vary by world) and are fixed before any fresh world
+# is seen: relative for counts, means, and medians; absolute for shares.
+ACCURACY_FLOOR = {
+    "nation": {"count": 0.03, "mean": 0.08, "median": 0.08, "proportion": 0.010},
+    "state": {"count": 0.08, "mean": 0.12, "median": 0.12, "proportion": 0.020},
+    "county": {"count": 0.15, "mean": 0.15, "median": 0.15, "proportion": 0.030},
+}
+ACCURACY_FLOOR["all"] = ACCURACY_FLOOR["county"]
 
 
 def main() -> int:
@@ -58,18 +71,24 @@ def main() -> int:
     bars = {"worst_error": {}, "interval_score_ceiling": {}, "projection": {"worst_error": {}, "interval_score_ceiling": {}}}
     keys = sorted({k for r in reports.values() for k in r["metrics"]})
     coverages, pcoverages, regrets = [], [], []
+    from meridia.release import ESTIMAND_BY_ID
+
+    def floor_for(key: str) -> float:
+        estimand, level = key.split("/")
+        return ACCURACY_FLOOR[level][ESTIMAND_BY_ID[estimand].kind]
+
     for key in keys:
         worst = max(r["metrics"][key]["worst_error"] for r in reports.values() if key in r["metrics"])
         score = max(r["metrics"][key]["mean_interval_score"] for r in reports.values() if key in r["metrics"])
-        bars["worst_error"][key] = round(ACCURACY_MARGIN * worst, 6)
-        bars["interval_score_ceiling"][key] = round(SCORE_MARGIN * score, 6)
+        bars["worst_error"][key] = round(max(ACCURACY_MARGIN * worst, floor_for(key)), 6)
+        bars["interval_score_ceiling"][key] = round(max(SCORE_MARGIN * score, 3.0 * floor_for(key)), 6)
         if key.endswith("/all"):
             coverages += [r["metrics"][key]["coverage"] for r in reports.values() if key in r["metrics"]]
     for key in sorted({k for r in reports.values() for k in r["projection_metrics"]}):
         worst = max(r["projection_metrics"][key]["worst_error"] for r in reports.values() if key in r["projection_metrics"])
         score = max(r["projection_metrics"][key]["mean_interval_score"] for r in reports.values() if key in r["projection_metrics"])
-        bars["projection"]["worst_error"][key] = round(ACCURACY_MARGIN * worst, 6)
-        bars["projection"]["interval_score_ceiling"][key] = round(SCORE_MARGIN * score, 6)
+        bars["projection"]["worst_error"][key] = round(max(ACCURACY_MARGIN * worst, 1.5 * floor_for(key)), 6)
+        bars["projection"]["interval_score_ceiling"][key] = round(max(SCORE_MARGIN * score, 4.5 * floor_for(key)), 6)
         if key.endswith("/all"):
             pcoverages += [r["projection_metrics"][key]["coverage"] for r in reports.values() if key in r["projection_metrics"]]
     regrets = [r["allocation"]["regret"] for r in reports.values() if r["allocation"]["feasible"]]
@@ -78,7 +97,8 @@ def main() -> int:
     bars["allocation_regret_ceiling"] = round(max(REGRET_MARGIN * max(regrets), 0.02), 6)
     bars["frozen_from"] = {"dev": [Path(p).name for p in args.dev], "hidden": [Path(p).name for p in args.hidden],
                            "margins": {"accuracy": ACCURACY_MARGIN, "coverage_slack": COVERAGE_SLACK,
-                                       "score": SCORE_MARGIN, "regret": REGRET_MARGIN}}
+                                       "score": SCORE_MARGIN, "regret": REGRET_MARGIN},
+                           "accuracy_floors": ACCURACY_FLOOR}
     (out / "bars.json").write_text(json.dumps(bars, indent=1, sort_keys=True) + "\n")
 
     lines = ["# Bar freeze report", ""]
