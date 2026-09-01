@@ -181,11 +181,14 @@ def sample_income(frame, register_frame, income, county_state: np.ndarray,
     # the county mean's posterior relative spread as the uncertainty carrier.
     stats = A.survey_statistics(frame, county_state)
     rel = np.exp(draws) / np.maximum(np.exp(draws).mean(axis=0), 1e-9)
-    for e in ("median_household_income", "low_income_household_share"):
-        state_values = np.asarray([stats[e][s] for s in range(n_states)])
-        base = state_values[county_state] * ratios[e]
-        out[e] = base[None, :] * rel if e == "median_household_income" else \
-            np.clip(base[None, :] * (2.0 - rel), 0.0, 1.0)
+    # The household median tracks the county mean through one survey-estimated
+    # national ratio (median household income over mean adult income), so its
+    # posterior inherits the mean's; the low-income share moves against the mean.
+    national_ratio = stats["median_household_income"]["nation"] / max(stats["mean_income_adults"]["nation"], 1e-9)
+    out["median_household_income"] = out["mean_income_adults"] * national_ratio
+    state_values = np.asarray([stats["low_income_household_share"][s] for s in range(n_states)])
+    base = state_values[county_state] * ratios["low_income_household_share"]
+    out["low_income_household_share"] = np.clip(base[None, :] * (2.0 - rel), 0.0, 1.0)
     out["_state_stats"] = stats
     return out
 
@@ -290,6 +293,10 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
                 add = 1.645 * 0.10 * (abs(v) if not e.endswith("share") else 0.5)
             if projection and e in COUNT_ITEMS:
                 add = float(np.sqrt(add ** 2 + (1.645 * 0.03 * np.sqrt(horizon_months / 12.0) * abs(v)) ** 2))
+            if projection and e in INCOME_ITEMS:
+                # Income items are carried forward; five years of drift is not in the posterior.
+                drift = 1.645 * 0.05 * np.sqrt(horizon_months / 12.0)
+                add = float(np.sqrt(add ** 2 + (drift * (abs(v) if e != "low_income_household_share" else 0.5)) ** 2))
             if projection and e == "tertiary_share_25_plus":
                 add = float(np.sqrt(add ** 2 + (0.03 * horizon_months / 60.0) ** 2))
             if add > 0:
