@@ -119,9 +119,11 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
         log_w = beta_dist.logpdf(grid, a[g], b[g])
         r = float(register[c])
         if have[c]:
-            # A floor on the direct measurement's variance: two or three sampling
-            # units cannot certify a county more tightly than eight percent.
-            var_c = max(direct_var[c], (0.08 * direct[c]) ** 2)
+            # A floor on the direct measurement's variance that scales with the sampling
+            # units behind it: between-unit spread is about half the mean, so a county
+            # with n units cannot be certified more tightly than 0.5 / sqrt(n).
+            floor_sd = 0.5 / np.sqrt(max(float(n_psu[c]), 1.0)) * direct[c]
+            var_c = max(direct_var[c], floor_sd ** 2)
             log_w = log_w - 0.5 * (direct[c] - r / grid) ** 2 / var_c
         w = np.exp(log_w - log_w.max())
         w /= w.sum()
