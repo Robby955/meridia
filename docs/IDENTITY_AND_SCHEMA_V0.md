@@ -102,9 +102,12 @@ Every event contains `truth_event_id` (`uint64`), `tick` (`int64`), `recorded_ti
 event and its subject, separate effective time from recorded time, name the change and
 its mechanism, and link a correction to an earlier event when needed.
 
-Event order is canonical: `(tick, recorded_tick, truth_event_id)`. Replaying the same
-initial state and ordered ledger must reconstruct the current-state tables byte for byte.
-Late reporting is represented by `recorded_tick > tick`; history is never back-edited.
+Event order is canonical: `(tick, allocation order)`. `truth_event_id` is assigned in
+that order and is the persisted tie-break. Replaying the same initial state and ordered
+ledger must reconstruct the current-state tables byte for byte. `recorded_tick` never
+affects ledger or replay order; it is used only to select the events visible in an
+observed-source snapshot. Late reporting is represented by `recorded_tick > tick`;
+history is never back-edited.
 
 ## 4. Initial identity snapshot
 

@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from meridia.businesses import build_businesses
 from meridia.character import draw_world_character
 from meridia.dwellings import build_dwellings
-from meridia.events import EVENT_TYPES, build_event_history, events_visible_at
+from meridia.events import CAUSE_CODES, EVENT_TYPES, EventHistoryParams
+from meridia.events import build_event_history, events_visible_at
 from meridia.events import replay_event_history, validate_event_history
 from meridia.hospitals import HospitalParams, build_hospitals
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
@@ -166,6 +167,82 @@ def test_longer_generation_only_appends_and_vintages_hide_late_reports():
     effective_by_six = int((twelve_months["event"]["tick"] <= 6).sum())
     assert len(preliminary["truth_event_id"]) < effective_by_six
     assert (preliminary["recorded_tick"] <= 6).all()
+
+
+def test_recording_lag_never_reorders_same_tick_dependencies():
+    micro, identities, dwellings, businesses, hospitals = _start()
+    history = build_event_history(
+        micro,
+        SEED,
+        identities,
+        dwellings,
+        businesses,
+        hospitals,
+        months=1,
+        params=EventHistoryParams(
+            monthly_establishment_churn_rate=0.05,
+            late_report_probability=1.0,
+            max_report_delay_months=3,
+        ),
+        shocks=[
+            {
+                "year": 0,
+                "kind": "compound_intervention",
+                "mortality_multiplier": 20.0,
+            }
+        ],
+    )
+    event = history["event"]
+    closure_job_ends = np.flatnonzero(
+        (event["event_type"] == EVENT_TYPES["job_ended"])
+        & (event["cause_code"] == CAUSE_CODES["business_churn"])
+    )
+    death_by_person = {
+        int(event["truth_person_id"][position]): int(position)
+        for position in np.flatnonzero(
+            event["event_type"] == EVENT_TYPES["person_death"]
+        )
+    }
+    late_dependency_pairs = [
+        (
+            int(end_position),
+            death_by_person[int(event["truth_person_id"][end_position])],
+        )
+        for end_position in closure_job_ends
+        if int(event["truth_person_id"][end_position]) in death_by_person
+        and event["recorded_tick"][end_position]
+        > event["recorded_tick"][
+            death_by_person[int(event["truth_person_id"][end_position])]
+        ]
+    ]
+
+    assert late_dependency_pairs
+    end_position, death_position = late_dependency_pairs[0]
+    establishment_id = event["truth_establishment_id"][end_position]
+    closure_position = np.flatnonzero(
+        (event["event_type"] == EVENT_TYPES["establishment_closed"])
+        & (event["truth_establishment_id"] == establishment_id)
+    )
+    assert len(closure_position) == 1
+    closure_position = int(closure_position[0])
+    assert end_position < closure_position < death_position
+    assert event["tick"][end_position] == event["tick"][death_position]
+    assert event["recorded_tick"][end_position] > event["recorded_tick"][death_position]
+
+    replayed = replay_event_history(history)
+    for table_name in replayed:
+        for name in replayed[table_name]:
+            assert np.array_equal(
+                replayed[table_name][name],
+                history["terminal_state"][table_name][name],
+            )
+
+    visible_at_death = events_visible_at(
+        history, int(event["recorded_tick"][death_position])
+    )
+    visible_ids = set(map(int, visible_at_death["truth_event_id"]))
+    assert int(event["truth_event_id"][death_position]) in visible_ids
+    assert int(event["truth_event_id"][end_position]) not in visible_ids
 
 
 def test_history_is_byte_deterministic():

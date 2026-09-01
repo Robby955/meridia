@@ -2,7 +2,7 @@
 
 The event ledger is retained truth.  ``tick`` records when a change took effect;
 ``recorded_tick`` records when that change became available to a downstream source.
-The separation is what later observed-register vintages will use to create honest late
+The separation is what later observed-source vintages will use to create honest late
 reporting and revision problems.  No observed identifier is created in this module.
 """
 
@@ -21,7 +21,6 @@ from meridia.dwellings import validate_dwelling_conservation
 from meridia.hospitals import ENCOUNTER_OUTCOMES, validate_hospital_conservation
 from meridia.identities import ENTITY_NAMESPACE, NAMESPACE_SHIFT, SEQUENCE_MASK
 from meridia.identities import entity_namespace, truth_entity_ids, truth_world_id
-
 
 EVENT_TYPES: Final = {
     "person_birth": 1,
@@ -454,9 +453,9 @@ def _make_event_table(records: list[dict[str, int]]) -> dict[str, np.ndarray]:
     if not records:
         return {name: np.empty(0, dtype=dtype) for name, dtype in _EVENT_DTYPES.items()}
     tick = np.fromiter((row["tick"] for row in records), dtype=np.int64)
-    recorded = np.fromiter((row["recorded_tick"] for row in records), dtype=np.int64)
     order = np.fromiter((row["_order"] for row in records), dtype=np.int64)
-    canonical = np.lexsort((order, recorded, tick))
+    # Reporting lag is observation metadata, never an input to truth chronology.
+    canonical = np.lexsort((order, tick))
     ordered = [records[int(position)] for position in canonical]
     table = {
         name: np.asarray([row[name] for row in ordered], dtype=dtype)
@@ -1037,9 +1036,9 @@ def build_event_history(
                 dwelling["is_occupied"][old_dwelling_position] = False
                 dwelling["truth_household_id"][old_dwelling_position] = 0
                 dwelling["is_occupied"][new_dwelling_position] = True
-                dwelling["truth_household_id"][new_dwelling_position] = (
-                    household_identifier
-                )
+                dwelling["truth_household_id"][
+                    new_dwelling_position
+                ] = household_identifier
                 household["truth_dwelling_id"][household_position] = new_dwelling_id
                 household["cell"][household_position] = to_cell
             household_position = (
@@ -1915,7 +1914,7 @@ def replay_event_history(history: dict, through_tick: int | None = None) -> dict
 
 
 def events_visible_at(history: dict, vintage_tick: int) -> dict[str, np.ndarray]:
-    """Return the truth events available to an observed source by one vintage."""
+    """Return the canonical event subsequence visible to one source vintage."""
     if isinstance(vintage_tick, bool) or not isinstance(
         vintage_tick, (int, np.integer)
     ):
@@ -2102,7 +2101,7 @@ def validate_event_history(
         raise ValueError("event is recorded before it takes effect")
     if np.any(event["tick"] <= snapshot_tick) or np.any(event["tick"] > terminal_tick):
         raise ValueError("event tick is outside the history interval")
-    order = np.lexsort((event_id, event["recorded_tick"], event["tick"]))
+    order = np.lexsort((event_id, event["tick"]))
     if not np.array_equal(order, np.arange(n_events)):
         raise ValueError("event ledger is not in canonical order")
     if not np.isin(event["event_type"], np.asarray(list(EVENT_TYPES.values()))).all():
