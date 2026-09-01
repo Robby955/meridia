@@ -1,0 +1,20 @@
+# Bar freeze report
+
+- strong A on hidden-20260902: PASS
+- strong A on hidden-20260908: PASS
+- strong B on hidden-20260902: PASS
+- strong B on hidden-20260908: PASS
+- control register_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0479 > 0.045047; interval score: persons/nation 0.7860 > 0.153284
+- control register_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0535 > 0.045047; interval score: persons/nation 0.8997 > 0.153284
+- control survey_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2464 > 0.045047; interval score: persons/nation 4.7919 > 0.153284
+- control survey_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2321 > 0.045047; interval score: persons/nation 4.5047 > 0.153284
+- control no_dedup on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.390 < 0.7; coverage: households/all 0.268 < 0.7
+- control no_dedup on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. interval score: persons/nation 0.1999 > 0.153284; coverage: persons/all 0.341 < 0.7
+- control inflated_intervals on hidden-20260902: FAILS interval score; e.g. interval score: persons/nation 0.7712 > 0.153284; interval score: persons/state 0.7704 > 0.69057
+- control inflated_intervals on hidden-20260908: FAILS interval score; e.g. interval score: persons/nation 0.7793 > 0.153284; interval score: persons/state 0.7670 > 0.69057
+- control static_projection on hidden-20260902: FAILS interval score, projection accuracy, projection coverage, projection interval score; e.g. interval score: persons/state 0.7048 > 0.69057; projection interval score: persons/nation 0.4293 > 0.396592
+- control static_projection on hidden-20260908: FAILS projection coverage, projection interval score; e.g. projection interval score: persons/nation 0.5790 > 0.396592; projection interval score: children_under_16/nation 2.2713 > 0.558288
+- control uniform_allocation on hidden-20260902: FAILS allocation, interval score; e.g. interval score: persons/state 0.7048 > 0.69057; allocation: regret 0.2799 > 0.062971
+- control uniform_allocation on hidden-20260908: FAILS allocation; e.g. allocation: regret 0.2663 > 0.062971
+
+RESULT: bars frozen; every control fails a named gate

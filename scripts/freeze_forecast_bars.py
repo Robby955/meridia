@@ -66,7 +66,7 @@ def main() -> int:
             lines.append(f"- control {control} on {packet.name}: {status}")
             ok &= not gated["pass"]
     lines += ["", "RESULT: " + ("bars frozen; every control fails a named gate" if ok else "NOT FROZEN")]
-    (out / "freeze_report.md").write_text("\n".join(lines) + "\n")
+    (out / "freeze_report.txt").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
     return 0 if ok else 1
 

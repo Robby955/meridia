@@ -7,7 +7,7 @@ Steps: calibrate both strong methods on the development packets; run both on eve
 hidden packet; set each bar from the worst strong-method result with a margin; check
 that both strong methods pass the frozen bars on every hidden packet; run the control
 battery on every hidden packet and record which named gate each control fails. Writes
-``bars.json`` and ``freeze_report.md``. Exits nonzero if a strong method fails its own
+``bars.json`` and ``freeze_report.txt``. Exits nonzero if a strong method fails its own
 bars or a control passes.
 """
 
@@ -100,7 +100,7 @@ def main() -> int:
             ok &= not gated["pass"]
     lines.append("")
     lines.append("RESULT: " + ("bars frozen; every control fails a named gate" if ok else "NOT FROZEN"))
-    (out / "freeze_report.md").write_text("\n".join(lines) + "\n")
+    (out / "freeze_report.txt").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
     return 0 if ok else 1
 
