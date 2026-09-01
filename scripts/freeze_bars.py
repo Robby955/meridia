@@ -23,7 +23,7 @@ from meridia.verify import verify_submission
 
 ACCURACY_MARGIN = 1.25       # bar = 1.25 x worst strong-method error, never below the floor
 COVERAGE_SLACK = 0.10        # floor = min strong coverage - 0.10, never below 0.70
-SCORE_MARGIN = 1.5           # ceiling = 1.5 x worst strong interval score, never below 3 x the accuracy floor
+SCORE_MARGIN = 1.5           # ceiling = 1.5 x worst strong pooled interval score, never below 3 x the accuracy floor; binds on pooled keys only
 REGRET_MARGIN = 2.0          # ceiling = 2 x worst strong regret, at least 0.02
 
 # Floors on the accuracy bars. A bar set only from the in-sample worst miss has no room

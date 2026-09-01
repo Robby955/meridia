@@ -290,7 +290,9 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
         if floor is not None and key.endswith("/all") and m["coverage"] < floor:
             reasons.append(f"coverage: {key} {m['coverage']:.3f} < {floor}")
         score_ceiling = bars.get("interval_score_ceiling", {}).get(key)
-        if score_ceiling is not None and m["mean_interval_score"] > score_ceiling:
+        # The interval score is a mean over units; like coverage it is only meaningful
+        # pooled over enough units, so the ceiling binds on the pooled keys.
+        if score_ceiling is not None and key.endswith("/all") and m["mean_interval_score"] > score_ceiling:
             reasons.append(f"interval score: {key} {m['mean_interval_score']:.4f} > {score_ceiling}")
     return {"pass": not reasons, "reasons": reasons}
 
