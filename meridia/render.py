@@ -24,7 +24,6 @@ def render_map(world: dict, direction: np.ndarray, accumulation: np.ndarray, pat
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.colors import LightSource, ListedColormap
 
     elevation = world["elevation"]
     land = world["land"]
