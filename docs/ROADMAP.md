@@ -12,6 +12,9 @@ observed record.
   weather with orographic rain and lagged river response.
 - World character: each seed draws its society's inequality, demography, wealth
   gradients, urban structure, and institutional densities from declared ranges.
+- Administrative geography (states and counties, exact partition) and the release
+  contract v0 with its scorer: estimands, schema, additivity, worst-unit accuracy,
+  coverage with an interval score, and a linear-recovery disclosure audit.
 - In review on a side branch: persistent truth identities, dwelling stock, and a
   business layer (enterprises, establishments, jobs) with payroll conserved to the cent.
 

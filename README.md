@@ -52,6 +52,18 @@ coasts and rivers, the mountain interior is empty.*
   next year's population equals this year's plus births minus deaths, exactly. Thirty
   years of 2.4 million people simulate in about ten seconds.
 
+- **States and counties.** The land is partitioned into states and counties around the
+  settlements and outposts, exactly: every person is in one county and one state, and
+  counts add up through the hierarchy to the person. Outposts become the small remote
+  counties a national release must still cover.
+- **The release contract.** What a national release must publish (eight estimands at
+  nation, state, and county level, with intervals, plus a detailed table under disclosure
+  control), and the scorer that judges it against the retained population: worst-unit
+  error, interval coverage with a proper interval score, additivity, and a disclosure audit
+  that solves for protected cells from any published totals. `docs/RELEASE_CONTRACT_V0.md`.
+
+![States and counties](renders/meridia-nation-20260831-admin.png)
+
 ![Who lives there](renders/meridia-nation-20260831-demographics.png)
 
 ![Thirty years pass](renders/meridia-nation-20260831-thirty-years.png)
