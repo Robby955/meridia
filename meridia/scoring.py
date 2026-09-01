@@ -1,5 +1,8 @@
 """Scoring a published estimate table against exact truth.
 
+Sources: interval score after Gneiting and Raftery (2007); disclosure by linear
+recovery after Cox (1980) and Hundepool et al. (2012). See docs/INDEPENDENCE.md.
+
 Everything a release is judged on lives here: the schema check (every required row once,
 intervals well formed), additivity of counts across the geography, accuracy judged on
 the worst unit rather than the average, interval coverage together with a proper

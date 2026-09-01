@@ -1,5 +1,9 @@
 """Forecast strong method A: cohort-component projection with rates read from the history.
 
+Sources: cohort-component projection and life-table construction after Preston,
+Heuveline, and Guillot (2001); Gompertz-Makeham mortality law; parametric bootstrap of
+counted events. See docs/INDEPENDENCE.md.
+
 The participant has a clean snapshot and the event ledger before it, so every rate the
 projection needs is estimable rather than assumed:
 

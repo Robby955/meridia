@@ -1,5 +1,10 @@
 """Strong method B: the Bayesian hierarchical line.
 
+Sources: hierarchical Bayesian small-area models after Rao and Molina (2015, ch. 10)
+and Gelman et al. (2013); capture-recapture reasoning after Chandrasekar and Deming
+(1949); cohort-component projection after Preston, Heuveline, and Guillot (2001).
+See docs/INDEPENDENCE.md.
+
 The same packet, a different statistical philosophy. Instead of ratio adjustments and a
 bootstrap, every county quantity is a latent variable with a posterior:
 

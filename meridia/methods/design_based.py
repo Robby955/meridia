@@ -1,5 +1,12 @@
 """Strong method A: the design-based line.
 
+Sources: deduplication keys after Fellegi and Sunter (1969); nonresponse adjustment
+and raking after Deville and Sarndal (1992); synthetic and composite small-area
+estimation after Rao and Molina (2015) and Fay and Herriot (1979); Rao-Wu (1988)
+rescaled bootstrap; hot-deck imputation after Andridge and Little (2010);
+cohort-component projection after Preston, Heuveline, and Guillot (2001). See
+docs/INDEPENDENCE.md.
+
 A classical production line that a survey methodologist would write from the packet:
 
 1. Deduplicate the population source on (name code, birth month, sex); count persons,

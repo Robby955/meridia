@@ -101,6 +101,9 @@ used for grading are generated at registered seeds and never looked at, by anyon
 
 ## Rules the code follows
 
+- Independent research on synthetic worlds; every method is from the public literature
+  and cited where it is used. See [docs/INDEPENDENCE.md](docs/INDEPENDENCE.md).
+
 - Same seed, same world, byte for byte.
 - Plain Python with NumPy. No game engines, no third-party simulators, no real data.
 - Totals are exact integers, and the conservation checks are tests, not intentions.
