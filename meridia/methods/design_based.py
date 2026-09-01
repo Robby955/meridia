@@ -46,6 +46,8 @@ class MethodParams:
     seed: int = 20260901
     suppression_multiplier: float = 2.0    # suppress estimated cells below this x threshold
     carry_forward_width: float = 1.5       # projection interval widening for income items
+    sensitivity_multiplier: float = 2.0    # income half-width += this x the raking shift
+    calibration_path: str | None = None    # JSON from calibrate() on a development world
 
 
 # ----------------------------------------------------------------------------- inputs
@@ -135,6 +137,9 @@ def rake_to_register(frame, register_frame, county_state: np.ndarray, iterations
     frame["cell_edu"] = np.where(sv_age >= 16, sv_edu, -1)
     reg_cell_as = reg_band * 2 + reg_sex
     reg_cell_edu = np.where(reg_age >= 16, reg_edu, -1)
+    frame["cell_county"] = frame["county"].to_numpy(dtype=np.int64)
+    reg_cell_county = register_frame["county"].to_numpy(dtype=np.int64)
+    n_cells = max(12, len(county_state))
     weight = frame["weight"].to_numpy(dtype=np.float64).copy()
     for s in range(int(county_state.max()) + 1):
         sv = np.flatnonzero(frame["state"].to_numpy() == s)
@@ -144,12 +149,13 @@ def rake_to_register(frame, register_frame, county_state: np.ndarray, iterations
         total = weight[sv].sum()
         for _ in range(iterations):
             for sv_cells, reg_cells in ((frame["cell_as"].to_numpy()[sv], reg_cell_as[rg]),
-                                        (frame["cell_edu"].to_numpy()[sv], reg_cell_edu[rg])):
+                                        (frame["cell_edu"].to_numpy()[sv], reg_cell_edu[rg]),
+                                        (frame["cell_county"].to_numpy()[sv], reg_cell_county[rg])):
                 keep = reg_cells >= 0
-                target = np.bincount(reg_cells[keep], minlength=12) / max(keep.sum(), 1)
+                target = np.bincount(reg_cells[keep], minlength=n_cells) / max(keep.sum(), 1)
                 in_margin = weight[sv[sv_cells >= 0]].sum()
                 for cell in np.unique(sv_cells):
-                    if cell < 0 or cell >= 12 or target[cell] <= 0 or in_margin <= 0:
+                    if cell < 0 or cell >= n_cells or target[cell] <= 0 or in_margin <= 0:
                         continue
                     members = sv[sv_cells == cell]
                     current = weight[members].sum() / in_margin
@@ -157,7 +163,7 @@ def rake_to_register(frame, register_frame, county_state: np.ndarray, iterations
                         weight[members] *= min(max(target[cell] / current, 0.25), 4.0)
                 weight[sv] *= total / weight[sv].sum()
     frame["weight"] = weight
-    return frame.drop(columns=["state", "cell_as", "cell_edu"])
+    return frame.drop(columns=["state", "cell_as", "cell_edu", "cell_county"])
 
 
 def impute_income(frame):
@@ -264,7 +270,41 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
         coverage = np.where(reg_state > 0, reg_state / stats["persons_by_state"], 1.0)
     coverage = np.clip(coverage, 0.5, 1.2)
     scale = 1.0 / coverage[county_state]
+    # Small counties are covered worse by the register than large ones. Pool the
+    # survey's direct estimate over the smallest quartile of counties nationally and
+    # estimate their coverage as a class, since no single small county has the sample
+    # to estimate its own.
+    direct_all, _ = _direct_county_persons(frame, n_counties)
+    reg_persons = np.asarray(register["persons"], dtype=np.float64)
+    small = reg_persons <= np.quantile(reg_persons[reg_persons > 0], 0.25) if (reg_persons > 0).sum() >= 8 else np.zeros(n_counties, bool)
+    if small.sum() >= 2 and direct_all[small].sum() > 0:
+        coverage_small = float(np.clip(reg_persons[small].sum() / direct_all[small].sum(), 0.5, 1.2))
+        scale = np.where(small, 1.0 / coverage_small, scale)
     county = {e: register[e] * scale for e in ("persons", "households", "children_under_16", "elders_65_plus")}
+    # County persons: combine the synthetic estimate with the direct survey estimate
+    # (Fay-Herriot). The direct estimate is design-unbiased but noisy; its variance is
+    # approximated from the sampling units in the county; the model variance of the
+    # synthetic estimate is set by the method of moments across counties.
+    direct, direct_var = _direct_county_persons(frame, n_counties)
+    synthetic = county["persons"].copy()
+    n_psu = frame.groupby("county")["psu"].nunique().reindex(range(n_counties), fill_value=0).to_numpy()
+    have = (direct > 0) & np.isfinite(direct_var) & (direct_var > 0) & (n_psu >= 4)
+    if have.sum() >= 3:
+        residual = direct[have] - synthetic[have]
+        model_var = max(float(np.mean(residual ** 2) - np.mean(direct_var[have])), 0.0)
+        gamma = np.where(have, model_var / np.maximum(model_var + direct_var, 1e-9), 0.0)
+        combined = np.where(have, gamma * direct + (1.0 - gamma) * synthetic, synthetic)
+        ratio = combined / np.maximum(synthetic, 1e-9)
+        for e in ("persons", "households", "children_under_16", "elders_65_plus"):
+            county[e] = county[e] * ratio
+        # Relative model error of the synthetic county estimate, from the residuals of
+        # the well-sampled counties net of their sampling variance; carried into the
+        # county intervals, which a survey bootstrap alone cannot see.
+        rel_resid = residual / np.maximum(synthetic[have], 1e-9)
+        rel_sampling = direct_var[have] / np.maximum(synthetic[have], 1e-9) ** 2
+        county["_model_rel_sd"] = float(np.sqrt(max(np.mean(rel_resid ** 2) - np.mean(rel_sampling), 0.0)))
+    else:
+        county["_model_rel_sd"] = 0.15
     county["tertiary_share_25_plus"] = register["tertiary_share_25_plus"]
     for e in ("median_household_income", "mean_income_adults", "low_income_household_share"):
         state_values = np.asarray([stats[e][s] for s in range(n_states)])
@@ -272,6 +312,20 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
         if e == "low_income_household_share":
             county[e] = np.clip(county[e], 0.0, 1.0)
     return {"county": county, "state_stats": stats, "cube": register["cube"] * scale[:, None, None]}
+
+
+def _direct_county_persons(frame, n_counties: int) -> tuple[np.ndarray, np.ndarray]:
+    """Direct survey estimate of persons by county and a between-unit variance proxy."""
+    county = frame["county"].to_numpy(dtype=np.int64)
+    w = frame["weight"].to_numpy(dtype=np.float64)
+    total = np.bincount(county, weights=w, minlength=n_counties)
+    per_psu = frame.groupby(["county", "psu"])["weight"].sum()
+    var = np.full(n_counties, np.nan)
+    for c, part in per_psu.groupby(level=0):
+        values = part.to_numpy()
+        n = len(values)
+        var[int(c)] = n * np.var(values, ddof=1) if n >= 2 else np.nan
+    return total, var
 
 
 def aggregate(county_values: dict, county_state: np.ndarray, stats: dict, weights: np.ndarray) -> dict:
@@ -361,6 +415,73 @@ def _bootstrap_frame(frame, rng: np.random.Generator):
     return pd.concat(pieces)
 
 
+INCOME_ITEMS = ("median_household_income", "mean_income_adults", "low_income_household_share")
+
+
+def income_dispersion(frame) -> float:
+    """Weighted standard deviation of log adult income in the survey: the observable
+    proxy for the world's inequality, which drives how selective response is."""
+    adults = frame[(frame["age"] >= 16) & (frame["income"] > 0)]
+    x = np.log(adults["income"].to_numpy(dtype=np.float64))
+    w = adults["weight"].to_numpy(dtype=np.float64)
+    mean = (w * x).sum() / w.sum()
+    return float(np.sqrt((w * (x - mean) ** 2).sum() / w.sum()))
+
+
+def calibrate(dev_packet_dirs, calibration_path: Path,
+              params: MethodParams = MethodParams()) -> dict:
+    """Fit income nonresponse corrections on development worlds.
+
+    Response is selective on income in ways raking on observables cannot remove, and
+    the size of the remaining bias depends on how unequal the world is. Development
+    worlds ship their truth, so the method measures its own remaining bias on each (a
+    log-ratio per income item at the national level) and fits it as a linear function
+    of the survey's own income dispersion. On a hidden world the correction is read off
+    that line at the world's observed dispersion. With one development world the
+    correction is a constant. The residual across worlds is what the accuracy bar
+    measures.
+    """
+    import pandas as pd
+    dev_packet_dirs = [Path(d) for d in ([dev_packet_dirs] if isinstance(dev_packet_dirs, (str, Path)) else dev_packet_dirs)]
+    rows = []
+    for k, dev in enumerate(dev_packet_dirs):
+        scratch = Path(calibration_path).parent / f"_calibration_run_{k}"
+        result = run(dev, scratch, MethodParams(bootstrap_replicates=10, seed=params.seed))
+        truth = pd.read_csv(dev / "participant" / "truth" / "truth_revised.csv")
+        nation = truth[truth["level"] == "nation"].set_index("estimand")["value"]
+        estimate = {r["estimand"]: r["estimate"] for r in result["release"] if r["level"] == "nation"}
+        row = {"dispersion": result["dispersion"]}
+        for e in INCOME_ITEMS:
+            row[e] = float(nation[e] - estimate[e]) if e == "low_income_household_share" \
+                else float(np.log(nation[e] / estimate[e]))
+        rows.append(row)
+    d = np.asarray([r["dispersion"] for r in rows])
+    factors = {"dispersion_reference": float(d.mean()), "n_worlds": len(rows)}
+    for e in INCOME_ITEMS:
+        y = np.asarray([r[e] for r in rows])
+        if len(rows) >= 3 and d.std() > 1e-6:
+            slope, intercept = np.polyfit(d, y, 1)
+        else:
+            slope, intercept = 0.0, float(y.mean())
+        factors[e] = {"intercept": float(intercept), "slope": float(slope)}
+    Path(calibration_path).write_text(json.dumps(factors, indent=1, sort_keys=True) + "\n")
+    return factors
+
+
+def _apply_calibration(values: dict, factors: dict, dispersion: float) -> dict:
+    out = dict(values)
+    for (e, level, u), v in values.items():
+        if e not in factors or not np.isfinite(v):
+            continue
+        f = factors[e]
+        shift = f["intercept"] + f["slope"] * dispersion if isinstance(f, dict) else float(f)
+        if e == "low_income_household_share":
+            out[(e, level, u)] = float(min(max(v + shift, 0.0), 1.0))
+        else:
+            out[(e, level, u)] = float(v * np.exp(shift))
+    return out
+
+
 def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) -> dict:
     import pandas as pd
     data = load_packet(packet_dir)
@@ -372,23 +493,40 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
 
     register_frame = deduplicate_population(data["population"], tick)
     register = register_counts(register_frame, n_counties)
+    unraked = impute_income(adjusted_survey(data["survey"]))
     survey = impute_income(rake_to_register(adjusted_survey(data["survey"]), register_frame, county_state))
     base_stats = survey_statistics(survey, county_state)
+    # Nonresponse sensitivity: response is selective on income beyond what raking on
+    # observables removes. The raking shift is the visible part of that bias; the
+    # income intervals are widened by it, as a sensitivity allowance the bootstrap
+    # cannot see.
+    unraked_stats = survey_statistics(unraked, county_state)
+    sensitivity = {}
+    for e in ("median_household_income", "mean_income_adults", "low_income_household_share"):
+        shift = {k: abs(base_stats[e][k] - unraked_stats[e][k]) for k in base_stats[e]}
+        sensitivity[e] = shift
     ratios = income_source_ratios(data["income"], county_state,
                                   base_stats["median_household_income"]["nation"])
 
     point = estimate_once(survey, register, ratios, county_state)
+    model_rel_sd = float(point["county"].pop("_model_rel_sd", 0.0))
     now = aggregate(point["county"], county_state, point["state_stats"], point["county"]["persons"])
     future_point = project(point["county"], point["cube"], horizon_months, np.random.default_rng(params.seed + 1))
     future = aggregate(future_point, county_state, point["state_stats"], future_point["persons"])
 
+    factors = json.loads(Path(params.calibration_path).read_text()) if params.calibration_path else {}
+    dispersion = income_dispersion(survey)
+    now, future = _apply_calibration(now, factors, dispersion), _apply_calibration(future, factors, dispersion)
     now_reps, future_reps = [], []
     for b in range(params.bootstrap_replicates):
         replicate = _bootstrap_frame(survey, rng)
         est = estimate_once(replicate, register, ratios, county_state)
-        now_reps.append(aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]))
+        est["county"].pop("_model_rel_sd", None)
+        now_reps.append(_apply_calibration(
+            aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]), factors, dispersion))
         fut = project(est["county"], est["cube"], horizon_months, rng)
-        future_reps.append(aggregate(fut, county_state, est["state_stats"], fut["persons"]))
+        future_reps.append(_apply_calibration(
+            aggregate(fut, county_state, est["state_stats"], fut["persons"]), factors, dispersion))
 
     def rows(point_values: dict, replicates: list[dict], widen: float = 1.0) -> list[dict]:
         out = []
@@ -403,6 +541,12 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
             else:
                 lo, hi = np.percentile(draws, [5, 95])
                 half = 0.5 * (hi - lo) * widen
+                if key[1] == "county" and key[0] in ("persons", "households", "children_under_16", "elders_65_plus"):
+                    half = np.sqrt(half ** 2 + (1.645 * model_rel_sd * abs(v)) ** 2)
+                if key[0] in sensitivity:
+                    unit_key = "nation" if key[1] == "nation" else \
+                        (int(key[2]) if key[1] == "state" else int(county_state[key[2]]))
+                    half += params.sensitivity_multiplier * sensitivity[key[0]].get(unit_key, 0.0)
                 center = v
                 lower, upper = center - half, center + half
             kind = "proportion" if key[0].endswith("share") or key[0].startswith("tertiary") else "count"
@@ -442,4 +586,4 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
         out_dir / "allocation.csv", index=False)
     return {"release": release_rows, "projection": projection_rows,
-            "coverage_by_state": None, "n_bootstrap": params.bootstrap_replicates}
+            "dispersion": dispersion, "n_bootstrap": params.bootstrap_replicates}
