@@ -35,6 +35,9 @@ class PopulationParams:
     settlement_reach: float = 18.0   # e-folding distance (cells) of a settlement's pull
     zipf_exponent: float = 1.0       # rank-size law for settlement weights
     background_share: float = 0.12   # mass spread by habitability alone (rural floor)
+    n_outposts: int = 10             # resource sites in rough country (mines, forestry)
+    outpost_strength: float = 0.35   # habitability bump at an outpost
+    outpost_reach: float = 3.0       # e-folding radius (cells) of the bump
 
 
 def draw_national_total(seed: int, land_cells: int) -> int:
@@ -87,6 +90,39 @@ def habitability(world: dict, accumulation: np.ndarray,
     score = np.where(land, score, 0.0)
     smax = score.max()
     return score / smax if smax > 0 else score
+
+
+def resource_outposts(world: dict, seed: int,
+                      params: PopulationParams = PopulationParams()) -> list[tuple[int, int]]:
+    """Seeded resource sites in high, rough country: mines, forestry, pass villages."""
+    elevation = world["elevation"]
+    land = world["land"]
+    rel = np.where(land, elevation - world["sea_level"], -np.inf)
+    threshold = np.quantile(rel[land], 0.75)
+    candidates = np.argwhere(land & (rel >= threshold))
+    if len(candidates) == 0:
+        return []
+    rng = np.random.default_rng(np.random.SeedSequence([seed, 0x0075]))
+    picks = rng.choice(len(candidates), size=min(params.n_outposts, len(candidates)),
+                       replace=False)
+    return [tuple(int(v) for v in candidates[i]) for i in picks]
+
+
+def add_outposts(habitability_grid: np.ndarray, outposts: list[tuple[int, int]],
+                 land: np.ndarray,
+                 params: PopulationParams = PopulationParams()) -> np.ndarray:
+    """Localized habitability bumps so rough country holds small settlements."""
+    if not outposts:
+        return habitability_grid
+    height, width = habitability_grid.shape
+    rows = np.arange(height)[:, None]
+    cols = np.arange(width)[None, :]
+    bumped = habitability_grid.astype(np.float64).copy()
+    for r, c in outposts:
+        distance = np.maximum(np.abs(rows - r), np.abs(cols - c))
+        bumped += params.outpost_strength * np.exp(-distance / params.outpost_reach)
+    bumped = np.where(land, bumped, 0.0)
+    return bumped / max(bumped.max(), 1e-12)
 
 
 def seed_settlements(habitability_grid: np.ndarray, n_settlements: int,
@@ -149,6 +185,8 @@ def build_population(world: dict, accumulation: np.ndarray, total: int | None, n
             raise ValueError("drawing a national total requires a seed")
         total = draw_national_total(seed, int(world["land"].sum()))
     hab = habitability(world, accumulation, params)
+    if seed is not None and params.n_outposts > 0:
+        hab = add_outposts(hab, resource_outposts(world, seed, params), world["land"], params)
     sites = seed_settlements(hab, n_settlements, params)
     grid = population_grid(hab, sites, total, params)
     return {"habitability": hab, "settlements": sites, "population": grid, "total": total}

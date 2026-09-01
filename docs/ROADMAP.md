@@ -41,6 +41,25 @@ Epidemics and commuting; climate beyond weather; multiple planets with independe
 geographies and institutions; a persistent universe where sealed worlds serve blinded
 evaluation and open worlds serve method research.
 
+## Realism backlog, with the literature each upgrade will cite
+
+Mechanisms below are adopted with their citation when their layer becomes load-bearing:
+
+- Income top tail: lognormal body with a Pareto upper tail, replacing the pure
+  lognormal.
+- Firm sizes: Zipf's law for firm sizes (Axtell, Science 2001); the establishment-size
+  dial already brackets it.
+- Migration and commuting: the radiation model (Simini, Gonzalez, Maritan, Barabasi,
+  Nature 2012), replacing ad-hoc urbanity pull.
+- Mortality over time: Lee-Carter (JASA 1992) once time-varying mortality matters;
+  Gompertz-Makeham remains the static curve.
+- Climate: latitude temperature structure and seasons above the existing orographic
+  precipitation (which already follows the standard uplift mechanism).
+- Epidemics: SEIR on household/workplace contact structure, not well-mixed.
+- Settlement spacing: central-place structure as an alternative to greedy suppression.
+- Terrain hydrology already cites Barnes, Lehman, Mulla (Computers & Geosciences 2014)
+  for priority-flood depression filling.
+
 ## Standing invariants
 
 - Truth identifiers never appear in any participant-facing file.

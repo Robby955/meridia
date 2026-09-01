@@ -97,3 +97,19 @@ def test_drawn_totals_vary_and_conserve():
     people = build_population(world, accumulation, None, 8, seed=SEED)
     assert int(people["population"].sum()) == people["total"]
     assert people["total"] == draw_national_total(SEED, int(world["land"].sum()))
+
+
+def test_outposts_put_people_in_rough_country():
+    world = generate_elevation(SEED, H, W)
+    outlets = ~world["land"]
+    outlets[0, :] = outlets[-1, :] = outlets[:, 0] = outlets[:, -1] = True
+    filled = fill_depressions(world["elevation"], world["sea_level"])
+    direction = flow_directions(filled, outlets)
+    accumulation = flow_accumulation(direction, outlets)
+    people = build_population(world, accumulation, TOTAL, 8, seed=SEED)
+    land = world["land"]
+    rel = np.where(land, world["elevation"] - world["sea_level"], -np.inf)
+    highland = land & (rel >= np.quantile(rel[land], 0.75))
+    highland_pop = int(people["population"][highland].sum())
+    assert highland_pop > 0.005 * TOTAL  # rough country holds real, small settlements
+    assert int(people["population"].sum()) == TOTAL  # conservation untouched
