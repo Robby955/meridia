@@ -9,9 +9,8 @@ cells, persons, households, and dynamics; this layer imports their outputs witho
 changing them.
 
 The implemented strata governed by this contract are the dwelling stock; enterprises,
-establishments, and jobs; hospitals and encounters; and the append-only institutional
-history. Imperfect registers will use the same identity and history rules in the next
-additive module.
+establishments, and jobs; hospitals and encounters; the append-only institutional
+history; and four imperfect observed sources with sealed crosswalks.
 
 ## 1. Two identity domains
 
@@ -21,33 +20,18 @@ Meridia has two deliberately separate identity domains.
 
 Every real entity in a generated world receives a persistent truth identity. Truth IDs
 exist only inside the retained world state and verifier-side crosswalks. They are never
-written into a participant-facing survey, register, release, or task packet.
+written into a participant-facing survey, source file, published table, or task packet.
 
-A truth identity is the composite:
-
-```
-(truth_world_id, truth_entity_id)
-```
-
-`truth_world_id` is a deterministic `uint64` derived from the world seed and generator
+A truth identity combines `truth_world_id` with `truth_entity_id`. The world component is
+a deterministic `uint64` derived from the world seed and generator
 identity. `truth_entity_id` is a `uint64` with an 8-bit entity namespace followed by a
 56-bit never-reused sequence number. The composite is globally scoped; the entity ID
 alone is scoped to one world.
 
-The v0 namespace codes are frozen:
-
-| Code | Entity |
-| ---: | --- |
-| 1 | person |
-| 2 | household |
-| 3 | dwelling |
-| 4 | enterprise (the legal/control entity; originally reserved as `business`) |
-| 5 | hospital |
-| 6 | job |
-| 7 | encounter |
-| 8 | event |
-| 9 | observed-record source |
-| 10 | establishment (one physical operating location) |
+The v0 namespace codes are frozen: `1` person, `2` household, `3` dwelling, `4`
+enterprise, `5` hospital, `6` job, `7` encounter, `8` event, `9` observed-record source,
+and `10` establishment. An enterprise is the legal or controlling organization; an
+establishment is one physical operating location.
 
 Sequence numbers are allocation order, not row numbers. Initial persons and households
 inherit their allocation order from the deterministic microdata snapshot. New entities
@@ -61,8 +45,8 @@ enters this layer, and all institutional relationships use its truth IDs.
 
 ### Observed identity
 
-Registers and surveys receive source-specific observed identifiers generated independently
-of truth IDs. An observed identifier may be:
+Source archives and surveys receive observed identifiers generated independently of truth
+IDs. An observed identifier may be:
 
 - missing;
 - stale after a move or status change;
@@ -86,16 +70,16 @@ Engine tables are dictionaries of one-dimensional NumPy arrays. Every column in 
 has the same row count. Tables carry scalar metadata outside the column dictionary:
 
 ```
-{
+metadata = {
     "truth_world_id": uint64,
     "generator_version": int,
     "snapshot_tick": int64,
-    "<table_name>": {"column": ndarray, ...},
-    "n_<entities>": int,
+    "person": {"column": ndarray, ...},
+    "n_persons": int,
 }
 ```
 
-The `truth_world_id` is retained truth metadata and is never copied into an observed
+Retained metadata includes `truth_world_id`, which is never copied into an observed
 table. Integer codes are used for finite categories, with codebooks declared beside the
 module. Required foreign keys are `uint64`. Nullable truth foreign keys use `0` only
 when a separate boolean state column makes the absence explicit; no allocated truth ID
@@ -112,18 +96,11 @@ Once event modules land, institutional changes are recorded in append-only event
 Existing event rows are never mutated or deleted. Corrections append a new event that
 supersedes an earlier event by ID and gives the reason.
 
-Every event will contain at least:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_event_id` | `uint64` | persistent event identity |
-| `tick` | `int64` | effective world tick |
-| `recorded_tick` | `int64` | tick at which the event entered the ledger |
-| `entity_type` | `int8` | namespace code of the subject |
-| `truth_entity_id` | `uint64` | subject identity |
-| `event_type` | `int16` | module-specific event code |
-| `supersedes_event_id` | `uint64` | zero or an earlier event ID |
-| `cause_code` | `int16` | explicit generative mechanism |
+Every event contains `truth_event_id` (`uint64`), `tick` (`int64`), `recorded_tick`
+(`int64`), `entity_type` (`int8`), `truth_entity_id` (`uint64`), `event_type` (`int16`),
+`supersedes_event_id` (`uint64`), and `cause_code` (`int16`). These fields identify the
+event and its subject, separate effective time from recorded time, name the change and
+its mechanism, and link a correction to an earlier event when needed.
 
 Event order is canonical: `(tick, recorded_tick, truth_event_id)`. Replaying the same
 initial state and ordered ledger must reconstruct the current-state tables byte for byte.
@@ -151,29 +128,19 @@ vacant stock allocated across inhabited cells. V0 does not yet model multiple ho
 sharing one dwelling or institutional residences. Those are future event/schema changes,
 not silent reinterpretations of v0 rows.
 
-Required columns:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_dwelling_id` | `uint64` | persistent sealed dwelling identity |
-| `cell` | `int64` | flat geography-cell index |
-| `dwelling_type` | `int8` | detached, attached, low-rise, or high-rise |
-| `tenure` | `int8` | owner, mortgage, private rent, social rent, or vacant |
-| `bedrooms` | `int8` | bedroom count |
-| `floor_area_m2` | `float64` | current usable floor area |
-| `year_built` | `int16` | construction year in the synthetic calendar |
-| `assessed_value` | `float64` | synthetic current value |
-| `monthly_rent` | `float64` | zero for non-rental and vacant units |
-| `is_occupied` | `bool` | whether a household occupies the dwelling |
-| `truth_household_id` | `uint64` | occupying truth household, or zero if vacant |
-| `resident_count` | `int32` | residents linked through the occupying household |
+The dwelling schema is `truth_dwelling_id: uint64`, `cell: int64`, `dwelling_type: int8`,
+`tenure: int8`, `bedrooms: int8`, `floor_area_m2: float64`, `year_built: int16`,
+`assessed_value: float64`, `monthly_rent: float64`, `is_occupied: bool`,
+`truth_household_id: uint64`, and `resident_count: int32`. The attributes describe the
+physical unit, tenure, value, and rent. The final three fields state whether it is
+occupied, identify the occupying household or zero, and give the linked resident count.
 
 The table is generated from the imported household cells, person-to-household mapping,
 urbanity field, seed, and declared parameters. Occupied dwellings remain in the same cell
 as their household. Vacancies are assigned by an exact largest-remainder allocation of a
-declared national vacant-stock target over cells in proportion to household counts.
+declared world-level vacant-stock target over cells in proportion to household counts.
 
-The initial stock must satisfy all of these identities exactly:
+The initial stock obeys these equations with no tolerance:
 
 ```
 occupied_dwellings = households
@@ -196,62 +163,34 @@ Business data has three identities that must never be collapsed:
    enterprise may operate multiple establishments.
 2. `truth_establishment_id` identifies one sealed physical operating location. Jobs link
    to establishments because employment, payroll, production, and geography occur there.
-3. `observed_business_register_id` identifies a source record, not a true business. It is
-   generated independently for a later imperfect register and may be duplicated, stale,
+3. `observed_business_source_id` identifies a source record, not a true business. It is
+   generated independently for a later imperfect archive and may be duplicated, stale,
    split, merged, or absent. It is never a foreign key in a truth table.
 
 The current-state business layer implements only the first two truth identities and jobs.
-It does not generate the observed register ID before event history exists: otherwise the
-register could not represent openings, closures, mergers, moves, or reporting lag honestly.
+It does not generate the observed source ID before event history exists. Waiting for the
+ledger lets the archive represent openings, closures, mergers, moves, and reporting lag.
 
-The `enterprise` table contains:
+The enterprise schema is `truth_enterprise_id: uint64`,
+`headquarters_establishment_id: uint64`, `headquarters_cell: int64`, `industry: int16`,
+`legal_form: int8`, `ownership: int8`, `establishment_count: int32`,
+`employment_count: int32`, `annual_payroll_cents: int64`, `annual_revenue_cents: int64`,
+`opening_year: int16`, `size_class: int8`, and `is_active: bool`. It records the sealed
+organization and headquarters, its classification and ownership, its active location and
+job counts, exact payroll and revenue sums, earliest opening, derived size, and state.
 
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_enterprise_id` | `uint64` | persistent sealed enterprise identity |
-| `headquarters_establishment_id` | `uint64` | one establishment owned by the enterprise |
-| `headquarters_cell` | `int64` | headquarters geography cell |
-| `industry` | `int16` | synthetic industry section |
-| `legal_form` | `int8` | sole proprietor, partnership, corporation, cooperative, or public |
-| `ownership` | `int8` | domestic private, foreign private, cooperative, or public |
-| `establishment_count` | `int32` | active physical locations |
-| `employment_count` | `int32` | active jobs across those locations |
-| `annual_payroll_cents` | `int64` | exact sum of establishment payroll |
-| `annual_revenue_cents` | `int64` | exact sum of establishment revenue |
-| `opening_year` | `int16` | earliest opening among current establishments |
-| `size_class` | `int8` | class derived from employment count |
-| `is_active` | `bool` | current enterprise state |
+The establishment schema is `truth_establishment_id: uint64`,
+`truth_enterprise_id: uint64`, `cell: int64`, `industry: int16`,
+`establishment_role: int8`, `employment_count: int32`, `annual_payroll_cents: int64`,
+`annual_revenue_cents: int64`, `floor_area_m2: float64`, `opening_year: int16`, and
+`is_active: bool`. It identifies the location and owner, records geography and role, and
+holds exact linked-job counts and payroll alongside synthetic revenue and floor space.
 
-The `establishment` table contains:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_establishment_id` | `uint64` | persistent sealed location identity |
-| `truth_enterprise_id` | `uint64` | owning enterprise |
-| `cell` | `int64` | physical operating cell |
-| `industry` | `int16` | inherited enterprise industry in v0 |
-| `establishment_role` | `int8` | headquarters or branch |
-| `employment_count` | `int32` | jobs linked to this location |
-| `annual_payroll_cents` | `int64` | exact sum of linked job earnings |
-| `annual_revenue_cents` | `int64` | synthetic location revenue, not below payroll |
-| `floor_area_m2` | `float64` | operating floor area |
-| `opening_year` | `int16` | opening year in the synthetic calendar |
-| `is_active` | `bool` | current establishment state |
-
-The `job` table contains:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_job_id` | `uint64` | persistent sealed job identity |
-| `truth_person_id` | `uint64` | worker identity |
-| `truth_establishment_id` | `uint64` | physical workplace identity |
-| `occupation` | `int16` | synthetic occupation group |
-| `employment_type` | `int8` | full-time or part-time |
-| `annual_hours` | `int32` | paid annual hours |
-| `hourly_wage_cents` | `int64` | integer hourly wage |
-| `annual_earnings_cents` | `int64` | exactly hours times hourly wage |
-| `start_year` | `int16` | start year in the synthetic calendar |
-| `is_active` | `bool` | current job state |
+The job schema is `truth_job_id: uint64`, `truth_person_id: uint64`,
+`truth_establishment_id: uint64`, `occupation: int16`, `employment_type: int8`,
+`annual_hours: int32`, `hourly_wage_cents: int64`, `annual_earnings_cents: int64`,
+`start_year: int16`, and `is_active: bool`. It links one worker to one physical workplace,
+classifies the work, and records hours, wage, exact earnings, start year, and state.
 
 V0 assigns at most one active job to a person. Multiple-job holding arrives through event
 history without changing the identity model. Business generation follows population
@@ -260,7 +199,7 @@ effect, and workers in cells without a workplace are assigned to the nearest wor
 cell under a deterministic grid traversal.
 
 The default generator consumes four truth-side values from the world's character draw.
-`jobs_per_adult` sets the exact national working-age employment count;
+`jobs_per_adult` sets the exact world-level working-age employment count;
 `establishment_size_alpha` sets the Pareto density exponent used to allocate jobs among
 locations;
 `multi_establishment_rate` sets the number of enterprises operating more than one
@@ -271,7 +210,7 @@ validator recomputes the employment, establishment, and multi-location counts fr
 stored parameter record, and tests intervene on each dial while holding the source world
 fixed.
 
-The current state must satisfy these identities exactly:
+Business conservation is exact:
 
 ```
 each job -> one existing person and one existing establishment
@@ -298,54 +237,30 @@ cell. Candidate locations are scored from local population, urban accessibility,
 existing staff. Every cell is assigned to its nearest selected hospital with stable
 Chebyshev-distance ties, producing exact population catchments.
 
-The `hospital` table contains:
+The hospital schema is `truth_hospital_id: uint64`, `truth_establishment_id: uint64`,
+`cell: int64`, `hospital_type: int8`, `ownership: int8`, `bed_count: int32`,
+`staffed_position_count: int32`, `occupied_bed_count: int32`,
+`catchment_population: int32`, `opening_year: int16`, and `is_active: bool`. It binds the
+facility to its workplace and cell, classifies capacity and ownership, and records exact
+bed, staffing, occupancy, and catchment counts.
 
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_hospital_id` | `uint64` | persistent sealed hospital identity |
-| `truth_establishment_id` | `uint64` | active health-sector workplace identity |
-| `cell` | `int64` | facility geography, identical to the establishment cell |
-| `hospital_type` | `int8` | community, general, or referral, derived from capacity |
-| `ownership` | `int8` | inherited from the establishment's enterprise |
-| `bed_count` | `int32` | physical inpatient capacity allocated to the facility |
-| `staffed_position_count` | `int32` | linked active health-sector jobs |
-| `occupied_bed_count` | `int32` | open encounters at the snapshot |
-| `catchment_population` | `int32` | people whose nearest accessible facility is this hospital |
-| `opening_year` | `int16` | inherited establishment opening year |
-| `is_active` | `bool` | current hospital state |
+The `staffing` relationship has one row for every active job at a selected hospital. Its
+fields are `truth_hospital_id: uint64`, `truth_job_id: uint64`, and `staff_role: int8`.
+The role codes distinguish support, technical, nursing or allied, and clinical work.
 
-The `staffing` relationship table contains one row for every active job at a selected
-hospital establishment:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_hospital_id` | `uint64` | hospital staffed by the job |
-| `truth_job_id` | `uint64` | unique active health-sector job identity |
-| `staff_role` | `int8` | support, technical, nursing/allied, or clinical professional |
-
-The `encounter` table contains recent completed admissions plus the open bed census:
-
-| Column | Type | Meaning |
-| --- | --- | --- |
-| `truth_encounter_id` | `uint64` | persistent sealed encounter identity |
-| `truth_person_id` | `uint64` | patient identity |
-| `truth_hospital_id` | `uint64` | nearest accessible hospital identity |
-| `admission_tick` | `int64` | admission time |
-| `discharge_tick` | `int64` | completed or truth-side scheduled discharge time |
-| `service` | `int8` | synthetic service group |
-| `diagnosis_group` | `int16` | synthetic diagnosis group |
-| `outcome` | `int8` | open, discharged, transferred, or died |
-| `cost_cents` | `int64` | positive accrued synthetic cost |
-| `bed_number` | `int32` | current zero-based bed, or `-1` after discharge |
-| `is_open` | `bool` | whether the encounter occupies a bed at the snapshot |
+The encounter schema is `truth_encounter_id: uint64`, `truth_person_id: uint64`,
+`truth_hospital_id: uint64`, `admission_tick: int64`, `discharge_tick: int64`,
+`service: int8`, `diagnosis_group: int16`, `outcome: int8`, `cost_cents: int64`,
+`bed_number: int32`, and `is_open: bool`. It links patient and facility, records the
+interval and clinical categories, and retains accrued cost and current bed state.
 
 `hospital_beds_per_1000` comes from the truth-side world-character draw and fixes the
-national integer bed total. Beds are allocated by an exact largest-remainder rule over
+world-level integer bed total. Beds are allocated by an exact largest-remainder rule over
 facility catchment population and staffing. The realized draw is never copied into an
-observed health register. Observed facility, staff, and encounter identifiers arrive only
+observed health source. Observed facility, staff, and encounter identifiers arrive only
 after event history exists and are never derived from these truth IDs.
 
-The hospital state must satisfy these identities exactly:
+Hospital conservation is exact:
 
 ```
 sum(hospital catchment_population) = persons
@@ -368,8 +283,8 @@ these identities.
 
 `meridia.events` advances the truth world in monthly ticks without rewriting any prior
 row. It consumes the persistent identity, dwelling, business, hospital, world-character,
-and registered shock layers. It does not consume an employer register or any downstream
-observed file. The ledger covers:
+and declared shock layers. It does not consume an employer file or any downstream
+observed source. The ledger covers:
 
 - births and deaths;
 - household formation, relocation, and closure;
@@ -385,9 +300,9 @@ longer.
 
 `tick` and `recorded_tick` are intentionally different clocks. `tick` is the effective
 month in sealed truth. `recorded_tick` is when a later source is allowed to observe the
-event and is always at least `tick`. Preliminary and revised register vintages will be
-cuts on `recorded_tick`; truth replay remains a cut on `tick`. Late reporting therefore
-creates a real cross-vintage discrepancy without changing the underlying event.
+event and is always at least `tick`. Preliminary and revised source snapshots are cuts on
+`recorded_tick`; truth replay remains a cut on `tick`. Late reporting therefore
+creates a real cross-snapshot discrepancy without changing the underlying event.
 
 The replayed operational state includes person-to-household residence, household-to-
 dwelling occupancy, establishment activity, job relationships and integer-cent earnings,
@@ -408,21 +323,89 @@ open bed_number < hospital bed_count
 New person, household, establishment, job, encounter, and event IDs take the next unused
 sequence in their namespace. Closed or dead entities remain in state with their identity;
 none is reassigned. Hospital establishments are excluded from v0 establishment closure.
-The registered shock schedule can alter mortality, fertility, and household-formation
+The declared shock schedule can alter mortality, fertility, and household-formation
 mechanisms, and its realized schedule remains truth-side metadata.
 
-## 9. Presentation and independence boundary
+## 9. Imperfect observed sources
+
+`meridia.sources` materializes four source-distinct, flat files at preliminary and revised
+snapshots. The public half of each snapshot contains exactly `snapshot_tick`,
+`population`, `business`, `income`, and `health`. Observed record and entity identifiers
+remain stable across snapshots when the underlying source record persists. Each snapshot
+applies exactly the ledger rows satisfying `recorded_tick <= snapshot_tick`; it is never
+created by perturbing terminal truth. Effective truth at the same date comes from the
+independent `tick` replay, allowing the retained evidence to identify stale reporting.
+
+All observed IDs are random `uint64` tokens in source-specific namespaces disjoint from
+the truth-ID namespaces. The random draw receives a source and row count, never a truth
+ID. It is therefore not a hash, encoding, prefix, suffix, or arithmetic transform of a
+truth ID. Names are represented by synthetic `name_code` tokens rather than real names.
+Mostly shared but error-prone name codes, birth ticks, sex, household IDs, employer IDs,
+and county codes create a probabilistic linkage problem; no perfect cross-source person
+key is shipped.
+
+Population fields are `record_id: uint64`, `person_id: uint64`, `household_id: uint64`,
+`name_code: uint64`, `birth_tick: int64`, `sex: int8`, `education: int8`, and
+`county: int32`. They provide imperfect person and household identities, synthetic
+linkage fields, and reported demographics. Missing education uses `-1`.
+
+Business fields are `record_id: uint64`, `business_id: uint64`, `enterprise_id: uint64`,
+`industry: int16`, `county: int32`, `employee_count: int32`, and
+`annual_payroll_cents: float64`. Counts and payroll reflect only changes visible to that
+source; missing payroll uses `NaN`.
+
+Income fields are `record_id: uint64`, `taxpayer_id: uint64`, `household_id: uint64`,
+`name_code: uint64`, `birth_tick: int64`, `sex: int8`, `county: int32`,
+`employment_income_cents: float64`, and `employer_id: uint64`. A planted mechanism can
+make the employer identifier wrong or zero, while missing income uses `NaN`.
+
+Health fields are `record_id: uint64`, `encounter_id: uint64`, `patient_id: uint64`,
+`facility_id: uint64`, `name_code: uint64`, `birth_tick: int64`, `sex: int8`,
+`patient_county: int32`, `facility_county: int32`, `admission_tick: int64`,
+`discharge_tick: int64`, `service: int8`, `diagnosis_group: int16`, `outcome: int8`, and
+`cost_cents: float64`. Open encounters use `-1` for discharge, and missing cost uses
+`NaN`.
+
+Every public county value originates from the authoritative administrative partition:
+
+```
+county = admin["county"].reshape(-1)[recorded_cell]
+```
+
+The source layer never derives or repartitions counties. A planted county-error
+mechanism may replace that value by another valid code; the retained crosswalk identifies
+the affected row. Facility county is not corrupted in v0.
+
+The sealed mechanism table has one row per possible truth entity and records `covered`,
+`duplicate`, `split`, `merge_group`, `county_error`, `linkage_error`, and `item_missing`.
+Coverage is lower by a declared penalty in outpost counties, creating structural thin-
+county undercoverage. Split entities necessarily receive a second record and observed
+ID; merge groups contain exactly two truth entities. Reporting staleness is not sampled:
+it is measured by comparing the `recorded_tick` view with truth replay at the same
+effective tick.
+
+Each public row has one sealed crosswalk row. Its schema is
+`observed_record_id: uint64`, `observed_entity_id: uint64`, `truth_entity_id: uint64`,
+`mechanism_code: int16`, `valid_from_tick: int64`, and `valid_to_tick: int64`. The final
+field is `-1` for a row current at that snapshot.
+
+The crosswalk, mechanism tables, source parameters, truth-world metadata, and event ledger
+are retained verifier evidence. `participant_source_snapshots` returns a defensive copy
+containing none of them. Validation regenerates the complete retained package from the
+seeded inputs and requires byte-equivalent arrays, including `NaN` placement.
+
+## 10. Presentation and independence boundary
 
 The eventual participant packet contains flat observed-record files only, plus an
-estimand list, release schema, and disclosure rules. It contains no truth ID, crosswalk,
+estimand list, published-table schema, and disclosure rules. It contains no truth ID, crosswalk,
 mechanism label, world-character draw, full-population statistic, terrain, or generator
-code. Event visibility at two release vintages is determined downstream from
+code. Event visibility at two source snapshots is determined downstream from
 `recorded_tick`; the truth ledger itself is never exported.
 
 Geographic vocabulary is fixed everywhere in this lane:
 
 ```
-nation > state > county > settlement
+world > state > county > settlement
 ```
 
 Schemas, tables, docs, and future exports use no alternate or country-specific
@@ -433,7 +416,7 @@ references are used. All external work is independent research. The engine uses 
 synthetic countries and public scientific literature; it uses no government data,
 branding, or implied endorsement.
 
-## 10. Determinism and versioning
+## 11. Determinism and versioning
 
 Generation uses only the Python standard library plus NumPy/SciPy already allowed by the
 engine. Each additive module receives an explicit seed and uses a module-specific
@@ -446,14 +429,14 @@ digests belong in the future world manifest. A schema change increments the sche
 An algorithm change increments the generator version. Existing canonical timelines remain
 replayable; a new version extends or forks them and never rewrites their past.
 
-## 11. Delivery order
+## 12. Delivery order
 
 1. This identity-and-schema contract.
 2. Initial identity mapping and dwelling current-state table with exact tests.
 3. Business and hospital current-state tables, then jobs and encounters.
 4. Append-only institutional event histories and deterministic replay (implemented).
-5. Imperfect source registers and sealed truth crosswalks (next).
-6. The capstone production contract consuming observed records only.
+5. Imperfect observed sources and sealed truth crosswalks (implemented).
+6. The capstone production contract consuming observed records only (next).
 
 Sealing protocol, shock-dial implementation, geography, weather, population, microdata,
 survey, demography, and rendering remain outside this branch's ownership. This branch imports
