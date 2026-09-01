@@ -726,6 +726,18 @@ def _crosswalk(
     return _sort_table(table, order)
 
 
+def _recorded_county(cell: np.ndarray, county_flat: np.ndarray) -> np.ndarray:
+    """County of a recorded cell; -1 where no address has been recorded yet.
+
+    A person whose household formed or moved in a late-reported event carries a cell
+    of -1 in the recorded state. Indexing the county grid with -1 would silently read
+    the last grid cell, which at some seeds is sea. Such a person has no observable
+    address in that vintage and must not appear in an address-bearing source.
+    """
+    cell = np.asarray(cell, dtype=np.int64)
+    return np.where(cell >= 0, county_flat[np.maximum(cell, 0)], -1).astype(np.int64)
+
+
 def _population_source(
     state: dict,
     plan: dict,
@@ -736,11 +748,11 @@ def _population_source(
     base_name: np.ndarray,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     person = state["person"]
-    active = person["exists"] & person["is_alive"]
+    true_county = _recorded_county(person["cell"], county_flat)
+    active = person["exists"] & person["is_alive"] & (true_county >= 0)
     rows = _expand_rows(plan, active, stale)
     position = rows["position"]
     household_position = _sequence_position(person["truth_household_id"][position])
-    true_county = county_flat[person["cell"]]
     education = person["education"][position].astype(np.int8, copy=True)
     education[plan["item_missing"][position]] = -1
     table = {
@@ -808,7 +820,8 @@ def _income_source(
     business_plan: dict,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     person = state["person"]
-    active = person["exists"] & person["is_alive"]
+    true_county = _recorded_county(person["cell"], county_flat)
+    active = person["exists"] & person["is_alive"] & (true_county >= 0)
     rows = _expand_rows(plan, active, stale)
     position = rows["position"]
     earnings, employer_position, _, _ = _employment_summary(
@@ -817,7 +830,6 @@ def _income_source(
         len(state["establishment"]["truth_establishment_id"]),
     )
     household_position = _sequence_position(person["truth_household_id"][position])
-    true_county = county_flat[person["cell"]]
     income = earnings[position].astype(np.float64)
     missing = plan["item_missing"][position]
     income[missing] = np.nan
@@ -862,13 +874,15 @@ def _health_source(
     facility_id: np.ndarray,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     encounter = state["encounter"]
-    rows = _expand_rows(plan, encounter["exists"], stale)
+    person = state["person"]
+    all_person_position = _sequence_position(encounter["truth_person_id"])
+    patient_county = _recorded_county(person["cell"][all_person_position], county_flat)
+    # An encounter whose patient has no recorded address yet is not observable in
+    # this vintage.
+    rows = _expand_rows(plan, encounter["exists"] & (patient_county >= 0), stale)
     position = rows["position"]
     person_position = _sequence_position(encounter["truth_person_id"][position])
     hospital_position = _sequence_position(encounter["truth_hospital_id"][position])
-    person = state["person"]
-    all_person_position = _sequence_position(encounter["truth_person_id"])
-    patient_county = county_flat[person["cell"][all_person_position]]
     facility_county = county_flat[state["hospital_cell"]]
 
     observed_patient = patient_id[person_position].copy()
