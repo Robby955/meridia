@@ -159,6 +159,13 @@ def build_forecast_packet(seed: int, out_dir: Path, params: ForecastParams = For
     from_cell = event["from_cell"][visible]
     county_of_event[to_cell >= 0] = county_flat[to_cell[to_cell >= 0]]
     county_of_event[(to_cell < 0) & (from_cell >= 0)] = county_flat[from_cell[(to_cell < 0) & (from_cell >= 0)]]
+    # Person events carry the person's birth month and sex, as a civil ledger would.
+    all_persons = history["terminal_state"]["person"]
+    birth_of = dict(zip(all_persons["truth_person_id"].tolist(), all_persons["birth_tick"].tolist()))
+    sex_of = dict(zip(all_persons["truth_person_id"].tolist(), all_persons["sex"].tolist()))
+    pid = event["truth_person_id"][visible]
+    birth_tick_col = np.asarray([birth_of.get(int(i), -1) if int(i) else -1 for i in pid], dtype=np.int64)
+    sex_col = np.asarray([sex_of.get(int(i), -1) if int(i) else -1 for i in pid], dtype=np.int64)
     _write(participant / "events.csv", {
         "tick": event["tick"][visible],
         "event": np.asarray([EVENT_NAMES[int(t)] for t in event["event_type"][visible]]),
@@ -166,7 +173,7 @@ def build_forecast_packet(seed: int, out_dir: Path, params: ForecastParams = For
         "household_id": _opaque(event["truth_household_id"][visible], rng, tokens),
         "hospital_id": _opaque(event["truth_hospital_id"][visible], rng, tokens),
         "encounter_id": _opaque(event["truth_encounter_id"][visible], rng, tokens),
-        "county": county_of_event, "sex": event["sex"][visible], "birth_tick": event["birth_tick"][visible],
+        "county": county_of_event, "sex": sex_col, "birth_tick": birth_tick_col,
         "service": event["service"][visible], "diagnosis_group": event["diagnosis_group"][visible],
         "outcome": event["outcome"][visible], "cause_code": event["cause_code"][visible]})
     _write(participant / "geography.csv", {"county": np.arange(admin["n_counties"], dtype=np.int64),
