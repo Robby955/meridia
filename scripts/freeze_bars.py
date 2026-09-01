@@ -95,7 +95,7 @@ def main() -> int:
             controls.run(control, packet, sub, calibration_path=str(cal_a))
             gated = verify_submission(packet, sub, bars)
             families = sorted({r.split(":")[0] for r in gated["reasons"]})
-            status = "FAILS " + ", ".join(families) + " | e.g. " + "; ".join(gated["reasons"][:2]) if not gated["pass"] else "PASSES (bar too loose)"
+            status = "FAILS " + ", ".join(families) + "; e.g. " + "; ".join(gated["reasons"][:2]) if not gated["pass"] else "PASSES (bar too loose)"
             lines.append(f"- control {control} on {packet.name}: {status}")
             ok &= not gated["pass"]
     lines.append("")
