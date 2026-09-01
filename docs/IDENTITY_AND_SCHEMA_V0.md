@@ -40,12 +40,13 @@ The v0 namespace codes are frozen:
 | 1 | person |
 | 2 | household |
 | 3 | dwelling |
-| 4 | business |
+| 4 | enterprise (the legal/control entity; originally reserved as `business`) |
 | 5 | hospital |
 | 6 | job |
 | 7 | encounter |
 | 8 | event |
 | 9 | observed-record source |
+| 10 | establishment (one physical operating location) |
 
 Sequence numbers are allocation order, not row numbers. Initial persons and households
 inherit their allocation order from the deterministic microdata snapshot. New entities
@@ -186,14 +187,111 @@ unique(truth_dwelling_id) = dwellings
 No tolerance is permitted for these checks. Economic and physical attributes may be
 stochastic, but the seeded replay must be byte-identical.
 
-## 6. Reserved current-state relationships
+## 6. Business identities and current-state tables
+
+Business data has three identities that must never be collapsed:
+
+1. `truth_enterprise_id` identifies the sealed legal or controlling organization. One
+   enterprise may operate multiple establishments.
+2. `truth_establishment_id` identifies one sealed physical operating location. Jobs link
+   to establishments because employment, payroll, production, and geography occur there.
+3. `observed_business_register_id` identifies a source record, not a true business. It is
+   generated independently for a later imperfect register and may be duplicated, stale,
+   split, merged, or absent. It is never a foreign key in a truth table.
+
+The current-state business layer implements only the first two truth identities and jobs.
+It does not generate the observed register ID before event history exists: otherwise the
+register could not represent openings, closures, mergers, moves, or reporting lag honestly.
+
+The `enterprise` table contains:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_enterprise_id` | `uint64` | persistent sealed enterprise identity |
+| `headquarters_establishment_id` | `uint64` | one establishment owned by the enterprise |
+| `headquarters_cell` | `int64` | headquarters geography cell |
+| `industry` | `int16` | synthetic industry section |
+| `legal_form` | `int8` | sole proprietor, partnership, corporation, cooperative, or public |
+| `ownership` | `int8` | domestic private, foreign private, cooperative, or public |
+| `establishment_count` | `int32` | active physical locations |
+| `employment_count` | `int32` | active jobs across those locations |
+| `annual_payroll_cents` | `int64` | exact sum of establishment payroll |
+| `annual_revenue_cents` | `int64` | exact sum of establishment revenue |
+| `opening_year` | `int16` | earliest opening among current establishments |
+| `size_class` | `int8` | class derived from employment count |
+| `is_active` | `bool` | current enterprise state |
+
+The `establishment` table contains:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_establishment_id` | `uint64` | persistent sealed location identity |
+| `truth_enterprise_id` | `uint64` | owning enterprise |
+| `cell` | `int64` | physical operating cell |
+| `industry` | `int16` | inherited enterprise industry in v0 |
+| `establishment_role` | `int8` | headquarters or branch |
+| `employment_count` | `int32` | jobs linked to this location |
+| `annual_payroll_cents` | `int64` | exact sum of linked job earnings |
+| `annual_revenue_cents` | `int64` | synthetic location revenue, not below payroll |
+| `floor_area_m2` | `float64` | operating floor area |
+| `opening_year` | `int16` | opening year in the synthetic calendar |
+| `is_active` | `bool` | current establishment state |
+
+The `job` table contains:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_job_id` | `uint64` | persistent sealed job identity |
+| `truth_person_id` | `uint64` | worker identity |
+| `truth_establishment_id` | `uint64` | physical workplace identity |
+| `occupation` | `int16` | synthetic occupation group |
+| `employment_type` | `int8` | full-time or part-time |
+| `annual_hours` | `int32` | paid annual hours |
+| `hourly_wage_cents` | `int64` | integer hourly wage |
+| `annual_earnings_cents` | `int64` | exactly hours times hourly wage |
+| `start_year` | `int16` | start year in the synthetic calendar |
+| `is_active` | `bool` | current job state |
+
+V0 assigns at most one active job to a person. Multiple-job holding arrives through event
+history without changing the identity model. Business generation follows population
+geography: establishments are anchored to employed residents' cells with an urbanity
+effect, and workers in cells without a workplace are assigned to the nearest workplace
+cell under a deterministic grid traversal.
+
+The default generator consumes four truth-side values from the world's character draw.
+`jobs_per_adult` sets the exact national working-age employment count;
+`establishment_size_alpha` sets the Pareto density exponent used to allocate jobs among
+locations;
+`multi_establishment_rate` sets the number of enterprises operating more than one
+location; and `payroll_level` scales the wage schedule before integer-cent earnings are
+formed. The values and their public ranges come from `meridia.character`, while a sealed
+world's realized draw remains in truth-side state only. These are structural inputs: the
+validator recomputes the employment, establishment, and multi-location counts from the
+stored parameter record, and tests intervene on each dial while holding the source world
+fixed.
+
+The current state must satisfy these identities exactly:
+
+```
+each job -> one existing person and one existing establishment
+job annual_earnings_cents = annual_hours * hourly_wage_cents
+establishment employment_count = count(linked active jobs)
+establishment annual_payroll_cents = sum(linked job annual_earnings_cents)
+enterprise establishment_count = count(linked active establishments)
+enterprise employment_count = sum(linked establishment employment_count)
+enterprise annual_payroll_cents = sum(linked establishment annual_payroll_cents)
+enterprise annual_revenue_cents = sum(linked establishment annual_revenue_cents)
+```
+
+All sums use integer counts or cents. No floating tolerance is admitted. Initial active
+establishments each carry at least one job, every headquarters belongs to its enterprise,
+and all truth foreign keys remain inside one `truth_world_id`.
+
+## 7. Reserved current-state relationships
 
 Later modules will add the following tables without changing the dwelling contract:
 
-- `business`: location, industry, legal form, ownership, size, revenue, payroll, opening
-  and closure state;
 - `hospital`: location, capacity, services, staffing, ownership, and operational state;
-- `job`: person-business relationship, occupation, hours, earnings, start and end state;
 - `encounter`: person-hospital relationship, admission and discharge ticks, service,
   diagnosis group, outcome, and cost.
 
@@ -207,7 +305,7 @@ are payroll equals the sum of active job earnings, staffed hospital positions re
 health-sector jobs, occupied beds reconcile to open encounters, and register error counts
 reconcile exactly to their recorded mechanisms.
 
-## 7. Determinism and versioning
+## 8. Determinism and versioning
 
 Generation uses only the Python standard library plus NumPy/SciPy already allowed by the
 engine. Each additive module receives an explicit seed and uses a module-specific
@@ -220,7 +318,7 @@ digests belong in the future world manifest. A schema change increments the sche
 An algorithm change increments the generator version. Existing canonical timelines remain
 replayable; a new version extends or forks them and never rewrites their past.
 
-## 8. Delivery order
+## 9. Delivery order
 
 1. This identity-and-schema contract.
 2. Initial identity mapping and dwelling current-state table with exact tests.

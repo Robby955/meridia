@@ -15,11 +15,13 @@ ENTITY_NAMESPACE = {
     "household": 2,
     "dwelling": 3,
     "business": 4,
+    "enterprise": 4,
     "hospital": 5,
     "job": 6,
     "encounter": 7,
     "event": 8,
     "observed_record_source": 9,
+    "establishment": 10,
 }
 
 NAMESPACE_SHIFT = 56
