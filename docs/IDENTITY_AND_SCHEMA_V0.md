@@ -287,23 +287,81 @@ All sums use integer counts or cents. No floating tolerance is admitted. Initial
 establishments each carry at least one job, every headquarters belongs to its enterprise,
 and all truth foreign keys remain inside one `truth_world_id`.
 
-## 7. Reserved current-state relationships
+## 7. Hospital and encounter current-state tables
 
-Later modules will add the following tables without changing the dwelling contract:
+A hospital is a persistent institutional identity layered over one active health-sector
+establishment. The establishment remains the workplace and payroll unit; the hospital
+adds care capacity and patient relationships. One establishment can carry at most one
+hospital in v0, and every hospital location is therefore an existing populated workplace
+cell. Candidate locations are scored from local population, urban accessibility, and
+existing staff. Every cell is assigned to its nearest selected hospital with stable
+Chebyshev-distance ties, producing exact population catchments.
 
-- `hospital`: location, capacity, services, staffing, ownership, and operational state;
-- `encounter`: person-hospital relationship, admission and discharge ticks, service,
-  diagnosis group, outcome, and cost.
+The `hospital` table contains:
 
-Required truth foreign keys always refer to entities in the same `truth_world_id`. A job
-cannot reference a closed business at its start tick; an encounter cannot reference a
-hospital before opening; a household move changes its dwelling relationship through an
-event and does not change either persistent identity.
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_hospital_id` | `uint64` | persistent sealed hospital identity |
+| `truth_establishment_id` | `uint64` | active health-sector workplace identity |
+| `cell` | `int64` | facility geography, identical to the establishment cell |
+| `hospital_type` | `int8` | community, general, or referral, derived from capacity |
+| `ownership` | `int8` | inherited from the establishment's enterprise |
+| `bed_count` | `int32` | physical inpatient capacity allocated to the facility |
+| `staffed_position_count` | `int32` | linked active health-sector jobs |
+| `occupied_bed_count` | `int32` | open encounters at the snapshot |
+| `catchment_population` | `int32` | people whose nearest accessible facility is this hospital |
+| `opening_year` | `int16` | inherited establishment opening year |
+| `is_active` | `bool` | current hospital state |
 
-Each layer must introduce at least one exact identity or conservation test. Planned examples
-are payroll equals the sum of active job earnings, staffed hospital positions reconcile to
-health-sector jobs, occupied beds reconcile to open encounters, and register error counts
-reconcile exactly to their recorded mechanisms.
+The `staffing` relationship table contains one row for every active job at a selected
+hospital establishment:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_hospital_id` | `uint64` | hospital staffed by the job |
+| `truth_job_id` | `uint64` | unique active health-sector job identity |
+| `staff_role` | `int8` | support, technical, nursing/allied, or clinical professional |
+
+The `encounter` table contains recent completed admissions plus the open bed census:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `truth_encounter_id` | `uint64` | persistent sealed encounter identity |
+| `truth_person_id` | `uint64` | patient identity |
+| `truth_hospital_id` | `uint64` | nearest accessible hospital identity |
+| `admission_tick` | `int64` | admission time |
+| `discharge_tick` | `int64` | completed or truth-side scheduled discharge time |
+| `service` | `int8` | synthetic service group |
+| `diagnosis_group` | `int16` | synthetic diagnosis group |
+| `outcome` | `int8` | open, discharged, transferred, or died |
+| `cost_cents` | `int64` | positive accrued synthetic cost |
+| `bed_number` | `int32` | current zero-based bed, or `-1` after discharge |
+| `is_open` | `bool` | whether the encounter occupies a bed at the snapshot |
+
+`hospital_beds_per_1000` comes from the truth-side world-character draw and fixes the
+national integer bed total. Beds are allocated by an exact largest-remainder rule over
+facility catchment population and staffing. The realized draw is never copied into an
+observed health register. Observed facility, staff, and encounter identifiers arrive only
+after event history exists and are never derived from these truth IDs.
+
+The hospital state must satisfy these identities exactly:
+
+```
+sum(hospital catchment_population) = persons
+sum(hospital bed_count) = round(persons * hospital_beds_per_1000 / 1000)
+hospital staffed_position_count = count(linked active health-sector jobs)
+each staffing job belongs to that hospital's establishment
+hospital occupied_bed_count = count(linked open encounters)
+sum(hospital occupied_bed_count) = open encounters
+each open encounter -> one unique person and one unique (hospital, bed_number)
+each encounter -> one existing person and that person's nearest hospital
+```
+
+All required truth foreign keys remain within one `truth_world_id`. Encounter intervals
+straddle the snapshot exactly when open; completed encounters discharge no later than the
+snapshot and retain no current bed number. Later event modules will append openings,
+closures, staffing changes, admissions, discharges, and corrections without changing
+these identities.
 
 ## 8. Determinism and versioning
 
