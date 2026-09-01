@@ -31,10 +31,13 @@ not exist.
   sources along measured dials; then lengthen the horizon; then add a second evidence
   function on the same world), re-qualify the bars on fresh worlds with both strong
   methods, and run a new batch. Never tighten a bar to manufacture failure.
-- Every failed trial is attributed before it is believed: the reason must be a named
-  scientific failure (linkage, coverage, calibration, projection, allocation), not a
-  contract or container defect. A container defect is fixed and the trial rerun once, with
-  both records kept.
+- Every failed trial is attributed before it is believed, under the benchmark's own
+  trial-analysis taxonomy: specification_completeness, solution_discoverability,
+  verifier_correctness, boundary_fairness, policy_refusal, execution_blocked,
+  unearned_credit, meaningful_difficulty. Only meaningful_difficulty counts toward the
+  measured pass rate, with the scientific stage named (linkage, coverage, calibration,
+  projection, allocation). Any other attribution is a task defect: fixed, rerun once, both
+  records kept.
 
 ## What is retained
 
