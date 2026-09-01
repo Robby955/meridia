@@ -70,6 +70,7 @@ def load_packet(packet_dir: Path) -> dict:
         "county_state": geography["state"].to_numpy(dtype=np.int64),
         "survey": pd.read_csv(P / "survey_revised.csv"),
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
+        "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
         "income": pd.read_csv(P / "sources" / "income_revised.csv"),
     }
 
@@ -82,6 +83,42 @@ def deduplicate_population(population, tick: int):
     frame["age"] = (tick - frame["birth_tick"]) // 12
     frame = frame[frame["county"] >= 0]
     return frame
+
+
+def estimate_mortality(population_preliminary, population_revised, tick_pre: int, tick_rev: int) -> dict:
+    """Gompertz level from the age gradient of record disappearance between snapshots.
+
+    A person keyed by (name code, birth month, sex) in the preliminary source who is
+    absent from the revised source either died or dropped out of coverage. Coverage
+    churn does not depend on age; mortality does, so fitting disappearance by age to
+    a constant plus a Gompertz-Makeham hazard over the elapsed months identifies the
+    mortality level. Ages 45 to 90 carry the signal; the slope stays at its public
+    default.
+    """
+    keys = ["name_code", "birth_tick", "sex"]
+    pre = population_preliminary.drop_duplicates(subset=keys)[keys]
+    rev = population_revised.drop_duplicates(subset=keys)[keys]
+    merged = pre.merge(rev.assign(_present=1), on=keys, how="left")
+    gone = merged["_present"].isna().to_numpy()
+    age = ((tick_pre - merged["birth_tick"].to_numpy(dtype=np.int64)) // 12)
+    months = max(tick_rev - tick_pre, 1)
+    ages = np.arange(45, 91)
+    exposure = np.asarray([(age == x).sum() for x in ages], dtype=np.float64)
+    gone_by_age = np.asarray([gone[age == x].sum() for x in ages], dtype=np.float64)
+    ok = exposure >= 50
+    default = DemographyParams()
+    if ok.sum() < 15:
+        return {"gompertz_a": default.gompertz_a, "gompertz_b": default.gompertz_b, "fitted": False}
+    rate = gone_by_age[ok] / exposure[ok]
+    lo_a, hi_a = CHARACTER_RANGES["gompertz_a"]
+    best, best_err = default.gompertz_a, np.inf
+    for a_try in np.geomspace(lo_a * 0.5, hi_a * 1.5, 60):
+        q = 1.0 - (1.0 - mortality_probability(ages[ok], DemographyParams(gompertz_a=a_try, gompertz_b=default.gompertz_b))) ** (months / 12.0)
+        c = float(np.clip(np.mean(rate - q), 0.0, 1.0))         # age-flat coverage churn
+        err = float((exposure[ok] * (rate - q - c) ** 2).sum())
+        if err < best_err:
+            best, best_err = a_try, err
+    return {"gompertz_a": float(np.clip(best, lo_a * 0.5, hi_a * 1.5)), "gompertz_b": default.gompertz_b, "fitted": True}
 
 
 def register_counts(frame, n_counties: int) -> dict:
@@ -370,7 +407,8 @@ def aggregate(county_values: dict, county_state: np.ndarray, stats: dict, weight
 
 # ---------------------------------------------------------------------- projection
 
-def project(county_values: dict, age_sex: np.ndarray, months: int, rng: np.random.Generator) -> dict:
+def project(county_values: dict, age_sex: np.ndarray, months: int, rng: np.random.Generator,
+            mortality: dict | None = None) -> dict:
     """Cohort-component projection on single-year ages.
 
     Mortality and fertility are drawn from the public ranges; a shock year is drawn
@@ -381,8 +419,11 @@ def project(county_values: dict, age_sex: np.ndarray, months: int, rng: np.rando
     """
     lo_a, hi_a = CHARACTER_RANGES["gompertz_a"]
     lo_f, hi_f = CHARACTER_RANGES["fertility_rate"]
-    params = DemographyParams(gompertz_a=float(rng.uniform(lo_a, hi_a)),
-                              fertility_rate=float(rng.uniform(lo_f, hi_f)))
+    if mortality is not None and mortality.get("fitted"):
+        a_draw = float(np.clip(rng.lognormal(np.log(mortality["gompertz_a"]), 0.20), lo_a * 0.5, hi_a * 1.5))
+    else:
+        a_draw = float(rng.uniform(lo_a, hi_a))
+    params = DemographyParams(gompertz_a=a_draw, fertility_rate=float(rng.uniform(lo_f, hi_f)))
     years = int(round(months / 12.0))
     ages = np.arange(MAX_AGE + 1)
     q = mortality_probability(ages, params)
@@ -511,6 +552,8 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
 
     register_frame = deduplicate_population(data["population"], tick)
     register = register_counts(register_frame, n_counties)
+    mortality = estimate_mortality(data["population_preliminary"], data["population"],
+                                   int(contract["ticks"]["preliminary"]), tick)
     unraked = impute_income(adjusted_survey(data["survey"]))
     survey = impute_income(rake_to_register(adjusted_survey(data["survey"]), register_frame, county_state))
     base_stats = survey_statistics(survey, county_state)
@@ -529,7 +572,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     point = estimate_once(survey, register, ratios, county_state)
     model_rel_sd = float(point["county"].pop("_model_rel_sd", 0.0))
     now = aggregate(point["county"], county_state, point["state_stats"], point["county"]["persons"])
-    future_point = project(point["county"], point["age_sex"], horizon_months, np.random.default_rng(params.seed + 1))
+    future_point = project(point["county"], point["age_sex"], horizon_months, np.random.default_rng(params.seed + 1), mortality)
     future = aggregate(future_point, county_state, point["state_stats"], future_point["persons"])
 
     factors = json.loads(Path(params.calibration_path).read_text()) if params.calibration_path else {}
@@ -542,7 +585,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
         est["county"].pop("_model_rel_sd", None)
         now_reps.append(_apply_calibration(
             aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]), factors, dispersion))
-        fut = project(est["county"], est["age_sex"], horizon_months, rng)
+        fut = project(est["county"], est["age_sex"], horizon_months, rng, mortality)
         future_reps.append(_apply_calibration(
             aggregate(fut, county_state, est["state_stats"], fut["persons"]), factors, dispersion))
 
@@ -626,4 +669,4 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
         out_dir / "allocation.csv", index=False)
     return {"release": release_rows, "projection": projection_rows,
-            "dispersion": dispersion, "n_bootstrap": params.bootstrap_replicates}
+            "dispersion": dispersion, "n_bootstrap": params.bootstrap_replicates, "mortality": mortality}

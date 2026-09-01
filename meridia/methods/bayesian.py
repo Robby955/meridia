@@ -208,6 +208,8 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
 
     register_frame = A.deduplicate_population(data["population"], tick)
     register = A.register_counts(register_frame, n_counties)
+    mortality = A.estimate_mortality(data["population_preliminary"], data["population"],
+                                     int(contract["ticks"]["preliminary"]), tick)
     survey = A.impute_income(A.rake_to_register(A.adjusted_survey(data["survey"]), register_frame, county_state))
     dispersion = income_dispersion(survey)
     factors = load_factors(params.calibration_path)
@@ -257,7 +259,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
         agg = apply_calibration(aggregate_b(values, values["persons"]), factors, dispersion)
         for key, v in agg.items():
             draws_now.setdefault(key, []).append(v)
-        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng)
+        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng, mortality)
         agg_f = apply_calibration(aggregate_b(future, future["persons"]), factors, dispersion)
         for key, v in agg_f.items():
             draws_future.setdefault(key, []).append(v)
