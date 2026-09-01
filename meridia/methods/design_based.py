@@ -1,0 +1,445 @@
+"""Strong method A: the design-based line.
+
+A classical production line that a survey methodologist would write from the packet:
+
+1. Deduplicate the population source on (name code, birth month, sex); count persons,
+   households, children, and elders by county from the deduplicated records.
+2. Adjust the survey's design weights for unit nonresponse within each sampling unit,
+   using the public design constant of households sampled per unit.
+3. Estimate the state-level coverage of the population source as the ratio of the
+   nonresponse-adjusted survey estimate to the deduplicated register count, and scale
+   county register counts by their state's coverage (synthetic small-area estimation).
+4. Impute item-missing survey income by a deterministic hot deck within stratum,
+   education, and age band; estimate income statistics from the survey at nation and
+   state level, and at county level synthetically through the income source.
+5. Intervals from a rescaled bootstrap over sampling units within strata; counts are
+   built county-up so they add exactly.
+6. Project the population to the horizon by a cohort-component step with mortality and
+   fertility drawn from the public parameter ranges; allocate the budget in proportion
+   to projected elders.
+7. Publish the detailed table with primary suppression and no totals.
+
+Every number comes from the participant files and public constants. The method never
+reads the retained side.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+from ..character import CHARACTER_RANGES
+from ..demography import DemographyParams, mortality_probability
+from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, LOW_INCOME_FRACTION, SEX_LABELS
+from ..survey import SurveyParams
+
+HOUSEHOLDS_PER_PSU = SurveyParams().households_per_cell   # public design constant
+NOMINAL = 0.90
+
+
+@dataclass(frozen=True)
+class MethodParams:
+    bootstrap_replicates: int = 200
+    seed: int = 20260901
+    suppression_multiplier: float = 2.0    # suppress estimated cells below this x threshold
+    carry_forward_width: float = 1.5       # projection interval widening for income items
+
+
+# ----------------------------------------------------------------------------- inputs
+
+def load_packet(packet_dir: Path) -> dict:
+    import pandas as pd
+    P = Path(packet_dir) / "participant"
+    contract = json.loads((P / "contract.json").read_text())
+    geography = pd.read_csv(P / "geography.csv")
+    return {
+        "contract": contract,
+        "county_state": geography["state"].to_numpy(dtype=np.int64),
+        "survey": pd.read_csv(P / "survey_revised.csv"),
+        "population": pd.read_csv(P / "sources" / "population_revised.csv"),
+        "income": pd.read_csv(P / "sources" / "income_revised.csv"),
+    }
+
+
+# --------------------------------------------------------------------------- register
+
+def deduplicate_population(population, tick: int):
+    """One row per (name_code, birth_tick, sex); age in years at ``tick``."""
+    frame = population.drop_duplicates(subset=["name_code", "birth_tick", "sex"]).copy()
+    frame["age"] = (tick - frame["birth_tick"]) // 12
+    frame = frame[frame["county"] >= 0]
+    return frame
+
+
+def register_counts(frame, n_counties: int) -> dict:
+    county = frame["county"].to_numpy(dtype=np.int64)
+    age = frame["age"].to_numpy(dtype=np.int64)
+    counts = {
+        "persons": np.bincount(county, minlength=n_counties),
+        "children_under_16": np.bincount(county, weights=(age <= 15), minlength=n_counties),
+        "elders_65_plus": np.bincount(county, weights=(age >= 65), minlength=n_counties),
+        "households": frame.groupby("county")["household_id"].nunique()
+                           .reindex(range(n_counties), fill_value=0).to_numpy(dtype=np.float64),
+    }
+    over_25 = age >= 25
+    known = frame["education"].to_numpy() >= 0
+    tertiary = frame["education"].to_numpy() >= 2
+    n_known = np.bincount(county, weights=(over_25 & known), minlength=n_counties)
+    n_tert = np.bincount(county, weights=(over_25 & known & tertiary), minlength=n_counties)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        counts["tertiary_share_25_plus"] = np.where(n_known > 0, n_tert / n_known, np.nan)
+    sex = frame["sex"].to_numpy(dtype=np.int64)
+    band = np.full(len(age), -1)
+    for b, (lo, hi) in enumerate(AGE_BANDS):
+        band[(age >= lo) & (age <= hi)] = b
+    cube = np.zeros((n_counties, len(AGE_BANDS), 2))
+    np.add.at(cube, (county, np.maximum(band, 0), sex), 1)
+    counts["cube"] = cube
+    return counts
+
+
+# ----------------------------------------------------------------------------- survey
+
+def adjusted_survey(survey):
+    """Nonresponse-adjusted person weights: households sampled per unit over responding."""
+    frame = survey.copy()
+    responding = frame.groupby("psu")["household"].nunique()
+    sampled = frame.groupby("psu")["psu_sampled_households"].first()
+    factor = (sampled / responding.clip(lower=1)).clip(lower=1.0)
+    frame["weight"] = frame["design_weight"] * frame["psu"].map(factor).to_numpy()
+    return frame
+
+
+def rake_to_register(frame, register_frame, county_state: np.ndarray, iterations: int = 12):
+    """Rake survey weights within each state to the register's age-band x sex and
+    education proportions. Proportions, not totals, so register coverage cancels; the
+    point is to counter response that is selective on income through its correlates."""
+    frame = frame.copy()
+    state_of = lambda counties: county_state[np.asarray(counties, dtype=np.int64)]
+    frame["state"] = state_of(frame["county"])
+    reg_state = state_of(register_frame["county"])
+    reg_age = register_frame["age"].to_numpy(dtype=np.int64)
+    reg_band = np.full(len(reg_age), -1)
+    sv_age = frame["age"].to_numpy(dtype=np.int64)
+    sv_band = np.full(len(sv_age), -1)
+    for b, (lo, hi) in enumerate(AGE_BANDS):
+        reg_band[(reg_age >= lo) & (reg_age <= hi)] = b
+        sv_band[(sv_age >= lo) & (sv_age <= hi)] = b
+    reg_sex = register_frame["sex"].to_numpy(dtype=np.int64)
+    reg_edu = register_frame["education"].to_numpy(dtype=np.int64)
+    sv_edu = frame["education"].fillna(-1).to_numpy(dtype=np.int64)
+    frame["cell_as"] = sv_band * 2 + frame["sex"].to_numpy(dtype=np.int64)
+    frame["cell_edu"] = np.where(sv_age >= 16, sv_edu, -1)
+    reg_cell_as = reg_band * 2 + reg_sex
+    reg_cell_edu = np.where(reg_age >= 16, reg_edu, -1)
+    weight = frame["weight"].to_numpy(dtype=np.float64).copy()
+    for s in range(int(county_state.max()) + 1):
+        sv = np.flatnonzero(frame["state"].to_numpy() == s)
+        rg = reg_state == s
+        if len(sv) == 0 or rg.sum() == 0:
+            continue
+        total = weight[sv].sum()
+        for _ in range(iterations):
+            for sv_cells, reg_cells in ((frame["cell_as"].to_numpy()[sv], reg_cell_as[rg]),
+                                        (frame["cell_edu"].to_numpy()[sv], reg_cell_edu[rg])):
+                keep = reg_cells >= 0
+                target = np.bincount(reg_cells[keep], minlength=12) / max(keep.sum(), 1)
+                in_margin = weight[sv[sv_cells >= 0]].sum()
+                for cell in np.unique(sv_cells):
+                    if cell < 0 or cell >= 12 or target[cell] <= 0 or in_margin <= 0:
+                        continue
+                    members = sv[sv_cells == cell]
+                    current = weight[members].sum() / in_margin
+                    if current > 0:
+                        weight[members] *= min(max(target[cell] / current, 0.25), 4.0)
+                weight[sv] *= total / weight[sv].sum()
+    frame["weight"] = weight
+    return frame.drop(columns=["state", "cell_as", "cell_edu"])
+
+
+def impute_income(frame):
+    """Deterministic hot deck: weighted median of donors in (stratum, education, age band)."""
+    frame = frame.copy()
+    frame["education"] = frame["education"].fillna(-1).astype(int)
+    band = np.full(len(frame), -1)
+    age = frame["age"].to_numpy()
+    for b, (lo, hi) in enumerate(AGE_BANDS):
+        band[(age >= lo) & (age <= hi)] = b
+    frame["band"] = band
+    frame.loc[frame["age"] < 16, "income"] = frame.loc[frame["age"] < 16, "income"].fillna(0.0)
+    missing = frame["income"].isna()
+    donors = frame[~missing]
+    for keys in (["stratum", "education", "band"], ["education", "band"], ["band"], []):
+        if not missing.any():
+            break
+        if keys:
+            medians = donors.groupby(keys)["income"].median()
+            fill = frame.loc[missing, keys].apply(tuple, axis=1) if len(keys) > 1 \
+                else frame.loc[missing, keys[0]]
+            values = fill.map(medians.to_dict() if len(keys) > 1 else medians)
+        else:
+            values = np.full(int(missing.sum()), float(donors["income"].median()))
+        frame.loc[missing, "income"] = np.asarray(values, dtype=np.float64)
+        missing = frame["income"].isna()
+    return frame
+
+
+def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
+    if len(values) == 0:
+        return float("nan")
+    order = np.argsort(values, kind="stable")
+    v, w = values[order], weights[order]
+    cum = np.cumsum(w)
+    return float(v[np.searchsorted(cum, 0.5 * cum[-1])])
+
+
+def survey_statistics(frame, county_state: np.ndarray) -> dict:
+    """Survey estimates: person totals by state, income statistics by state and nation."""
+    n_states = int(county_state.max()) + 1
+    state = county_state[frame["county"].to_numpy(dtype=np.int64)]
+    w = frame["weight"].to_numpy()
+    adults = frame["age"].to_numpy() >= 16
+    income = frame["income"].to_numpy(dtype=np.float64)
+    hh = frame.groupby("household").agg(income=("income", "sum"), weight=("weight", "first"),
+                                        county=("county", "first"))
+    hh_state = county_state[hh["county"].to_numpy(dtype=np.int64)]
+    hh_income = hh["income"].to_numpy(dtype=np.float64)
+    hh_w = hh["weight"].to_numpy()
+    national_median = _weighted_median(hh_income, hh_w)
+    low = hh_income < LOW_INCOME_FRACTION * national_median
+    out = {"persons_by_state": np.bincount(state, weights=w, minlength=n_states),
+           "median_household_income": {}, "mean_income_adults": {},
+           "low_income_household_share": {}}
+    for s in range(n_states):
+        ps, hs = state == s, hh_state == s
+        out["median_household_income"][s] = _weighted_median(hh_income[hs], hh_w[hs])
+        out["mean_income_adults"][s] = (float((w * income * adults)[ps].sum() /
+                                              max((w * adults)[ps].sum(), 1e-9)))
+        out["low_income_household_share"][s] = float((hh_w * low)[hs].sum() / max(hh_w[hs].sum(), 1e-9))
+    out["median_household_income"]["nation"] = national_median
+    out["mean_income_adults"]["nation"] = float((w * income * adults).sum() / (w * adults).sum())
+    out["low_income_household_share"]["nation"] = float((hh_w * low).sum() / hh_w.sum())
+    return out
+
+
+# ------------------------------------------------------------------- income source
+
+def income_source_ratios(income, county_state: np.ndarray, national_median_hh: float) -> dict:
+    """County-to-state ratios from the income source, for synthetic county estimates."""
+    n_counties = len(county_state)
+    frame = income[income["county"] >= 0].copy()
+    frame["employment_income_cents"] = frame["employment_income_cents"].fillna(0.0)
+    positive = frame[frame["employment_income_cents"] > 0]
+    county_mean = positive.groupby("county")["employment_income_cents"].mean() \
+                          .reindex(range(n_counties)).to_numpy()
+    hh = frame.groupby(["county", "household_id"])["employment_income_cents"].sum().reset_index()
+    hh["low"] = hh["employment_income_cents"] < LOW_INCOME_FRACTION * national_median_hh * 100.0
+    county_low = hh.groupby("county")["low"].mean().reindex(range(n_counties)).to_numpy()
+    county_median = hh.groupby("county")["employment_income_cents"].median() \
+                      .reindex(range(n_counties)).to_numpy()
+    ratios = {}
+    for name, values in (("mean_income_adults", county_mean),
+                         ("median_household_income", county_median),
+                         ("low_income_household_share", county_low)):
+        state_values = np.asarray([np.nanmean(values[county_state == s]) if np.isfinite(values[county_state == s]).any() else np.nan
+                                   for s in range(int(county_state.max()) + 1)])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            r = values / state_values[county_state]
+        ratios[name] = np.where(np.isfinite(r), r, 1.0)
+    return ratios
+
+
+# -------------------------------------------------------------------- one estimate
+
+def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray) -> dict:
+    """County-level point estimates for all estimands from one survey replicate."""
+    n_counties = len(county_state)
+    n_states = int(county_state.max()) + 1
+    stats = survey_statistics(frame, county_state)
+    reg_state = np.bincount(county_state, weights=register["persons"], minlength=n_states)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        coverage = np.where(reg_state > 0, reg_state / stats["persons_by_state"], 1.0)
+    coverage = np.clip(coverage, 0.5, 1.2)
+    scale = 1.0 / coverage[county_state]
+    county = {e: register[e] * scale for e in ("persons", "households", "children_under_16", "elders_65_plus")}
+    county["tertiary_share_25_plus"] = register["tertiary_share_25_plus"]
+    for e in ("median_household_income", "mean_income_adults", "low_income_household_share"):
+        state_values = np.asarray([stats[e][s] for s in range(n_states)])
+        county[e] = state_values[county_state] * ratios[e]
+        if e == "low_income_household_share":
+            county[e] = np.clip(county[e], 0.0, 1.0)
+    return {"county": county, "state_stats": stats, "cube": register["cube"] * scale[:, None, None]}
+
+
+def aggregate(county_values: dict, county_state: np.ndarray, stats: dict, weights: np.ndarray) -> dict:
+    """County-up aggregation: counts add; shares and means are person-weighted; medians
+    use the survey estimate at state and nation."""
+    n_states = int(county_state.max()) + 1
+    out = {}
+    persons = county_values["persons"]
+    for e in ESTIMAND_IDS:
+        v = county_values[e]
+        for c in range(len(county_state)):
+            out[(e, "county", c)] = float(v[c])
+        if e in ("persons", "households", "children_under_16", "elders_65_plus"):
+            state_v = np.bincount(county_state, weights=v, minlength=n_states)
+            nation_v = float(state_v.sum())
+        elif e == "median_household_income":
+            state_v = np.asarray([stats[e][s] for s in range(n_states)])
+            nation_v = float(stats[e]["nation"])
+        else:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                state_v = np.bincount(county_state, weights=np.nan_to_num(v) * persons, minlength=n_states) / \
+                    np.maximum(np.bincount(county_state, weights=persons, minlength=n_states), 1e-9)
+            nation_v = float(np.nansum(np.nan_to_num(v) * persons) / max(persons.sum(), 1e-9))
+        for s in range(n_states):
+            out[(e, "state", s)] = float(state_v[s])
+        out[(e, "nation", 0)] = nation_v
+    return out
+
+
+# ---------------------------------------------------------------------- projection
+
+def project(county_values: dict, cube: np.ndarray, months: int, rng: np.random.Generator) -> dict:
+    """Cohort-component step from the estimated age-band cube, parameters drawn from
+    the public ranges; income items carried forward."""
+    lo_a, hi_a = CHARACTER_RANGES["gompertz_a"]
+    lo_f, hi_f = CHARACTER_RANGES["fertility_rate"]
+    params = DemographyParams(gompertz_a=float(rng.uniform(lo_a, hi_a)),
+                              fertility_rate=float(rng.uniform(lo_f, hi_f)))
+    years = months / 12.0
+    band_mid = np.asarray([(lo + min(hi, 95)) / 2.0 for lo, hi in AGE_BANDS])
+    survival = (1.0 - mortality_probability(band_mid, params)) ** years
+    survivors = cube * survival[None, :, None]
+    # Aging across bands: a share of each band moves up, proportional to elapsed years
+    # over the band width; the top band keeps its survivors.
+    widths = np.asarray([min(hi, 95) - lo + 1 for lo, hi in AGE_BANDS], dtype=np.float64)
+    moved = np.zeros_like(survivors)
+    for b in range(len(AGE_BANDS)):
+        share = min(1.0, years / widths[b])
+        up = survivors[:, b, :] * share
+        moved[:, b, :] += survivors[:, b, :] - up
+        if b + 1 < len(AGE_BANDS):
+            moved[:, b + 1, :] += up
+        else:
+            moved[:, b, :] += up
+    women_fertile = 0.5 * (cube[:, 1, 1] + cube[:, 2, 1])   # 16-44 women, roughly 18-45
+    births = women_fertile * params.fertility_rate * years
+    moved[:, 0, 0] += 0.5 * births
+    moved[:, 0, 1] += 0.5 * births
+    persons = moved.sum(axis=(1, 2))
+    growth = persons / np.maximum(cube.sum(axis=(1, 2)), 1e-9)
+    out = dict(county_values)
+    out["persons"] = persons
+    out["children_under_16"] = moved[:, 0, :].sum(axis=1)
+    out["elders_65_plus"] = moved[:, 4, :].sum(axis=1)
+    out["households"] = county_values["households"] * growth
+    return out
+
+
+# --------------------------------------------------------------------------- driver
+
+def _bootstrap_frame(frame, rng: np.random.Generator):
+    """Rao-Wu rescaled bootstrap: resample sampling units with replacement within strata."""
+    pieces = []
+    for stratum, part in frame.groupby("stratum"):
+        psus = part["psu"].unique()
+        n = len(psus)
+        if n < 2:
+            pieces.append(part)
+            continue
+        draw = rng.choice(psus, size=n - 1, replace=True)
+        counts = dict(zip(*np.unique(draw, return_counts=True)))
+        factor = part["psu"].map(lambda p: counts.get(p, 0)).to_numpy() * n / (n - 1)
+        replicate = part.copy()
+        replicate["weight"] = replicate["weight"] * factor
+        pieces.append(replicate[replicate["weight"] > 0])
+    import pandas as pd
+    return pd.concat(pieces)
+
+
+def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) -> dict:
+    import pandas as pd
+    data = load_packet(packet_dir)
+    contract, county_state = data["contract"], data["county_state"]
+    n_counties = len(county_state)
+    tick = int(contract["ticks"]["revised"])
+    horizon_months = int(contract["ticks"]["horizon"]) - tick
+    rng = np.random.default_rng(params.seed)
+
+    register_frame = deduplicate_population(data["population"], tick)
+    register = register_counts(register_frame, n_counties)
+    survey = impute_income(rake_to_register(adjusted_survey(data["survey"]), register_frame, county_state))
+    base_stats = survey_statistics(survey, county_state)
+    ratios = income_source_ratios(data["income"], county_state,
+                                  base_stats["median_household_income"]["nation"])
+
+    point = estimate_once(survey, register, ratios, county_state)
+    now = aggregate(point["county"], county_state, point["state_stats"], point["county"]["persons"])
+    future_point = project(point["county"], point["cube"], horizon_months, np.random.default_rng(params.seed + 1))
+    future = aggregate(future_point, county_state, point["state_stats"], future_point["persons"])
+
+    now_reps, future_reps = [], []
+    for b in range(params.bootstrap_replicates):
+        replicate = _bootstrap_frame(survey, rng)
+        est = estimate_once(replicate, register, ratios, county_state)
+        now_reps.append(aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]))
+        fut = project(est["county"], est["cube"], horizon_months, rng)
+        future_reps.append(aggregate(fut, county_state, est["state_stats"], fut["persons"]))
+
+    def rows(point_values: dict, replicates: list[dict], widen: float = 1.0) -> list[dict]:
+        out = []
+        for key in sorted(point_values):
+            v = point_values[key]
+            draws = np.asarray([r[key] for r in replicates], dtype=np.float64)
+            draws = draws[np.isfinite(draws)]
+            if not np.isfinite(v):
+                v, lower, upper = 0.0, 0.0, 0.0
+            elif len(draws) < 10:
+                lower, upper = v, v
+            else:
+                lo, hi = np.percentile(draws, [5, 95])
+                half = 0.5 * (hi - lo) * widen
+                center = v
+                lower, upper = center - half, center + half
+            kind = "proportion" if key[0].endswith("share") or key[0].startswith("tertiary") else "count"
+            lower = max(lower, 0.0)
+            if kind == "proportion":
+                upper = min(upper, 1.0)
+                v = min(max(v, lower), upper)
+            out.append({"estimand": key[0], "level": key[1], "unit": int(key[2]),
+                        "estimate": float(v), "lower": float(min(lower, v)), "upper": float(max(upper, v))})
+        return out
+
+    release_rows = rows(now, now_reps)
+    projection_rows = rows(future, future_reps, widen=params.carry_forward_width)
+
+    # Detailed table: primary suppression of small estimated cells, no totals published.
+    threshold = int(contract["disclosure_threshold"])
+    cube = point["cube"]
+    detail = []
+    for c in range(n_counties):
+        for b, band in enumerate(AGE_BAND_LABELS):
+            for s, sex in enumerate(SEX_LABELS):
+                value = cube[c, b, s]
+                suppressed = 0 < value < params.suppression_multiplier * threshold
+                detail.append({"county": c, "age_band": band, "sex": sex,
+                               "count": "" if suppressed else round(float(value), 3)})
+
+    elders = np.maximum(future_point["elders_65_plus"], 0.0)
+    budget = float(contract["allocation"]["budget"])
+    allocation = elders / max(elders.sum(), 1e-9) * budget
+    allocation = np.floor(allocation * 1e6) / 1e6          # never over budget by rounding
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
+    pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
+    pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
+    pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
+        out_dir / "allocation.csv", index=False)
+    return {"release": release_rows, "projection": projection_rows,
+            "coverage_by_state": None, "n_bootstrap": params.bootstrap_replicates}

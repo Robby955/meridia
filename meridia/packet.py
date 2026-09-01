@@ -109,7 +109,14 @@ def _survey_at(built: dict, tick: int) -> dict:
     # survey-local household number rather than the world's household index.
     public = dict(survey["survey"])
     county_flat = built["admin"]["county"].flatten()
-    public["county"] = county_flat[public.pop("cell")].astype(np.int64)
+    cell = public.pop("cell")
+    public["county"] = county_flat[cell].astype(np.int64)
+    _, public["psu"] = np.unique(cell, return_inverse=True)        # masked sampling unit
+    public["psu"] = public["psu"].astype(np.int64)
+    # Design documentation: households sampled in each unit (respondents are visible).
+    sampled_cells = household_cell[survey["truth"]["sampled_households"]]
+    sampled_per_cell = np.bincount(sampled_cells, minlength=len(county_flat))
+    public["psu_sampled_households"] = sampled_per_cell[cell].astype(np.int64)
     _, public["household"] = np.unique(public["household"], return_inverse=True)
     public["household"] = public["household"].astype(np.int64)
     survey["survey"] = public

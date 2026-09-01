@@ -76,8 +76,11 @@ def test_survey_snapshots_differ_and_look_like_surveys(packet):
     import pandas as pd
     a = pd.read_csv(out / "participant" / "survey_preliminary.csv")
     b = pd.read_csv(out / "participant" / "survey_revised.csv")
-    assert set(a.columns) == {"household", "county", "stratum", "design_weight", "age", "sex",
-                              "education", "income"}
+    assert set(a.columns) == {"household", "county", "psu", "psu_sampled_households", "stratum",
+                              "design_weight", "age", "sex", "education", "income"}
+    responding = a.groupby("psu")["household"].nunique()
+    sampled = a.groupby("psu")["psu_sampled_households"].first()
+    assert (responding <= sampled).all() and (sampled <= 12).all()
     assert a["household"].min() == 0 and a["household"].max() == a["household"].nunique() - 1
     assert len(a) > 100 and len(b) > 100 and len(a) != len(b)
     assert a["income"].isna().any() and (a["design_weight"] >= 1).all()
