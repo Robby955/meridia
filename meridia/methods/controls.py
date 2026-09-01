@@ -119,9 +119,9 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
         county[e] = np.clip(state_values[county_state] * ratios[e], 0.0, 1.0) if e.endswith("share") \
             else state_values[county_state] * ratios[e]
     now = A.aggregate(county, county_state, stats, county["persons"])
-    future = A.aggregate(A.project(county, register["cube"], horizon_months, np.random.default_rng(1)),
+    future = A.aggregate(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1)),
                          county_state, stats, county["persons"])
-    elders = np.maximum(A.project(county, register["cube"], horizon_months, np.random.default_rng(1))["elders_65_plus"], 0.0)
+    elders = np.maximum(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1))["elders_65_plus"], 0.0)
     allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
     write_submission(out_dir, _rows_with_relative_half(now, 0.01), _rows_with_relative_half(future, 0.02),
                      register["cube"], 2.0 * threshold, allocation)

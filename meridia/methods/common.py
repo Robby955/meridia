@@ -87,6 +87,7 @@ def apply_calibration(values: dict, factors: dict, dispersion: float) -> dict:
             continue
         f = factors[e]
         shift = f["intercept"] + f["slope"] * dispersion if isinstance(f, dict) else float(f)
+        shift = float(np.clip(shift, -0.25, 0.25))   # a correction beyond this is a model failure, not a fix
         if e == "low_income_household_share":
             out[(e, level, u)] = float(min(max(v + shift, 0.0), 1.0))
         else:

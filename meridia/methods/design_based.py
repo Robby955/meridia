@@ -37,6 +37,7 @@ from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, LOW_INCOME_FRACT
 from ..survey import SurveyParams
 
 HOUSEHOLDS_PER_PSU = SurveyParams().households_per_cell   # public design constant
+MAX_AGE = 100
 NOMINAL = 0.90
 
 
@@ -101,6 +102,9 @@ def register_counts(frame, n_counties: int) -> dict:
     cube = np.zeros((n_counties, len(AGE_BANDS), 2))
     np.add.at(cube, (county, np.maximum(band, 0), sex), 1)
     counts["cube"] = cube
+    age_sex = np.zeros((n_counties, MAX_AGE + 1, 2))
+    np.add.at(age_sex, (county, np.clip(age, 0, MAX_AGE), sex), 1)
+    counts["age_sex"] = age_sex
     return counts
 
 
@@ -312,7 +316,8 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
         county[e] = state_values[county_state] * ratios[e]
         if e == "low_income_household_share":
             county[e] = np.clip(county[e], 0.0, 1.0)
-    return {"county": county, "state_stats": stats, "cube": register["cube"] * scale[:, None, None]}
+    return {"county": county, "state_stats": stats, "cube": register["cube"] * scale[:, None, None],
+            "age_sex": register["age_sex"] * scale[:, None, None]}
 
 
 def _direct_county_persons(frame, n_counties: int) -> tuple[np.ndarray, np.ndarray]:
@@ -358,39 +363,44 @@ def aggregate(county_values: dict, county_state: np.ndarray, stats: dict, weight
 
 # ---------------------------------------------------------------------- projection
 
-def project(county_values: dict, cube: np.ndarray, months: int, rng: np.random.Generator) -> dict:
-    """Cohort-component step from the estimated age-band cube, parameters drawn from
-    the public ranges; income items carried forward."""
+def project(county_values: dict, age_sex: np.ndarray, months: int, rng: np.random.Generator) -> dict:
+    """Cohort-component projection on single-year ages.
+
+    Mortality and fertility are drawn from the public ranges; a shock year is drawn
+    with the frequency the public shock family implies. Each simulated year: survivors
+    age by one, births arrive to women aged 18 to 45 and survive infancy, and the
+    open-ended top age absorbs. Income items are carried forward; household counts
+    follow the person growth.
+    """
     lo_a, hi_a = CHARACTER_RANGES["gompertz_a"]
     lo_f, hi_f = CHARACTER_RANGES["fertility_rate"]
     params = DemographyParams(gompertz_a=float(rng.uniform(lo_a, hi_a)),
                               fertility_rate=float(rng.uniform(lo_f, hi_f)))
-    years = months / 12.0
-    band_mid = np.asarray([(lo + min(hi, 95)) / 2.0 for lo, hi in AGE_BANDS])
-    survival = (1.0 - mortality_probability(band_mid, params)) ** years
-    survivors = cube * survival[None, :, None]
-    # Aging across bands: a share of each band moves up, proportional to elapsed years
-    # over the band width; the top band keeps its survivors.
-    widths = np.asarray([min(hi, 95) - lo + 1 for lo, hi in AGE_BANDS], dtype=np.float64)
-    moved = np.zeros_like(survivors)
-    for b in range(len(AGE_BANDS)):
-        share = min(1.0, years / widths[b])
-        up = survivors[:, b, :] * share
-        moved[:, b, :] += survivors[:, b, :] - up
-        if b + 1 < len(AGE_BANDS):
-            moved[:, b + 1, :] += up
-        else:
-            moved[:, b, :] += up
-    women_fertile = 0.5 * (cube[:, 1, 1] + cube[:, 2, 1])   # 16-44 women, roughly 18-45
-    births = women_fertile * params.fertility_rate * years
-    moved[:, 0, 0] += 0.5 * births
-    moved[:, 0, 1] += 0.5 * births
-    persons = moved.sum(axis=(1, 2))
-    growth = persons / np.maximum(cube.sum(axis=(1, 2)), 1e-9)
+    years = int(round(months / 12.0))
+    ages = np.arange(MAX_AGE + 1)
+    q = mortality_probability(ages, params)
+    n_shocks = int(rng.integers(0, 3))
+    shock_years = set(int(v) for v in rng.integers(0, max(years, 1), size=n_shocks))
+    state = age_sex.astype(np.float64).copy()
+    for year in range(years):
+        multiplier = float(rng.uniform(1.5, 3.0)) if year in shock_years else 1.0
+        survival = 1.0 - np.clip(q * multiplier, 0.0, 1.0)
+        survivors = state * survival[None, :, None]
+        aged = np.zeros_like(survivors)
+        aged[:, 1:, :] = survivors[:, :-1, :]
+        aged[:, MAX_AGE, :] += survivors[:, MAX_AGE, :]
+        women = state[:, 18:46, 1].sum(axis=1)
+        fertility = params.fertility_rate * (float(rng.uniform(0.45, 0.75)) if year in shock_years and rng.random() < 0.33 else 1.0)
+        births = women * fertility * survival[0]
+        aged[:, 0, 0] += 0.5 * births
+        aged[:, 0, 1] += 0.5 * births
+        state = aged
+    persons = state.sum(axis=(1, 2))
+    growth = persons / np.maximum(age_sex.sum(axis=(1, 2)), 1e-9)
     out = dict(county_values)
     out["persons"] = persons
-    out["children_under_16"] = moved[:, 0, :].sum(axis=1)
-    out["elders_65_plus"] = moved[:, 4, :].sum(axis=1)
+    out["children_under_16"] = state[:, :16, :].sum(axis=(1, 2))
+    out["elders_65_plus"] = state[:, 65:, :].sum(axis=(1, 2))
     out["households"] = county_values["households"] * growth
     return out
 
@@ -512,7 +522,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     point = estimate_once(survey, register, ratios, county_state)
     model_rel_sd = float(point["county"].pop("_model_rel_sd", 0.0))
     now = aggregate(point["county"], county_state, point["state_stats"], point["county"]["persons"])
-    future_point = project(point["county"], point["cube"], horizon_months, np.random.default_rng(params.seed + 1))
+    future_point = project(point["county"], point["age_sex"], horizon_months, np.random.default_rng(params.seed + 1))
     future = aggregate(future_point, county_state, point["state_stats"], future_point["persons"])
 
     factors = json.loads(Path(params.calibration_path).read_text()) if params.calibration_path else {}
@@ -525,7 +535,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
         est["county"].pop("_model_rel_sd", None)
         now_reps.append(_apply_calibration(
             aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]), factors, dispersion))
-        fut = project(est["county"], est["cube"], horizon_months, rng)
+        fut = project(est["county"], est["age_sex"], horizon_months, rng)
         future_reps.append(_apply_calibration(
             aggregate(fut, county_state, est["state_stats"], fut["persons"]), factors, dispersion))
 
@@ -549,6 +559,10 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
                     # survey bootstrap: a ten percent relative allowance.
                     extra = 1.645 * 0.10 * (abs(v) if key[0] != "low_income_household_share" else 0.5)
                     half = float(np.sqrt(half ** 2 + extra ** 2))
+                if widen > 1.0 and key[0] == "tertiary_share_25_plus":
+                    half = float(np.sqrt(half ** 2 + (0.03 * horizon_months / 60.0) ** 2))
+                if widen > 1.0 and key[0] in ("persons", "households", "children_under_16", "elders_65_plus"):
+                    half = float(np.sqrt(half ** 2 + (1.645 * 0.03 * np.sqrt(horizon_months / 12.0) * abs(v)) ** 2))
                 if key[0] == "tertiary_share_25_plus":
                     # Register share: binomial spread over the known-education base,
                     # plus an allowance for item-missing education being selective.

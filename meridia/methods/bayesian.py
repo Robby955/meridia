@@ -135,16 +135,18 @@ def sample_income(frame, register_frame, income, county_state: np.ndarray,
     w = frame["weight"].to_numpy(dtype=np.float64)
     county = frame["county"].to_numpy(dtype=np.int64)
     adults = frame["age"].to_numpy() >= 16
-    log_income = np.log1p(frame["income"].to_numpy(dtype=np.float64))
-    # Direct county estimates of log mean adult income with a between-unit variance proxy.
+    income = frame["income"].to_numpy(dtype=np.float64)
+    # Direct county estimates: the log of the weighted arithmetic mean of adult income
+    # (not the mean of logs, which would understate a skewed mean), with a
+    # between-unit variance proxy on the same scale.
     direct = np.full(n_counties, np.nan)
     var = np.full(n_counties, np.nan)
     for c in range(n_counties):
         mask = (county == c) & adults
         if mask.sum() >= 5:
-            direct[c] = float((w[mask] * log_income[mask]).sum() / w[mask].sum())
+            direct[c] = float(np.log(max((w[mask] * income[mask]).sum() / w[mask].sum(), 1.0)))
             psus = frame["psu"].to_numpy()[mask]
-            per = [float((w[mask][psus == u] * log_income[mask][psus == u]).sum() / w[mask][psus == u].sum())
+            per = [float(np.log(max((w[mask][psus == u] * income[mask][psus == u]).sum() / w[mask][psus == u].sum(), 1.0)))
                    for u in np.unique(psus)]
             var[c] = float(np.var(per, ddof=1) / len(per)) if len(per) >= 2 else np.nan
     covariate = np.log(np.maximum(ratios["mean_income_adults"], 1e-3))
@@ -174,11 +176,11 @@ def sample_income(frame, register_frame, income, county_state: np.ndarray,
         tau2 = float(max(np.var(theta - prior_mean), 1e-4))
         if sweep >= burn_in:
             draws[sweep - burn_in] = theta
-    out["mean_income_adults"] = np.expm1(draws)
+    out["mean_income_adults"] = np.exp(draws)
     # Median and low-income share: state survey estimates scaled by county ratios, with
     # the county mean's posterior relative spread as the uncertainty carrier.
     stats = A.survey_statistics(frame, county_state)
-    rel = np.expm1(draws) / np.maximum(np.expm1(draws).mean(axis=0), 1e-9)
+    rel = np.exp(draws) / np.maximum(np.exp(draws).mean(axis=0), 1e-9)
     for e in ("median_household_income", "low_income_household_share"):
         state_values = np.asarray([stats[e][s] for s in range(n_states)])
         base = state_values[county_state] * ratios[e]
@@ -241,12 +243,13 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     draws_now: dict[tuple, list] = {}
     draws_future: dict[tuple, list] = {}
     cube = np.asarray(register["cube"], dtype=np.float64)
+    age_sex = np.asarray(register["age_sex"], dtype=np.float64)
     for k in range(n_draws):
         values = county_values(k)
         agg = apply_calibration(aggregate_b(values, values["persons"]), factors, dispersion)
         for key, v in agg.items():
             draws_now.setdefault(key, []).append(v)
-        future = A.project(values, cube * ratio_draws[k][:, None, None], horizon_months, rng)
+        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng)
         agg_f = apply_calibration(aggregate_b(future, future["persons"]), factors, dispersion)
         for key, v in agg_f.items():
             draws_future.setdefault(key, []).append(v)
@@ -286,7 +289,9 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
             if level == "county" and e != "tertiary_share_25_plus":
                 add = 1.645 * 0.10 * (abs(v) if not e.endswith("share") else 0.5)
             if projection and e in COUNT_ITEMS:
-                add = float(np.sqrt(add ** 2 + (1.645 * 0.08 * abs(v)) ** 2))
+                add = float(np.sqrt(add ** 2 + (1.645 * 0.03 * np.sqrt(horizon_months / 12.0) * abs(v)) ** 2))
+            if projection and e == "tertiary_share_25_plus":
+                add = float(np.sqrt(add ** 2 + (0.03 * horizon_months / 60.0) ** 2))
             if add > 0:
                 extra[key] = float(np.sqrt(extra.get(key, 0.0) ** 2 + add ** 2))
     widen(extra_now, point_now, False)
