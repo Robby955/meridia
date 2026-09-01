@@ -82,6 +82,13 @@ def test_nearest_seat_rule_and_rank_tiebreak():
     assert admin["n_states"] == 1 and (admin["state"] == 0).all()
 
 
+def test_outpost_on_a_settlement_cell_is_folded_into_that_county():
+    land = np.ones((5, 9), dtype=bool)
+    admin = build_admin(land, [(2, 2), (2, 6)], outposts=[(2, 2), (0, 8)], n_states=1)
+    assert admin["n_counties"] == 3
+    assert list(admin["county_is_outpost"]) == [False, False, True]
+
+
 def test_seat_off_land_rejected():
     land = np.ones((4, 4), dtype=bool)
     land[0, 0] = False

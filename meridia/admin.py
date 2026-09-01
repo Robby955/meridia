@@ -44,14 +44,20 @@ def build_admin(land: np.ndarray, settlements: list[tuple[int, int]],
     """
     height, width = land.shape
     seats = [tuple(int(v) for v in s) for s in settlements]
-    seats += [tuple(int(v) for v in o) for o in (outposts or [])]
+    if len(set(seats)) != len(seats):
+        raise ValueError("settlements must be distinct cells")
+    # An outpost can sit on a settlement cell (settlements are seeded on habitability
+    # after the outpost bumps); that county already has its seat, so the outpost is
+    # folded into it rather than counted twice.
+    for o in (outposts or []):
+        o = tuple(int(v) for v in o)
+        if o not in seats:
+            seats.append(o)
     if not seats:
         raise ValueError("at least one seat is required")
     for r, c in seats:
         if not land[r, c]:
             raise ValueError(f"seat {(r, c)} is not on land")
-    if len(set(seats)) != len(seats):
-        raise ValueError("seats must be distinct cells")
 
     county = _chebyshev_labels(height, width, seats)
     county = np.where(land, county, -1)

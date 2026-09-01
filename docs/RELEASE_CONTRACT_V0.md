@@ -100,7 +100,8 @@ and shipped with the packet. Nothing in a free-text narrative is score bearing.
 
 ## Stage ten: projection and allocation
 
-The release closes with a look ahead. The participant publishes the same estimand table
+The release closes with a look ahead. The future is the world's own monthly ledger
+replayed through the horizon, the same engine the observed sources were cut from. The participant publishes the same estimand table
 for the next vintage, in the same schema, and commits an allocation: one non-negative
 number per county whose sum does not exceed the stated budget. The world then runs forward
 under its own dynamics, shocks included, and the future table is exact truth.
