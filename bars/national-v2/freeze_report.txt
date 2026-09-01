@@ -1,0 +1,28 @@
+# Bar freeze report
+
+- strong A on hidden-20260902: PASS
+- strong A on hidden-20260908: PASS
+- strong A on hidden-20260909: PASS
+- strong B on hidden-20260902: PASS
+- strong B on hidden-20260908: PASS
+- strong B on hidden-20260909: PASS
+- control register_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0479 > 0.039976; interval score: persons/nation 0.7860 > 0.155017
+- control register_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0535 > 0.039976; interval score: persons/nation 0.8997 > 0.155017
+- control register_only on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0507 > 0.039976; interval score: persons/nation 0.8435 > 0.155017
+- control survey_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2464 > 0.039976; interval score: persons/nation 4.7919 > 0.155017
+- control survey_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2321 > 0.039976; interval score: persons/nation 4.5047 > 0.155017
+- control survey_only on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2114 > 0.039976; interval score: persons/nation 4.0867 > 0.155017
+- control no_dedup on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.390 < 0.7; coverage: households/all 0.268 < 0.7
+- control no_dedup on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. interval score: persons/nation 0.1999 > 0.155017; coverage: persons/all 0.341 < 0.7
+- control no_dedup on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.293 < 0.7; coverage: households/all 0.146 < 0.7
+- control inflated_intervals on hidden-20260902: FAILS interval score; e.g. interval score: persons/nation 0.7744 > 0.155017; interval score: persons/state 0.7761 > 0.469043
+- control inflated_intervals on hidden-20260908: FAILS interval score; e.g. interval score: persons/nation 0.7848 > 0.155017; interval score: persons/state 0.7765 > 0.469043
+- control inflated_intervals on hidden-20260909: FAILS interval score; e.g. interval score: persons/nation 0.8076 > 0.155017; interval score: persons/state 0.8310 > 0.469043
+- control static_projection on hidden-20260902: FAILS projection accuracy, projection coverage, projection interval score; e.g. projection interval score: persons/nation 0.5959 > 0.39453; projection accuracy: children_under_16/nation worst error 0.1660 > 0.155132
+- control static_projection on hidden-20260908: FAILS projection coverage, projection interval score; e.g. projection interval score: persons/nation 0.5678 > 0.39453; projection interval score: children_under_16/nation 2.2558 > 0.555282
+- control static_projection on hidden-20260909: FAILS projection accuracy, projection coverage, projection interval score; e.g. projection interval score: children_under_16/nation 1.3162 > 0.555282; projection interval score: children_under_16/state 0.8562 > 0.84877
+- control uniform_allocation on hidden-20260902: FAILS allocation; e.g. allocation: regret 0.2799 > 0.029035
+- control uniform_allocation on hidden-20260908: FAILS allocation; e.g. allocation: regret 0.2663 > 0.029035
+- control uniform_allocation on hidden-20260909: FAILS allocation; e.g. allocation: regret 0.2579 > 0.029035
+
+RESULT: bars frozen; every control fails a named gate
