@@ -104,7 +104,16 @@ def _survey_at(built: dict, tick: int) -> dict:
     population = np.bincount(person["cell"], minlength=height * width).reshape(height, width)
     micro = {"person": person, "household_cell": household_cell,
              "urbanity": built["micro"]["urbanity"], "n_households": len(household_cell)}
-    return draw_survey(micro, population, built["seed"] + tick)
+    survey = draw_survey(micro, population, built["seed"] + tick)
+    # Participant view: the survey carries the county, not the grid cell, and a
+    # survey-local household number rather than the world's household index.
+    public = dict(survey["survey"])
+    county_flat = built["admin"]["county"].flatten()
+    public["county"] = county_flat[public.pop("cell")].astype(np.int64)
+    _, public["household"] = np.unique(public["household"], return_inverse=True)
+    public["household"] = public["household"].astype(np.int64)
+    survey["survey"] = public
+    return survey
 
 
 def _truth_at(built: dict, tick: int) -> tuple[dict, np.ndarray]:
