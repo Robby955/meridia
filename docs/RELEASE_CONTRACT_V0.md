@@ -67,7 +67,7 @@ the packet. The audit fails, with no tolerance, if
 
 - a protected cell is published;
 - a suppressed protected cell is determined exactly by the published cells and totals,
-  through any linear combination of them, not only a subtraction within one row; or
+  through any linear combination of them, including subtraction within one row; or
 - published cells and totals disagree.
 
 Complementary suppression is the participant's responsibility. Withholding a total is
@@ -78,9 +78,9 @@ allowed; publishing one that lets a protected cell be solved for is not.
 All scoring uses the exact finite-population values.
 
 - Error. For counts, means, and medians: `|estimate - truth| / max(|truth|, 1)`. For shares:
-  `|estimate - truth|`. Reported per estimand and level as the worst unit and the mean;
-  gates bind on the worst unit.
-- Coverage. The share of units whose interval contains the truth, per estimand and level.
+  `|estimate - truth|`. Reported for each estimand at each level as the worst unit and the
+  mean; gates bind on the worst unit.
+- Coverage. The share of a level's units whose interval contains the truth.
 - Interval score. `(upper - lower) + (2 / 0.10) * distance of the truth outside the
   interval`, on the same scale as the error, averaged over units. Wide intervals raise it;
   missed truth raises it more. Gates bind on it so inflated intervals cannot buy coverage.
@@ -90,9 +90,9 @@ All scoring uses the exact finite-population values.
 A release passes only if every gate holds:
 
 1. schema exact and additive;
-2. worst-unit error at or below the frozen bar for every estimand and level;
+2. worst-unit error at or below the frozen bar, for each estimand at each level;
 3. coverage at or above the frozen floor and interval score at or below the frozen
-   ceiling for every estimand and level;
+   ceiling, everywhere;
 4. disclosure audit clean.
 
 Bars, floors, and ceilings are frozen from two executed strong pipelines before any trial

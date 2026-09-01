@@ -4,8 +4,9 @@ Meridia generates synthetic countries for testing statistical methods and AI res
 agents. One seed produces terrain, rivers, settlements, and a population of individual
 people with households, ages, and incomes; the national population size is drawn from
 the seed as well, so nations differ in scale the way countries do. Surveys are then
-drawn from that population with the defects real collection has: unit and item
-nonresponse, measurement error, rounding. Because the complete population is retained,
+drawn from that population, and the survey files carry the flaws real collection
+produces. Households skip the survey, questions go unanswered, incomes are misreported,
+ages get rounded. Because the complete population is retained,
 the error of any estimate computed from a survey is known exactly, and stated
 uncertainty can be checked against true coverage. No judge models, no real data.
 
@@ -78,23 +79,21 @@ from 0.40 to 0.55, and life expectancies from 69 to 78. The ranges are public; a
 evaluation world's specific draw is not, so a method must estimate the society it is in
 from the data.
 
-## A research instrument, not just a testbed
+## What a cheap world allows
 
 Because a nation costs seconds, the unit of replication stops being a sample and becomes
-the whole world. That allows studies real data can never support:
+the whole world. Studies that real data cannot support become routine.
 
-- **Sampling distributions of entire pipelines.** Run an estimator, or an AI research
-  agent, across two hundred seeded nations and you get the true distribution of its
-  whole workflow: editing, imputation, weighting, inference, end to end, scored against
-  exact truth in every world.
-- **Shift and shock experiments.** Worlds can branch: the same nation with and without a
-  break year (a mortality spike, a migration wave). Robustness under distribution shift
-  becomes a controlled experiment where the counterfactual actually exists.
-- **Measured power for study designs.** Whether a proposed experiment can detect what it
-  claims gets answered by generating worlds under both hypotheses and counting, before
-  any real compute is spent.
-- **Verifiable training data.** Agent runs on world tasks carry rewards computed against
-  exact truth, with no judge models and no label noise.
+- Run an estimator, or an AI research agent, across two hundred seeded nations and you
+  have the sampling distribution of the whole workflow, from editing through inference,
+  scored against exact truth in every world.
+- Worlds can branch. The same nation with and without a break year (a mortality spike, a
+  migration wave) turns behaviour under a shift into a controlled experiment, because the
+  counterfactual world is on disk.
+- Whether a proposed experiment can detect what it claims is answered by generating worlds
+  under both hypotheses and counting, before any real compute is spent.
+- Agent runs on world tasks carry rewards computed against exact truth, with no judge
+  models and no label noise.
 
 Evaluation stays clean through sealing: development worlds are open instruments; worlds
 used for grading are generated at registered seeds and never looked at, by anyone.
@@ -105,22 +104,22 @@ used for grading are generated at registered seeds and never looked at, by anyon
 - Plain Python with NumPy. No game engines, no third-party simulators, no real data.
 - Totals are exact integers, and the conservation checks are tests, not intentions.
 - The flaws in the survey data are planted through explicit mechanisms that are kept on
-  file, so a method that models the mechanism genuinely wins.
+  file, so a method that models the mechanism is rewarded for it.
 - Worlds used for sealed evaluation are generated at registered seeds and never looked
   at, by anyone.
 
 ## Run it
 
 ```bash
-python -m pytest tests/                        # 32 tests
-python scripts/render_first_nation.py          # terrain and rivers map
-python scripts/render_first_nation_population.py   # population map
-python scripts/build_first_nation_microdata.py     # people, households, demographics
-python scripts/render_72_hours.py              # three days of weather over the nation
-python scripts/run_thirty_years.py             # thirty years of the country
-python scripts/render_many_nations.py          # six worlds in about two seconds
-python scripts/world_characters.py             # the character sheet of five societies
+python -m pytest tests/
 ```
+
+Seventy-five tests. Each script under `scripts/` draws one figure from stored state:
+`render_first_nation.py` the terrain and rivers, `render_first_nation_population.py` the
+population, `render_admin.py` the states and counties, `build_first_nation_microdata.py`
+the people and households, `render_72_hours.py` three days of weather,
+`run_thirty_years.py` thirty years of the country, `render_many_nations.py` six worlds,
+and `world_characters.py` the character sheet of five societies.
 
 Python 3.11+, NumPy, pandas, matplotlib, Pillow.
 
