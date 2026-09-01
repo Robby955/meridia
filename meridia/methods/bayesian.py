@@ -220,7 +220,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     horizon_months = int(contract["ticks"]["horizon"]) - tick
     rng = np.random.default_rng(params.seed)
 
-    register_frame = A.deduplicate_population(data["population"], tick)
+    register_frame = A.deduplicate_population(data["population"], tick, data["income"], data.get("health"))
     register = A.register_counts(register_frame, n_counties)
     mortality = A.estimate_mortality(data["population_preliminary"], data["population"],
                                      int(contract["ticks"]["preliminary"]), tick)

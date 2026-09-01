@@ -27,6 +27,7 @@ def load_packet(packet_dir: Path) -> dict:
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
         "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
         "income": pd.read_csv(P / "sources" / "income_revised.csv"),
+        "health": pd.read_csv(P / "sources" / "health_revised.csv"),
     }
 
 

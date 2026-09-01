@@ -41,6 +41,7 @@ import numpy as np
 from ..character import CHARACTER_RANGES
 from ..demography import DemographyParams, mortality_probability
 from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, LOW_INCOME_FRACTION, SEX_LABELS
+from ..sources import SourceParams
 from ..survey import SurveyParams
 
 HOUSEHOLDS_PER_PSU = SurveyParams().households_per_cell   # public design constant
@@ -74,14 +75,56 @@ def load_packet(packet_dir: Path) -> dict:
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
         "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
         "income": pd.read_csv(P / "sources" / "income_revised.csv"),
+        "health": pd.read_csv(P / "sources" / "health_revised.csv"),
     }
 
 
 # --------------------------------------------------------------------------- register
 
-def deduplicate_population(population, tick: int):
-    """One row per (name_code, birth_tick, sex); age in years at ``tick``."""
-    frame = population.drop_duplicates(subset=["name_code", "birth_tick", "sex"]).copy()
+def deduplicate_population(population, tick: int, income=None, health=None):
+    """One row per (name_code, birth_tick, sex); age in years at ``tick``.
+
+    County by majority vote across sources. Each source records a person's county with
+    its own independent coding errors; where the income or health source carries the
+    same person (matched on name code, birth month, and sex), the county agreed by a
+    majority of the sources that hold the person replaces a lone population code. A
+    miscoded county in one source is then outvoted, which matters most for small
+    counties, where a uniform trickle of miscoded records from large counties can
+    exceed the true population.
+    """
+    keys = ["name_code", "birth_tick", "sex"]
+    frame = population.drop_duplicates(subset=keys).copy()
+    votes = frame[keys + ["county"]].rename(columns={"county": "county_pop"})
+    if income is not None:
+        inc = income[income["county"] >= 0].drop_duplicates(subset=keys)[keys + ["county"]].rename(columns={"county": "county_inc"})
+        votes = votes.merge(inc, on=keys, how="left")
+    else:
+        votes["county_inc"] = np.nan
+    if health is not None and {"patient_county", "name_code", "birth_tick", "sex"} <= set(health.columns):
+        hlt = health[health["patient_county"] >= 0].drop_duplicates(subset=keys)[keys + ["patient_county"]].rename(columns={"patient_county": "county_hlt"})
+        votes = votes.merge(hlt, on=keys, how="left")
+    else:
+        votes["county_hlt"] = np.nan
+    a = votes["county_pop"].to_numpy(dtype=np.float64)
+    b = votes["county_inc"].to_numpy(dtype=np.float64)
+    c = votes["county_hlt"].to_numpy(dtype=np.float64)
+    resolved = a.copy()
+    # Two other sources agree with each other and disagree with the population source:
+    # they win.
+    both = np.isfinite(b) & np.isfinite(c)
+    resolved[both & (b == c)] = b[both & (b == c)]
+    # Exactly two sources hold the person and disagree: no majority. County-coding
+    # errors are uniform over codes, so the truth is the county whose population makes
+    # the observed pair more likely, which is the larger of the two.
+    size = np.bincount(a.astype(np.int64)[a >= 0], minlength=int(np.nanmax(a)) + 1).astype(np.float64)
+    for other in (b, c):
+        pair = np.isfinite(other) & ~both & (other != a) & (a >= 0)
+        idx = np.flatnonzero(pair)
+        if len(idx):
+            take = size[other[idx].astype(np.int64)] > size[a[idx].astype(np.int64)]
+            resolved[idx[take]] = other[idx[take]]
+    frame["county"] = resolved.astype(np.int64)
+    frame["voted"] = (np.isfinite(b) | np.isfinite(c)).astype(np.int8)   # another source held the person
     frame["age"] = (tick - frame["birth_tick"]) // 12
     frame = frame[frame["county"] >= 0]
     return frame
@@ -123,7 +166,24 @@ def estimate_mortality(population_preliminary, population_revised, tick_pre: int
     return {"gompertz_a": float(np.clip(best, lo_a * 0.5, hi_a * 1.5)), "gompertz_b": default.gompertz_b, "fitted": True}
 
 
-def register_counts(frame, n_counties: int) -> dict:
+def miscoding_correction(county_counts: np.ndarray, error_rate: float) -> np.ndarray:
+    """Debias county counts for uniform county miscoding at a public rate.
+
+    Observed count in county c is (1 - e) T_c + e (T - T_c) / (K - 1) for true counts T.
+    With T taken as the observed total, T_c follows in closed form. The correction is
+    small for large counties and decisive for small ones, which otherwise carry a
+    trickle of misfiled records from everywhere else.
+    """
+    counts = np.asarray(county_counts, dtype=np.float64)
+    k = len(counts)
+    if k < 2 or error_rate <= 0:
+        return counts
+    total = counts.sum()
+    corrected = (counts - error_rate * total / (k - 1)) / (1.0 - error_rate - error_rate / (k - 1))
+    return np.maximum(corrected, 0.0)
+
+
+def register_counts(frame, n_counties: int, county_error_rate: float | None = None) -> dict:
     county = frame["county"].to_numpy(dtype=np.int64)
     age = frame["age"].to_numpy(dtype=np.int64)
     counts = {
@@ -151,6 +211,22 @@ def register_counts(frame, n_counties: int) -> dict:
     age_sex = np.zeros((n_counties, MAX_AGE + 1, 2))
     np.add.at(age_sex, (county, np.clip(age, 0, MAX_AGE), sex), 1)
     counts["age_sex"] = age_sex
+    # Miscoding debias at the public rate, applied as a per-county factor so the age
+    # structure, household counts, and the detailed table move together.
+    # Only records no other source holds still carry the public miscoding rate; voted
+    # records were resolved above. Correct the unvoted part and keep the voted part.
+    rate = SourceParams().county_error_rate if county_error_rate is None else county_error_rate
+    raw = np.asarray(counts["persons"], dtype=np.float64)
+    if "voted" in frame:
+        unvoted = np.bincount(county, weights=(frame["voted"].to_numpy() == 0), minlength=n_counties).astype(np.float64)
+        corrected = (raw - unvoted) + miscoding_correction(unvoted, rate)
+    else:
+        corrected = miscoding_correction(raw, rate)
+    factor = np.where(raw > 0, corrected / np.maximum(raw, 1e-9), 1.0)
+    for e in ("persons", "households", "children_under_16", "elders_65_plus"):
+        counts[e] = np.asarray(counts[e], dtype=np.float64) * factor
+    counts["cube"] = cube * factor[:, None, None]
+    counts["age_sex"] = age_sex * factor[:, None, None]
     return counts
 
 
@@ -305,7 +381,10 @@ def income_source_ratios(income, county_state: np.ndarray, national_median_hh: f
                                    for s in range(int(county_state.max()) + 1)])
         with np.errstate(invalid="ignore", divide="ignore"):
             r = values / state_values[county_state]
-        ratios[name] = np.where(np.isfinite(r), r, 1.0)
+        # A county-to-state ratio from an employment-income source is a proxy for a
+        # total-income quantity; outside a half to double it is noise, not signal.
+        r = np.where(np.isfinite(r) & (r > 0), np.clip(r, 0.5, 2.0), 1.0)
+        ratios[name] = r
     return ratios
 
 
@@ -566,7 +645,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     horizon_months = int(contract["ticks"]["horizon"]) - tick
     rng = np.random.default_rng(params.seed)
 
-    register_frame = deduplicate_population(data["population"], tick)
+    register_frame = deduplicate_population(data["population"], tick, data["income"], data.get("health"))
     register = register_counts(register_frame, n_counties)
     mortality = estimate_mortality(data["population_preliminary"], data["population"],
                                    int(contract["ticks"]["preliminary"]), tick)

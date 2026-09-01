@@ -90,7 +90,7 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
         frame = frame[frame["county"] >= 0]
         register = A.register_counts(frame, n_counties)
     else:
-        register = A.register_counts(A.deduplicate_population(data["population"], tick), n_counties)
+        register = A.register_counts(A.deduplicate_population(data["population"], tick, data["income"], data.get("health")), n_counties)
     ratios = A.income_source_ratios(data["income"], county_state, stats["median_household_income"]["nation"])
 
     if name == "survey_only":
