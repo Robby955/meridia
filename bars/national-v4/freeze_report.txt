@@ -1,0 +1,44 @@
+# Bar freeze report
+
+- strong A on hidden-20260902: PASS
+- strong A on hidden-20260908: PASS
+- strong A on hidden-20260909: PASS
+- strong A on hidden-20260910: PASS
+- strong A on hidden-20260911: PASS
+- strong B on hidden-20260902: PASS
+- strong B on hidden-20260908: PASS
+- strong B on hidden-20260909: PASS
+- strong B on hidden-20260910: PASS
+- strong B on hidden-20260911: PASS
+- control register_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0479 > 0.039976; interval score: persons/nation 0.7860 > 0.168633
+- control register_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0535 > 0.039976; interval score: persons/nation 0.8997 > 0.168633
+- control register_only on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0507 > 0.039976; interval score: persons/nation 0.8435 > 0.168633
+- control register_only on hidden-20260910: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0529 > 0.039976; interval score: persons/nation 0.8880 > 0.168633
+- control register_only on hidden-20260911: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.0509 > 0.039976; interval score: persons/nation 0.8467 > 0.168633
+- control survey_only on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2464 > 0.039976; interval score: persons/nation 4.7919 > 0.168633
+- control survey_only on hidden-20260908: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2321 > 0.039976; interval score: persons/nation 4.5047 > 0.168633
+- control survey_only on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2114 > 0.039976; interval score: persons/nation 4.0867 > 0.168633
+- control survey_only on hidden-20260910: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2347 > 0.039976; interval score: persons/nation 4.5559 > 0.168633
+- control survey_only on hidden-20260911: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. accuracy: persons/nation worst error 0.2242 > 0.039976; interval score: persons/nation 4.3435 > 0.168633
+- control no_dedup on hidden-20260902: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.390 < 0.7; coverage: households/all 0.268 < 0.7
+- control no_dedup on hidden-20260908: FAILS accuracy, coverage, interval score, projection coverage, projection interval score; e.g. interval score: persons/nation 0.1999 > 0.168633; coverage: persons/all 0.341 < 0.7
+- control no_dedup on hidden-20260909: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.293 < 0.7; coverage: households/all 0.146 < 0.7
+- control no_dedup on hidden-20260910: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. interval score: persons/nation 0.1875 > 0.168633; coverage: persons/all 0.415 < 0.7
+- control no_dedup on hidden-20260911: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score; e.g. coverage: persons/all 0.390 < 0.7; coverage: households/all 0.293 < 0.7
+- control inflated_intervals on hidden-20260902: FAILS interval score; e.g. interval score: persons/nation 0.7744 > 0.168633; interval score: persons/state 0.7761 > 0.710675
+- control inflated_intervals on hidden-20260908: FAILS interval score; e.g. interval score: persons/nation 0.7848 > 0.168633; interval score: persons/state 0.7765 > 0.710675
+- control inflated_intervals on hidden-20260909: FAILS interval score; e.g. interval score: persons/nation 0.8076 > 0.168633; interval score: persons/state 0.8310 > 0.710675
+- control inflated_intervals on hidden-20260910: FAILS interval score; e.g. interval score: persons/nation 0.7820 > 0.168633; interval score: persons/state 0.7706 > 0.710675
+- control inflated_intervals on hidden-20260911: FAILS interval score; e.g. interval score: persons/nation 0.8031 > 0.168633; interval score: persons/state 0.7928 > 0.710675
+- control static_projection on hidden-20260902: FAILS projection accuracy, projection coverage, projection interval score; e.g. projection interval score: persons/nation 0.5959 > 0.407678; projection accuracy: children_under_16/nation worst error 0.1660 > 0.155132
+- control static_projection on hidden-20260908: FAILS projection coverage, projection interval score; e.g. projection interval score: persons/nation 0.5678 > 0.407678; projection interval score: children_under_16/nation 2.2558 > 0.711352
+- control static_projection on hidden-20260909: FAILS projection accuracy, projection coverage, projection interval score; e.g. projection interval score: children_under_16/nation 1.3162 > 0.711352; projection interval score: children_under_16/state 0.8562 > 0.84877
+- control static_projection on hidden-20260910: FAILS projection coverage, projection interval score; e.g. projection coverage: median_household_income/all 0.659 < 0.7; projection interval score: tertiary_share_25_plus/nation 0.2401 > 0.108554
+- control static_projection on hidden-20260911: FAILS projection coverage, projection interval score; e.g. projection coverage: median_household_income/all 0.512 < 0.7; projection interval score: tertiary_share_25_plus/nation 0.2265 > 0.108554
+- control uniform_allocation on hidden-20260902: FAILS allocation; e.g. allocation: regret 0.2799 > 0.029035
+- control uniform_allocation on hidden-20260908: FAILS allocation; e.g. allocation: regret 0.2663 > 0.029035
+- control uniform_allocation on hidden-20260909: FAILS allocation; e.g. allocation: regret 0.2579 > 0.029035
+- control uniform_allocation on hidden-20260910: FAILS allocation; e.g. allocation: regret 0.2541 > 0.029035
+- control uniform_allocation on hidden-20260911: FAILS allocation; e.g. allocation: regret 0.2484 > 0.029035
+
+RESULT: bars frozen; every control fails a named gate
