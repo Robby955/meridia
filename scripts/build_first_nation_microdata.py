@@ -25,7 +25,7 @@ outlets[0, :] = outlets[-1, :] = outlets[:, 0] = outlets[:, -1] = True
 filled = fill_depressions(world["elevation"], world["sea_level"])
 direction = flow_directions(filled, outlets)
 accumulation = flow_accumulation(direction, outlets)
-people = build_population(world, accumulation, TOTAL, SETTLEMENTS)
+people = build_population(world, accumulation, TOTAL, SETTLEMENTS, seed=SEED)
 t1 = time.time()
 micro = build_microdata(people["population"], people["habitability"], people["settlements"], SEED)
 t2 = time.time()
