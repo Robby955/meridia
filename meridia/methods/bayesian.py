@@ -61,7 +61,8 @@ def _beta_from_moments(mean: float, var: float, floor: float = 2.0) -> tuple[flo
 
 def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.ndarray,
                       county_state: np.ndarray, small: np.ndarray, rng: np.random.Generator,
-                      sweeps: int, burn_in: int, concentration: float = 12.0) -> np.ndarray:
+                      sweeps: int, burn_in: int, n_psu: np.ndarray | None = None,
+                      concentration: float = 12.0) -> np.ndarray:
     """Gibbs draws of true county populations.
 
     Coverage p_c has a Beta prior per state and size class whose mean is the pooled
@@ -74,15 +75,23 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
     n_states = int(county_state.max()) + 1
     groups = county_state * 2 + small.astype(np.int64)
     have = np.isfinite(direct_var) & (direct_var > 0) & (direct > 0)
+    if n_psu is None:
+        n_psu = np.where(direct > 0, 4.0, 0.0)
     # Group prior means: pooled register over pooled direct where the survey has
     # sampled the group; the small-county class is pooled nationally.
-    prior_mean = np.full(2 * n_states, 0.9)
+    # Group prior means shrink toward the national ratio in proportion to the sampling
+    # units behind them, and stay within the public mechanism bounds.
+    national = float(register[direct > 0].sum() / max(direct[direct > 0].sum(), 1e-9)) if (direct > 0).any() else 0.9
+    prior_mean = np.full(2 * n_states, national)
     for g in range(2 * n_states):
         members = (groups == g) & (direct > 0)
         if g % 2 == 1:
             members = small & (direct > 0)
         if members.sum() >= 1 and direct[members].sum() > 0:
-            prior_mean[g] = float(np.clip(register[members].sum() / direct[members].sum(), 0.5, 0.995))
+            ratio = register[members].sum() / direct[members].sum()
+            units = float(n_psu[members].sum())
+            w = units / (units + A.COVERAGE_PRIOR_UNITS)
+            prior_mean[g] = float(np.clip(w * ratio + (1.0 - w) * national, A.COVERAGE_BOUNDS[0], A.COVERAGE_BOUNDS[1]))
     # The group mean itself is estimated from the survey; its sampling error widens
     # the effective prior so the posterior carries it.
     prior_se = np.zeros(2 * n_states)
@@ -219,8 +228,9 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     small = reg_persons <= np.quantile(reg_persons[reg_persons > 0], 0.25) if (reg_persons > 0).sum() >= 8 \
         else np.zeros(n_counties, bool)
     n_draws = params.sweeps - params.burn_in
+    n_psu_county = survey.groupby("county")["psu"].nunique().reindex(range(n_counties), fill_value=0).to_numpy(dtype=np.float64)
     persons_draws = sample_population(reg_persons, direct, direct_var, county_state, small, rng,
-                                      params.sweeps, params.burn_in)
+                                      params.sweeps, params.burn_in, n_psu=n_psu_county)
     ratio_draws = persons_draws / np.maximum(reg_persons, 1.0)[None, :]
     count_draws = {"persons": persons_draws}
     for e in ("households", "children_under_16", "elders_65_plus"):

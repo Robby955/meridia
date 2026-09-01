@@ -45,6 +45,8 @@ from ..survey import SurveyParams
 
 HOUSEHOLDS_PER_PSU = SurveyParams().households_per_cell   # public design constant
 MAX_AGE = 100
+COVERAGE_PRIOR_UNITS = 20.0        # sampling units at which a state's own ratio gets half weight
+COVERAGE_BOUNDS = (0.75, 1.05)     # from the public source mechanism ranges, after deduplication
 NOMINAL = 0.90
 
 
@@ -316,8 +318,18 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
     stats = survey_statistics(frame, county_state)
     reg_state = np.bincount(county_state, weights=register["persons"], minlength=n_states)
     with np.errstate(invalid="ignore", divide="ignore"):
-        coverage = np.where(reg_state > 0, reg_state / stats["persons_by_state"], 1.0)
-    coverage = np.clip(coverage, 0.5, 1.2)
+        coverage_state = np.where(stats["persons_by_state"] > 0, reg_state / stats["persons_by_state"], np.nan)
+    # A state's coverage ratio is only as good as the survey behind it. A state with a
+    # handful of sampling units gets a ratio dominated by sampling noise, so each state's
+    # ratio is shrunk toward the national ratio with weight proportional to its number
+    # of sampling units (empirical Bayes; twenty units count as much as the prior).
+    national = float(reg_state.sum() / max(stats["persons_by_state"].sum(), 1e-9))
+    n_psu_state = frame.groupby(county_state[frame["county"].to_numpy(dtype=np.int64)])["psu"].nunique() \
+                       .reindex(range(n_states), fill_value=0).to_numpy(dtype=np.float64)
+    weight = n_psu_state / (n_psu_state + COVERAGE_PRIOR_UNITS)
+    coverage = np.where(np.isfinite(coverage_state), weight * coverage_state + (1.0 - weight) * national, national)
+    # The public mechanism ranges bound plausible coverage after deduplication.
+    coverage = np.clip(coverage, COVERAGE_BOUNDS[0], COVERAGE_BOUNDS[1])
     scale = 1.0 / coverage[county_state]
     # Small counties are covered worse by the register than large ones. Pool the
     # survey's direct estimate over the smallest quartile of counties nationally and
@@ -326,8 +338,12 @@ def estimate_once(frame, register: dict, ratios: dict, county_state: np.ndarray)
     direct_all, _ = _direct_county_persons(frame, n_counties)
     reg_persons = np.asarray(register["persons"], dtype=np.float64)
     small = reg_persons <= np.quantile(reg_persons[reg_persons > 0], 0.25) if (reg_persons > 0).sum() >= 8 else np.zeros(n_counties, bool)
-    if small.sum() >= 2 and direct_all[small].sum() > 0:
-        coverage_small = float(np.clip(reg_persons[small].sum() / direct_all[small].sum(), 0.5, 1.2))
+    n_psu_small = float(frame[frame["county"].isin(np.flatnonzero(small))]["psu"].nunique()) if small.any() else 0.0
+    if small.sum() >= 2 and direct_all[small].sum() > 0 and n_psu_small > 0:
+        ratio_small = reg_persons[small].sum() / direct_all[small].sum()
+        w_small = n_psu_small / (n_psu_small + COVERAGE_PRIOR_UNITS)
+        coverage_small = float(np.clip(w_small * ratio_small + (1.0 - w_small) * national,
+                                       COVERAGE_BOUNDS[0], COVERAGE_BOUNDS[1]))
         scale = np.where(small, 1.0 / coverage_small, scale)
     county = {e: register[e] * scale for e in ("persons", "households", "children_under_16", "elders_65_plus")}
     # County persons: combine the synthetic estimate with the direct survey estimate
