@@ -625,6 +625,11 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
                     # survey bootstrap: a ten percent relative allowance.
                     extra = 1.645 * 0.10 * (abs(v) if key[0] != "low_income_household_share" else 0.5)
                     half = float(np.sqrt(half ** 2 + extra ** 2))
+                if widen > 1.0 and key[0] in sensitivity:
+                    # Carried-forward income items drift over the horizon; five percent a
+                    # year in quadrature, the same allowance the Bayesian line carries.
+                    drift = 1.645 * 0.05 * np.sqrt(horizon_months / 12.0)
+                    half = float(np.sqrt(half ** 2 + (drift * (abs(v) if key[0] != "low_income_household_share" else 0.5)) ** 2))
                 if widen > 1.0 and key[0] == "tertiary_share_25_plus":
                     half = float(np.sqrt(half ** 2 + (0.03 * horizon_months / 60.0) ** 2))
                 if widen > 1.0 and key[0] in ("persons", "households", "children_under_16", "elders_65_plus"):
