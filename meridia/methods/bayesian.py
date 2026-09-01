@@ -81,7 +81,7 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
     # sampled the group; the small-county class is pooled nationally.
     # Group prior means shrink toward the national ratio in proportion to the sampling
     # units behind them, and stay within the public mechanism bounds.
-    national = float(register[direct > 0].sum() / max(direct[direct > 0].sum(), 1e-9)) if (direct > 0).any() else 0.9
+    national = float(np.clip(register[direct > 0].sum() / max(direct[direct > 0].sum(), 1e-9), 0.05, 0.995)) if (direct > 0).any() else 0.9
     prior_mean = np.full(2 * n_states, national)
     for g in range(2 * n_states):
         members = (groups == g) & (direct > 0)
@@ -91,7 +91,7 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
             ratio = register[members].sum() / direct[members].sum()
             units = float(n_psu[members].sum())
             w = units / (units + A.COVERAGE_PRIOR_UNITS)
-            prior_mean[g] = float(np.clip(w * ratio + (1.0 - w) * national, A.COVERAGE_BOUNDS[0], A.COVERAGE_BOUNDS[1]))
+            prior_mean[g] = float(np.clip(w * ratio + (1.0 - w) * national, A.COVERAGE_BOUNDS[0], 0.995))
     # The group mean itself is estimated from the survey; its sampling error widens
     # the effective prior so the posterior carries it.
     prior_se = np.zeros(2 * n_states)
@@ -125,7 +125,10 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
             floor_sd = 0.5 / np.sqrt(max(float(n_psu[c]), 1.0)) * direct[c]
             var_c = max(direct_var[c], floor_sd ** 2)
             log_w = log_w - 0.5 * (direct[c] - r / grid) ** 2 / var_c
-        w = np.exp(log_w - log_w.max())
+        w = np.exp(log_w - np.nanmax(log_w))
+        w = np.where(np.isfinite(w), w, 0.0)
+        if w.sum() <= 0:                      # degenerate: fall back to the prior alone
+            w = np.exp(beta_dist.logpdf(grid, a[g], b[g]))
         w /= w.sum()
         p = rng.choice(grid, size=n_draws, p=w)
         draws[:, c] = np.maximum(r / p + rng.normal(0.0, np.sqrt(max(r, 1.0) * (1.0 - p)) / p), r)
