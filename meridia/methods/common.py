@@ -25,6 +25,7 @@ def load_packet(packet_dir: Path) -> dict:
         "county_state": geography["state"].to_numpy(dtype=np.int64),
         "survey": pd.read_csv(P / "survey_revised.csv"),
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
+        "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
         "income": pd.read_csv(P / "sources" / "income_revised.csv"),
     }
 
