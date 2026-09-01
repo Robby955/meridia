@@ -1,0 +1,16 @@
+{
+ "dispersion_reference": 0.7393169304919728,
+ "low_income_household_share": {
+  "intercept": -0.3454450889430415,
+  "slope": 0.5054961100569946
+ },
+ "mean_income_adults": {
+  "intercept": -0.15594307354470033,
+  "slope": 0.29755402466978365
+ },
+ "median_household_income": {
+  "intercept": -0.17901700248346802,
+  "slope": 0.3530248240424748
+ },
+ "n_worlds": 3
+}
