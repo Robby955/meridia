@@ -35,6 +35,43 @@ def mortality_probability(age: np.ndarray, params: DemographyParams) -> np.ndarr
     return np.clip(q, 0.0, 1.0)
 
 
+SHOCK_FAMILY = {
+    "mortality_spike": {"mortality_multiplier": (1.5, 3.0)},   # epidemic or disaster year
+    "migration_wave": {"leave_home_multiplier": (1.8, 3.0)},   # upheaval; the young move
+    "baby_bust": {"fertility_multiplier": (0.45, 0.75)},       # crisis-year fertility drop
+}
+
+
+def draw_world_shocks(seed: int, years: int, max_shocks: int = 2) -> list[dict]:
+    """Seeded shock schedule from the declared family; retained truth, sealed for eval."""
+    rng = np.random.default_rng(np.random.SeedSequence([seed, 0x5A0C]))
+    n_shocks = int(rng.integers(0, max_shocks + 1))
+    kinds = sorted(SHOCK_FAMILY)
+    shocks = []
+    for _ in range(n_shocks):
+        kind = kinds[int(rng.integers(0, len(kinds)))]
+        (field, (lo, hi)), = SHOCK_FAMILY[kind].items()
+        shocks.append({"year": int(rng.integers(2, max(years, 3))), "kind": kind,
+                       field: float(rng.uniform(lo, hi))})
+    return sorted(shocks, key=lambda s: s["year"])
+
+
+def _shocked_params(params: DemographyParams, shocks: list[dict], year: int) -> DemographyParams:
+    from dataclasses import replace
+    out = params
+    for shock in shocks:
+        if shock["year"] != year:
+            continue
+        if "mortality_multiplier" in shock:
+            out = replace(out, makeham=out.makeham * shock["mortality_multiplier"],
+                          gompertz_a=out.gompertz_a * shock["mortality_multiplier"])
+        if "leave_home_multiplier" in shock:
+            out = replace(out, leave_home_rate=min(0.9, out.leave_home_rate * shock["leave_home_multiplier"]))
+        if "fertility_multiplier" in shock:
+            out = replace(out, fertility_rate=out.fertility_rate * shock["fertility_multiplier"])
+    return out
+
+
 def step_year(person: dict, household_cell: np.ndarray, urbanity_flat: np.ndarray,
               seed: int, year: int,
               params: DemographyParams = DemographyParams()) -> tuple[dict, np.ndarray, dict]:
@@ -100,11 +137,14 @@ def step_year(person: dict, household_cell: np.ndarray, urbanity_flat: np.ndarra
 
 def run_years(person: dict, household_cell: np.ndarray, urbanity_flat: np.ndarray,
               seed: int, years: int,
-              params: DemographyParams = DemographyParams()) -> tuple[dict, np.ndarray, list[dict]]:
+              params: DemographyParams = DemographyParams(),
+              shocks: list[dict] | None = None) -> tuple[dict, np.ndarray, list[dict]]:
     registers = []
     for year in range(years):
+        year_params = _shocked_params(params, shocks or [], year)
         person, household_cell, register = step_year(
-            person, household_cell, urbanity_flat, seed, year, params)
+            person, household_cell, urbanity_flat, seed, year, year_params)
+        register["shocked"] = year_params is not params
         registers.append(register)
     return person, household_cell, registers
 

@@ -88,3 +88,18 @@ def test_step_deterministic():
         blob = b"".join(np.ascontiguousarray(v).tobytes() for v in person.values())
         digests.append(hashlib.sha256(blob).hexdigest())
     assert digests[0] == digests[1]
+
+
+def test_shock_dial_creates_excess_deaths_and_is_recorded():
+    from meridia.demography import draw_world_shocks
+    micro = _start()
+    shocks = [{"year": 3, "kind": "mortality_spike", "mortality_multiplier": 2.5}]
+    _, _, registers = run_years(micro["person"], micro["household_cell"],
+                                micro["urbanity"].flatten(), SEED, 5, shocks=shocks)
+    assert registers[3]["shocked"] and not registers[2]["shocked"]
+    assert registers[3]["deaths"] > 1.6 * registers[2]["deaths"]
+    for s in (7, 9, 11):
+        a, b = draw_world_shocks(s, 30), draw_world_shocks(s, 30)
+        assert a == b
+        for shock in a:
+            assert 2 <= shock["year"] < 30
