@@ -34,9 +34,9 @@ observed record.
    over the sealed truth: duplicates, stale addresses, split and merged identifiers,
    reporting delays, each by an explicit recorded mechanism. This is what makes record
    linkage and census coverage estimation real problems rather than database joins.
-6. **The production chain.** Surveys drawn from imperfect frames; editing, imputation,
+6. **The reconstruction chain.** Surveys drawn from imperfect frames; editing, imputation,
    weighting, estimation, variance, and disclosure control as scored stages; a full
-   national release audited against retained truth.
+   published table audited against retained truth.
 
 ## Further out
 

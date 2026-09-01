@@ -1,6 +1,6 @@
-# National release contract v0
+# Release contract v0
 
-What a statistical release from a Meridia nation must contain, how it is laid out, and how
+What a published estimate table for a Meridia world must contain, how it is laid out, and how
 it is scored against the retained population. This is the participant-facing half of the
 capstone task; the scoring code in `meridia/scoring.py` implements exactly what is written
 here, and `meridia/release.py` computes the truth it is scored against.

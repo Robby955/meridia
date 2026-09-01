@@ -1,7 +1,7 @@
 """Survey instrument layer v0: designs, nonresponse, and measurement error.
 
-This layer turns the world's microdata into survey products the way a statistical office
-would produce them, while retaining the complete truth for verification. A survey is a
+This layer turns the world's microdata into survey files the way real surveys are
+collected, while retaining the complete truth for verification. A survey is a
 two-stage stratified sample: strata partition the nation geographically, cells are
 sampled within strata with probability proportional to population, and households are
 sampled within cells. True inclusion probabilities are recorded per responding household,

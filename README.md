@@ -10,9 +10,10 @@ ages get rounded. Because the complete population is retained,
 the error of any estimate computed from a survey is known exactly, and stated
 uncertainty can be checked against true coverage. No judge models, no real data.
 
-The intended use is a full statistical production chain: the world is observed
-imperfectly by a survey; the observations are edited and imputed; estimates are
-published with uncertainty; retained truth decides whether the release held. Each stage
+The intended use is population science on a world whose truth is known: the world is
+observed imperfectly through surveys and archives; a method reconciles, edits, and
+imputes the sources; estimates and projections are published with uncertainty; retained
+truth decides whether they held. Each stage
 of that chain is a benchmark task; the world keeps them mutually consistent.
 
 ![Seventy-two hours over the first nation](renders/meridia-72-hours.gif)
@@ -56,8 +57,8 @@ coasts and rivers, the mountain interior is empty.*
 - **States and counties.** The land is partitioned into states and counties around the
   settlements and outposts, exactly: every person is in one county and one state, and
   counts add up through the hierarchy to the person. Outposts become the small remote
-  counties a national release must still cover.
-- **The release contract.** What a national release must publish (eight estimands at
+  counties an estimate table must still cover.
+- **The release contract.** What a published estimate table must contain (eight estimands at
   nation, state, and county level, with intervals, plus a detailed table under disclosure
   control), and the scorer that judges it against the retained population: worst-unit
   error, interval coverage with a proper interval score, additivity, and a disclosure audit

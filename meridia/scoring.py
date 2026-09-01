@@ -1,4 +1,4 @@
-"""Scoring a national release against exact truth.
+"""Scoring a published estimate table against exact truth.
 
 Everything a release is judged on lives here: the schema check (every required row once,
 intervals well formed), additivity of counts across the geography, accuracy judged on

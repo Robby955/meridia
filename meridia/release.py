@@ -1,7 +1,8 @@
-"""Release contract v0: the estimands a national release must publish, and their truth.
+"""Release contract v0: the estimands a published table must contain, and their truth.
 
-The capstone task asks an agent to run a statistical office: observed records in, a
-national release out. This module fixes what "a release" is. It declares the estimand
+The capstone task hands an agent fragmentary records of a world and asks for a
+reconstruction of its population with honest uncertainty. This module fixes what that
+published table, the release, is. It declares the estimand
 list (what is published), the levels (nation, state, county), the flat release schema,
 the additivity rules, and the detailed table that disclosure control applies to. It also
 computes every estimand's exact value from the retained population, which is what a
