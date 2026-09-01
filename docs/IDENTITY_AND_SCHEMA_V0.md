@@ -8,9 +8,10 @@ microdata, survey, and demography modules. Those modules remain the source of te
 cells, persons, households, and dynamics; this layer imports their outputs without
 changing them.
 
-The first implementation governed by this contract is the dwelling stock. Businesses,
-hospitals, jobs, encounters, and imperfect registers will use the same identity and
-history rules in later additive modules.
+The implemented strata governed by this contract are the dwelling stock; enterprises,
+establishments, and jobs; hospitals and encounters; and the append-only institutional
+history. Imperfect registers will use the same identity and history rules in the next
+additive module.
 
 ## 1. Two identity domains
 
@@ -363,7 +364,76 @@ snapshot and retain no current bed number. Later event modules will append openi
 closures, staffing changes, admissions, discharges, and corrections without changing
 these identities.
 
-## 8. Determinism and versioning
+## 8. Monthly institutional event history
+
+`meridia.events` advances the truth world in monthly ticks without rewriting any prior
+row. It consumes the persistent identity, dwelling, business, hospital, world-character,
+and registered shock layers. It does not consume an employer register or any downstream
+observed file. The ledger covers:
+
+- births and deaths;
+- household formation, relocation, and closure;
+- job starts and ends;
+- establishment openings and closures;
+- encounter admissions and discharges.
+
+The module retains an exact initial operational state, the canonical event ledger, and a
+materialized terminal state. Replaying the initial state through any effective tick
+reconstructs the corresponding state. A longer run can only append: for the same world,
+the event bytes through month `m` are identical whether the requested horizon is `m` or
+longer.
+
+`tick` and `recorded_tick` are intentionally different clocks. `tick` is the effective
+month in sealed truth. `recorded_tick` is when a later source is allowed to observe the
+event and is always at least `tick`. Preliminary and revised register vintages will be
+cuts on `recorded_tick`; truth replay remains a cut on `tick`. Late reporting therefore
+creates a real cross-vintage discrepancy without changing the underlying event.
+
+The replayed operational state includes person-to-household residence, household-to-
+dwelling occupancy, establishment activity, job relationships and integer-cent earnings,
+and encounter occupancy. At every replayed date:
+
+```
+living persons = initial persons + births - deaths
+sum(dwelling resident_count) = living persons
+active households = occupied dwellings
+each living person -> one active household -> one occupied dwelling
+each active job -> one living person and one active establishment
+job annual_earnings_cents = annual_hours * hourly_wage_cents
+each active establishment has at least one active job
+each open encounter -> one living person and one unique hospital bed
+open bed_number < hospital bed_count
+```
+
+New person, household, establishment, job, encounter, and event IDs take the next unused
+sequence in their namespace. Closed or dead entities remain in state with their identity;
+none is reassigned. Hospital establishments are excluded from v0 establishment closure.
+The registered shock schedule can alter mortality, fertility, and household-formation
+mechanisms, and its realized schedule remains truth-side metadata.
+
+## 9. Presentation and independence boundary
+
+The eventual participant packet contains flat observed-record files only, plus an
+estimand list, release schema, and disclosure rules. It contains no truth ID, crosswalk,
+mechanism label, world-character draw, full-population statistic, terrain, or generator
+code. Event visibility at two release vintages is determined downstream from
+`recorded_tick`; the truth ledger itself is never exported.
+
+Geographic vocabulary is fixed everywhere in this lane:
+
+```
+nation > state > county > settlement
+```
+
+Schemas, tables, docs, and future exports use no alternate or country-specific
+administrative terms.
+
+The independence firewall is binding: no employer data, code, material, narratives, or
+references are used. All external work is independent research. The engine uses entirely
+synthetic countries and public scientific literature; it uses no government data,
+branding, or implied endorsement.
+
+## 10. Determinism and versioning
 
 Generation uses only the Python standard library plus NumPy/SciPy already allowed by the
 engine. Each additive module receives an explicit seed and uses a module-specific
@@ -376,13 +446,13 @@ digests belong in the future world manifest. A schema change increments the sche
 An algorithm change increments the generator version. Existing canonical timelines remain
 replayable; a new version extends or forks them and never rewrites their past.
 
-## 9. Delivery order
+## 11. Delivery order
 
 1. This identity-and-schema contract.
 2. Initial identity mapping and dwelling current-state table with exact tests.
 3. Business and hospital current-state tables, then jobs and encounters.
-4. Append-only institutional event histories and deterministic replay.
-5. Imperfect source registers and sealed truth crosswalks.
+4. Append-only institutional event histories and deterministic replay (implemented).
+5. Imperfect source registers and sealed truth crosswalks (next).
 6. The capstone production contract consuming observed records only.
 
 Sealing protocol, shock-dial implementation, geography, weather, population, microdata,
