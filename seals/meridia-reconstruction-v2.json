@@ -1,0 +1,21 @@
+{
+ "grid": [
+  288,
+  384
+ ],
+ "n_worlds": 1,
+ "schema": "meridia.sealed.v1",
+ "worlds": [
+  {
+   "commitment": "9cf5ea6e952916597ed5b2fa360a2e5dc98368385bea602c80f8ddda61974893",
+   "digests": {
+    "elevation": "f0c82d52083d059ad916ba336a3001a60635c617ea25ce00042ac7f7d8009287",
+    "flow_direction": "326d50bedbb463da36cb720403a0a3de691229fe2c06cbd9e9cb81cfc32a9d30",
+    "household_cells": "de66e5bab6bbe893e0eb1450f201ce6dd1437839ac732207278768ba36e85702",
+    "person_table": "44c614f5b328e4c9637b11d3414d046c72054b88a77da0c7a3781a7f9a339385",
+    "population_grid": "3004557ec3ede58efb256308b4198fe3ff95485effc13edbcfe7b7f2d4a1e661"
+   },
+   "index": 0
+  }
+ ]
+}
