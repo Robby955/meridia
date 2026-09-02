@@ -13,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from meridia.methods import design_based
 from meridia.packet import PacketParams, build_packet
 from meridia.release import AGE_BAND_LABELS, SEX_LABELS
-from meridia.verify import admin_from_packet, load_detailed, verify_submission
+from meridia.verify import (
+    admin_from_packet,
+    load_detailed,
+    verify_release_projection_allocation,
+    verify_submission,
+)
 
 SEED = 31337
 PARAMS = PacketParams(
@@ -52,6 +57,22 @@ def test_method_a_writes_all_four_files(submission):
     assert (release["lower"] <= release["estimate"]).all() and (
         release["estimate"] <= release["upper"]
     ).all()
+
+
+def test_three_file_task_surface_passes_and_fails_closed(packet, submission, tmp_path):
+    three_files = tmp_path / "three-files"
+    shutil.copytree(submission, three_files)
+    (three_files / "detailed.csv").unlink()
+    report = verify_release_projection_allocation(packet, three_files)
+    assert report["pass"], report["reasons"]
+    assert "disclosure" not in report
+
+    (three_files / "detailed.csv").write_text(
+        "county,age_band,sex,count\n0,0-15,male,\n"
+    )
+    report = verify_release_projection_allocation(packet, three_files)
+    assert not report["pass"]
+    assert report["reasons"][0].startswith("file set: unexpected ['detailed.csv']")
 
 
 def test_method_a_clears_hard_gates_and_is_close_on_persons(packet, submission):

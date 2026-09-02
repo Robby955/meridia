@@ -65,6 +65,7 @@ def load_detailed(path: Path, n_counties: int) -> np.ndarray:
     return cube
 
 
+CORE_SUBMISSION_FILES = ("release.csv", "projection.csv", "allocation.csv")
 SUBMISSION_FILES = ("release.csv", "detailed.csv", "projection.csv", "allocation.csv")
 OPTIONAL_FILES = ("totals.csv",)
 TOTAL_KINDS = {"county_age": ("county", "age_band"), "county_sex": ("county", "sex"),
@@ -98,34 +99,45 @@ def load_totals(path: Path, n_counties: int) -> dict[str, np.ndarray]:
 
 
 def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None = None,
-                      alpha: float = 0.10) -> dict:
+                      alpha: float = 0.10, *, score_disclosure: bool = True) -> dict:
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
     contract = json.loads((packet_dir / "participant" / "contract.json").read_text())
     admin = admin_from_packet(packet_dir)
-    # Fail closed on the file set: exactly the declared files, optionally totals.csv.
+    # Fail closed on the selected output contract. The reusable Meridia verifier keeps
+    # the detailed-table audit; the benchmark surface scores the other three files.
+    required_files = SUBMISSION_FILES if score_disclosure else CORE_SUBMISSION_FILES
+    optional_files = OPTIONAL_FILES if score_disclosure else ()
     present = sorted(p.name for p in submission_dir.iterdir() if p.is_file())
-    unexpected = [n for n in present if n not in SUBMISSION_FILES + OPTIONAL_FILES]
-    missing = [n for n in SUBMISSION_FILES if n not in present]
+    unexpected = [n for n in present if n not in required_files + optional_files]
+    missing = [n for n in required_files if n not in present]
     if unexpected or missing:
-        return {"pass": False, "reasons": [f"file set: unexpected {unexpected}, missing {missing}"],
-                "schema_errors": [], "additivity_errors": [], "metrics": {},
-                "disclosure": {"pass": False, "n_protected": 0, "n_suppressed": 0,
-                               "published_protected": [], "recoverable": []},
-                "projection_metrics": {}, "allocation": {"feasible": False}}
+        report = {"pass": False,
+                  "reasons": [f"file set: unexpected {unexpected}, missing {missing}"],
+                  "schema_errors": [], "additivity_errors": [], "metrics": {},
+                  "projection_metrics": {}, "allocation": {"feasible": False}}
+        if score_disclosure:
+            report["disclosure"] = {"pass": False, "n_protected": 0,
+                                    "n_suppressed": 0, "published_protected": [],
+                                    "recoverable": []}
+        return report
     retained = packet_dir / "retained"
     truth_now = load_truth(retained / "truth_revised.csv")
     truth_future = load_truth(retained / "truth_horizon.csv")
-    detailed_truth = load_detailed(retained / "detailed_revised.csv", admin["n_counties"]).astype(np.int64)
 
     release = load_rows(submission_dir / "release.csv")
     schema_errors = validate_release(release, admin)
     additivity_errors = check_additivity(release, admin) if not schema_errors else []
     metrics = score_release(release, truth_now, admin, alpha)
 
-    published = load_detailed(submission_dir / "detailed.csv", admin["n_counties"])
-    marginals = load_totals(submission_dir / "totals.csv", admin["n_counties"]) \
-        if (submission_dir / "totals.csv").exists() else None
-    disclosure = disclosure_audit(published, detailed_truth, int(contract["disclosure_threshold"]), marginals)
+    disclosure = None
+    if score_disclosure:
+        detailed_truth = load_detailed(retained / "detailed_revised.csv",
+                                       admin["n_counties"]).astype(np.int64)
+        published = load_detailed(submission_dir / "detailed.csv", admin["n_counties"])
+        marginals = load_totals(submission_dir / "totals.csv", admin["n_counties"]) \
+            if (submission_dir / "totals.csv").exists() else None
+        disclosure = disclosure_audit(published, detailed_truth,
+                                      int(contract["disclosure_threshold"]), marginals)
 
     projection = load_rows(submission_dir / "projection.csv")
     projection_schema = validate_release(projection, admin)
@@ -137,7 +149,8 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
         allocation_frame["allocation"].to_numpy(dtype=np.float64)
     demand = np.asarray([truth_future[(contract["allocation"]["demand"], "county", c)]
                          for c in range(admin["n_counties"])])
-    allocation_score = score_allocation(allocation, demand, float(contract["allocation"]["budget"]))
+    allocation_score = score_allocation(allocation, demand,
+                                         float(contract["allocation"]["budget"]))
 
     gates = evaluate_gates(schema_errors, additivity_errors, metrics, disclosure, bars)
     projection_gates = evaluate_gates(projection_schema, [], projection_metrics, None,
@@ -148,14 +161,25 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
     ceiling = (bars or {}).get("allocation_regret_ceiling")
     if ceiling is not None and allocation_score["feasible"] and allocation_score["regret"] > ceiling:
         reasons.append(f"allocation: regret {allocation_score['regret']:.4f} > {ceiling}")
-    return {
+    report = {
         "pass": not reasons, "reasons": reasons,
         "schema_errors": schema_errors, "additivity_errors": additivity_errors,
-        "metrics": metrics, "disclosure": {k: v for k, v in disclosure.items()
-                                           if k in ("pass", "n_protected", "n_suppressed",
-                                                    "published_protected", "recoverable")},
-        "projection_metrics": projection_metrics, "allocation": allocation_score,
+        "metrics": metrics, "projection_metrics": projection_metrics,
+        "allocation": allocation_score,
     }
+    if disclosure is not None:
+        report["disclosure"] = {k: v for k, v in disclosure.items()
+                                if k in ("pass", "n_protected", "n_suppressed",
+                                         "published_protected", "recoverable")}
+    return report
+
+
+def verify_release_projection_allocation(packet_dir: Path, submission_dir: Path,
+                                         bars: dict | None = None,
+                                         alpha: float = 0.10) -> dict:
+    """Verify the exact three-file population-reconstruction task surface."""
+    return verify_submission(packet_dir, submission_dir, bars, alpha,
+                             score_disclosure=False)
 
 
 def summary_table(report: dict) -> str:
@@ -169,7 +193,9 @@ def summary_table(report: dict) -> str:
     a = report["allocation"]
     lines.append(f"allocation feasible={a['feasible']} loss={a.get('loss', float('nan')):.4f} "
                  f"regret={a.get('regret', float('nan')):.4f}")
-    lines.append(f"disclosure pass={report['disclosure']['pass']} "
-                 f"protected={report['disclosure']['n_protected']} suppressed={report['disclosure']['n_suppressed']}")
+    if "disclosure" in report:
+        lines.append(f"disclosure pass={report['disclosure']['pass']} "
+                     f"protected={report['disclosure']['n_protected']} "
+                     f"suppressed={report['disclosure']['n_suppressed']}")
     lines.append("PASS" if report["pass"] else "FAIL: " + "; ".join(report["reasons"]))
     return "\n".join(lines)
