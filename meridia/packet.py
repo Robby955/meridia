@@ -36,7 +36,8 @@ from .population import build_population, resource_outposts
 from .projection import DEMAND_ESTIMAND, person_table_from_state, project_truth_from_history
 from .release import (AGE_BAND_LABELS, ESTIMANDS, LEVELS, SEX_LABELS,
                       compute_detailed_table_truth, compute_truth)
-from .sources import build_observed_sources, participant_source_snapshots
+from .sources import (SOURCE_REGIMES, benchmark_values, build_observed_sources,
+                      draw_benchmark_bias, draw_source_params, participant_source_snapshots)
 from .survey import draw_survey
 from .terrain import generate_elevation
 
@@ -55,12 +56,16 @@ class PacketParams:
     budget_fraction: float = 0.9     # of persons 65+ in the revised population source
     max_shocks: int = 2
     total: int | None = None         # None draws the national total from the seed
+    regime: str = "development"      # source mechanism regime: development or hidden
 
 
 def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     """Every layer of one world, from terrain to observed sources."""
+    if params.regime not in SOURCE_REGIMES:
+        raise ValueError(f"unknown source regime {params.regime!r}")
     height, width = params.grid
     character = draw_world_character(seed)
+    source_params = draw_source_params(seed, params.regime, character["draw"]["payroll_level"])
     world = generate_elevation(seed, height, width)
     outlets = ~world["land"]
     outlets[0, :] = outlets[-1, :] = outlets[:, 0] = outlets[:, -1] = True
@@ -87,11 +92,13 @@ def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     preliminary_tick = revised_tick - params.preliminary_lag
     sources = build_observed_sources(history, seed, admin, hospitals,
                                      preliminary_tick=preliminary_tick,
-                                     revised_tick=revised_tick)
+                                     revised_tick=revised_tick, params=source_params)
+    benchmark_bias = draw_benchmark_bias(seed, int(admin["n_states"]))
     return {
         "seed": seed, "params": params, "character": character, "world": world,
         "people": people, "micro": micro, "admin": admin, "hospitals": hospitals,
         "history": history, "sources": sources, "shocks": shocks,
+        "source_params": source_params, "benchmark_bias": benchmark_bias,
         "ticks": {"snapshot": snapshot, "preliminary": preliminary_tick,
                   "revised": revised_tick, "horizon": snapshot + months},
     }
@@ -166,6 +173,8 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     out_dir = Path(out_dir)
     if out_dir.exists():
         raise FileExistsError(f"packet directory already exists: {out_dir}")
+    if development and params.regime != "development":
+        raise ValueError("a development packet must use the development source regime")
     built = build_world(seed, params)
     admin, ticks = built["admin"], built["ticks"]
     participant = out_dir / "participant"
@@ -173,7 +182,7 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     (participant / "sources").mkdir(parents=True)
     retained.mkdir(parents=True)
 
-    # Participant side: surveys, sources, geography, contract.
+    # Participant side: surveys, sources, benchmark totals, geography, contract.
     for label in ("preliminary", "revised"):
         survey = _survey_at(built, ticks[label])
         _write_table(participant / f"survey_{label}.csv", survey["survey"], forbid_truth=True)
@@ -184,6 +193,11 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
                 continue
             _write_table(participant / "sources" / f"{source}_{label}.csv", table,
                          forbid_truth=True)
+    for label in ("preliminary", "revised"):
+        exact, _ = _truth_at(built, ticks[label])
+        _write_table(participant / "sources" / f"benchmark_{label}.csv",
+                     benchmark_values(exact, built["benchmark_bias"], admin["n_states"]),
+                     forbid_truth=True)
     _write_table(participant / "geography.csv",
                  {"county": np.arange(admin["n_counties"], dtype=np.int64),
                   "state": admin["county_state"].astype(np.int64)}, forbid_truth=True)
@@ -217,7 +231,10 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     np.savez_compressed(retained / "source_evidence.npz", **_flatten(sealed))
     (retained / "world.json").write_text(json.dumps({
         "seed": seed, "character": built["character"]["draw"], "shocks": built["shocks"],
-        "ticks": ticks, "params": asdict(params)}, indent=1, sort_keys=True, default=str) + "\n")
+        "ticks": ticks, "params": asdict(params), "regime": params.regime,
+        "source_params": asdict(built["source_params"]),
+        "benchmark_bias": {k: np.asarray(v).tolist() for k, v in built["benchmark_bias"].items()},
+    }, indent=1, sort_keys=True, default=str) + "\n")
     if development:
         (participant / "truth").mkdir()
         for name in ("truth_revised.csv", "truth_horizon.csv", "detailed_revised.csv"):

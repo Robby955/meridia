@@ -28,7 +28,13 @@ def load_packet(packet_dir: Path) -> dict:
         "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
         "income": pd.read_csv(P / "sources" / "income_revised.csv"),
         "health": pd.read_csv(P / "sources" / "health_revised.csv"),
+        "benchmark": _load_benchmark(P / "sources" / "benchmark_revised.csv"),
     }
+
+
+def _load_benchmark(path: Path) -> dict | None:
+    from .design_based import _load_benchmark as load
+    return load(path)
 
 
 def income_dispersion(frame) -> float:
@@ -48,7 +54,8 @@ def calibrate_income(run_fn, dev_packet_dirs, calibration_path: Path) -> dict:
     survey ``dispersion``. The method's remaining national bias per income item (a
     log-ratio, or a difference for the share) is fitted as a linear function of the
     dispersion across worlds; with fewer than three worlds it is a constant. On a hidden
-    world the correction is read off at that world's observed dispersion.
+    world the correction is read off at that world's observed dispersion, held at the
+    nearer edge of the development range when the world lies outside it.
     """
     import pandas as pd
     dev_packet_dirs = [Path(d) for d in ([dev_packet_dirs] if isinstance(dev_packet_dirs, (str, Path)) else dev_packet_dirs)]
@@ -64,7 +71,10 @@ def calibrate_income(run_fn, dev_packet_dirs, calibration_path: Path) -> dict:
                 else float(np.log(nation[e] / estimate[e]))
         rows.append(row)
     d = np.asarray([r["dispersion"] for r in rows])
-    factors = {"dispersion_reference": float(d.mean()), "n_worlds": len(rows)}
+    # Read inside the development range of the dispersion only; held at the nearer
+    # edge beyond it, since three worlds fix a slope too loosely to extrapolate.
+    factors = {"dispersion_reference": float(d.mean()), "n_worlds": len(rows),
+               "dispersion_range": [float(d.min()), float(d.max())]}
     for e in INCOME_ITEMS:
         y = np.asarray([r[e] for r in rows])
         if len(rows) >= 3 and d.std() > 1e-6:
@@ -84,6 +94,8 @@ def calibrate_income(run_fn, dev_packet_dirs, calibration_path: Path) -> dict:
 
 def apply_calibration(values: dict, factors: dict, dispersion: float) -> dict:
     out = dict(values)
+    if "dispersion_range" in factors:
+        dispersion = float(np.clip(dispersion, *factors["dispersion_range"]))
     for (e, level, u), v in values.items():
         if e not in factors or not np.isfinite(v):
             continue

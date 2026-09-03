@@ -10,6 +10,18 @@ Observed identifiers are source-specific random tokens drawn without using truth
 The retained package contains the truth crosswalks and explicit error mechanisms needed
 to score linkage, coverage, and revision decisions.  Neither is nested under a public
 snapshot and neither may be exported with participant files.
+
+No perfect cross-source person key is shipped.  Each person source reports a name as
+two tokens (given and family) drawn from finite vocabularies with a heavy-tailed
+frequency law, so distinct persons share a name pair at a rate the development worlds
+reveal only in aggregate.  Every source re-reports the pair, the birth tick, and the sex
+with its own error process, and every source records the address at its own reference
+date: the population source at the snapshot, the income source one year earlier, the
+health source at admission.  A mover therefore carries different counties across the
+archives for a legitimate reason.
+
+The mechanism rates are one draw per world from published ranges; the hidden world's
+draw comes from a published shift family that lies outside the development band.
 """
 
 from __future__ import annotations
@@ -32,14 +44,24 @@ MECHANISM_BITS: Final = {
     "county_error": 16,
     "linkage_error": 32,
     "item_missing": 64,
+    "address_lag": 128,
+    "birth_error": 256,
+    "name_error": 512,
 }
+
+# Name vocabularies: token counts and the Zipf exponent of the frequency law.  The
+# vocabulary sizes and the exponent are public; the tokens themselves are random per
+# world, and a variant token exists for every family name (a second spelling).
+NAME_VOCABULARY: Final = {"given": 1500, "family": 8000, "zipf": 0.9}
+INCOME_ADDRESS_LAG: Final = 12   # the income source records the address one year back
 
 PUBLIC_SCHEMAS: Final = {
     "population": {
         "record_id": np.dtype(np.uint64),
         "person_id": np.dtype(np.uint64),
         "household_id": np.dtype(np.uint64),
-        "name_code": np.dtype(np.uint64),
+        "given_code": np.dtype(np.uint64),
+        "family_code": np.dtype(np.uint64),
         "birth_tick": np.dtype(np.int64),
         "sex": np.dtype(np.int8),
         "education": np.dtype(np.int8),
@@ -58,7 +80,8 @@ PUBLIC_SCHEMAS: Final = {
         "record_id": np.dtype(np.uint64),
         "taxpayer_id": np.dtype(np.uint64),
         "household_id": np.dtype(np.uint64),
-        "name_code": np.dtype(np.uint64),
+        "given_code": np.dtype(np.uint64),
+        "family_code": np.dtype(np.uint64),
         "birth_tick": np.dtype(np.int64),
         "sex": np.dtype(np.int8),
         "county": np.dtype(np.int32),
@@ -70,7 +93,8 @@ PUBLIC_SCHEMAS: Final = {
         "encounter_id": np.dtype(np.uint64),
         "patient_id": np.dtype(np.uint64),
         "facility_id": np.dtype(np.uint64),
-        "name_code": np.dtype(np.uint64),
+        "given_code": np.dtype(np.uint64),
+        "family_code": np.dtype(np.uint64),
         "birth_tick": np.dtype(np.int64),
         "sex": np.dtype(np.int8),
         "patient_county": np.dtype(np.int32),
@@ -102,12 +126,20 @@ _MECHANISM_SCHEMA: Final = {
     "county_error": np.dtype(np.bool_),
     "linkage_error": np.dtype(np.bool_),
     "item_missing": np.dtype(np.bool_),
+    "birth_error": np.dtype(np.bool_),
+    "name_error": np.dtype(np.bool_),
 }
 
 
 @dataclass(frozen=True)
 class SourceParams:
-    """Public mechanism rates for the four imperfect sources."""
+    """Public mechanism rates for the four imperfect sources.
+
+    The defaults are the centre of the development band.  ``draw_source_params`` draws
+    a world's own values for the four quantities that vary by world (population and
+    health coverage, county miscoding, register income scale); the reporting-error
+    rates for names, birth ticks, and sex are fixed constants.
+    """
 
     population_coverage: float = 0.965
     business_coverage: float = 0.940
@@ -120,14 +152,135 @@ class SourceParams:
     county_error_rate: float = 0.018
     linkage_error_rate: float = 0.035
     item_missing_rate: float = 0.075
+    name_given_alternate_rate: float = 0.040   # another given name is on file
+    name_family_variant_rate: float = 0.040    # the family name's second spelling
+    name_transposed_rate: float = 0.010        # given and family entered swapped
+    name_missing_rate: float = 0.015           # given name not recorded
+    birth_month_slip_rate: float = 0.040       # birth month off by one to three
+    birth_year_round_rate: float = 0.030       # birth month rounded to the year
+    birth_year_shift_rate: float = 0.010       # birth year off by one
+    sex_miscode_rate: float = 0.006
+    register_income_scale: float = 1.0         # register earnings unit relative to truth
+
+
+# Per-world mechanism draw.  The development band is the support every development
+# world is drawn from.  The hidden family places each hidden value outside that band
+# by at least the stated margin; the direction of the income-scale shift is a fair
+# coin.  Published as ranges; a world's realized draw is retained metadata only.
+SOURCE_REGIMES: Final = ("development", "hidden")
+DEVELOPMENT_BAND: Final = {
+    "population_coverage": (0.940, 0.985),
+    "health_coverage": (0.900, 0.950),
+    "county_error_rate": (0.012, 0.024),
+    "register_income_scale": (0.94, 1.06),
+}
+HIDDEN_SHIFT: Final = {
+    "population_coverage_below": (0.02, 0.08),   # subtracted from the band's low edge
+    "health_coverage_below": (0.06, 0.20),       # subtracted from the band's low edge
+    "county_error_multiplier": (1.5, 3.0),       # times the band's high edge
+    "income_level_low": (0.50, 0.63),            # effective register wage level, low side
+    "income_level_high": (1.52, 1.90),           # effective register wage level, high side
+}
+# Effective register wage level = world payroll level x register income scale.  The
+# development band on that product follows from the public payroll range (0.75, 1.30)
+# times the scale band: (0.705, 1.378).  The hidden family sits outside it on one side.
+
+
+def draw_source_params(
+    seed: int, regime: str = "development", payroll_level: float = 1.0
+) -> SourceParams:
+    """One deterministic per-world draw of the varying mechanism rates.
+
+    Uses its own seed sequence key so the geography and society draws, and the sealed
+    digests built from them, are unchanged.
+    """
+    if regime not in SOURCE_REGIMES:
+        raise ValueError(f"unknown source regime {regime!r}")
+    if not np.isfinite(payroll_level) or payroll_level <= 0.0:
+        raise ValueError("payroll_level must be positive")
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0xC4A3]))
+    if regime == "development":
+        population_coverage = rng.uniform(*DEVELOPMENT_BAND["population_coverage"])
+        health_coverage = rng.uniform(*DEVELOPMENT_BAND["health_coverage"])
+        county_error_rate = rng.uniform(*DEVELOPMENT_BAND["county_error_rate"])
+        register_income_scale = rng.uniform(*DEVELOPMENT_BAND["register_income_scale"])
+    else:
+        population_coverage = DEVELOPMENT_BAND["population_coverage"][0] - rng.uniform(
+            *HIDDEN_SHIFT["population_coverage_below"]
+        )
+        health_coverage = DEVELOPMENT_BAND["health_coverage"][0] - rng.uniform(
+            *HIDDEN_SHIFT["health_coverage_below"]
+        )
+        county_error_rate = DEVELOPMENT_BAND["county_error_rate"][1] * rng.uniform(
+            *HIDDEN_SHIFT["county_error_multiplier"]
+        )
+        side = "income_level_high" if rng.random() < 0.5 else "income_level_low"
+        register_income_scale = rng.uniform(*HIDDEN_SHIFT[side]) / float(payroll_level)
+    params = SourceParams(
+        population_coverage=float(population_coverage),
+        health_coverage=float(health_coverage),
+        county_error_rate=float(county_error_rate),
+        register_income_scale=float(register_income_scale),
+    )
+    _validate_params(params)
+    return params
+
+
+# Benchmark totals: a separately produced aggregate series for the four counts at
+# nation and state level.  Each value is the exact count at the snapshot times exp(b):
+# at nation level |b| is uniform in the magnitude range with a fair-coin sign, at state
+# level b is normal with a world-specific standard deviation from the sd range.  The
+# bias is persistent across vintages (the same b in both snapshots) and independent
+# across items and units.  Values are rounded to the nearest hundred.  Ranges are
+# public; a world's draws are retained metadata only.
+BENCHMARK_ITEMS: Final = ("persons", "households", "children_under_16", "elders_65_plus")
+BENCHMARK_BIAS: Final = {"nation_magnitude": (0.02, 0.07), "state_sd": (0.03, 0.08)}
+BENCHMARK_ROUNDING: Final = 100
+
+
+def draw_benchmark_bias(seed: int, n_states: int) -> dict[str, np.ndarray]:
+    """Per-world log-bias of the benchmark series: nation (per item) and state
+    (per item and state).  Own seed sequence key; never derivable from public files."""
+    if n_states < 1:
+        raise ValueError("n_states must be positive")
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0xBE4C]))
+    n_items = len(BENCHMARK_ITEMS)
+    magnitude = rng.uniform(*BENCHMARK_BIAS["nation_magnitude"], size=n_items)
+    sign = np.where(rng.random(n_items) < 0.5, -1.0, 1.0)
+    state_sd = float(rng.uniform(*BENCHMARK_BIAS["state_sd"]))
+    state = rng.normal(0.0, state_sd, size=(n_items, int(n_states)))
+    return {"nation": magnitude * sign, "state": state, "state_sd": np.float64(state_sd)}
+
+
+def benchmark_values(truth: dict, bias: dict, n_states: int) -> dict[str, np.ndarray]:
+    """Benchmark table rows (item, level, unit, value) from exact truth and the bias."""
+    items, levels, units, values = [], [], [], []
+    for k, item in enumerate(BENCHMARK_ITEMS):
+        exact = float(truth[(item, "nation", 0)])
+        items.append(item); levels.append("nation"); units.append(0)
+        values.append(exact * float(np.exp(bias["nation"][k])))
+        for s in range(int(n_states)):
+            exact = float(truth[(item, "state", s)])
+            items.append(item); levels.append("state"); units.append(s)
+            values.append(exact * float(np.exp(bias["state"][k, s])))
+    rounded = np.rint(np.asarray(values, dtype=np.float64) / BENCHMARK_ROUNDING) * BENCHMARK_ROUNDING
+    return {
+        "item": np.asarray(items),
+        "level": np.asarray(levels),
+        "unit": np.asarray(units, dtype=np.int64),
+        "value": rounded.astype(np.int64),
+    }
 
 
 def _validate_params(params: SourceParams) -> None:
     if not isinstance(params, SourceParams):
         raise TypeError("params must be SourceParams")
-    values = tuple(float(value) for value in params.__dict__.values())
-    if not np.isfinite(values).all() or any(
-        not 0.0 <= value <= 1.0 for value in values
+    values = {name: float(value) for name, value in params.__dict__.items()}
+    scale = values.pop("register_income_scale")
+    if not np.isfinite(scale) or not 0.05 <= scale <= 20.0:
+        raise ValueError("register_income_scale must be finite and in [0.05, 20]")
+    if not np.isfinite(tuple(values.values())).all() or any(
+        not 0.0 <= value <= 1.0 for value in values.values()
     ):
         raise ValueError("source mechanism rates must be finite and in [0, 1]")
     for coverage in (
@@ -181,6 +334,38 @@ def _random_tokens(seed: int, domain: int, count: int) -> np.ndarray:
             "observed identifier draw collided; use a different world seed"
         )
     return (np.uint64((0x80 + domain) << 56) | lower).astype(np.uint64, copy=False)
+
+
+def _zipf_weights(size: int, exponent: float) -> np.ndarray:
+    weights = np.arange(1, size + 1, dtype=np.float64) ** (-float(exponent))
+    return weights / weights.sum()
+
+
+def _name_vocabulary(seed: int) -> dict[str, np.ndarray]:
+    """Random tokens for every given name, family name, and family-name variant.
+
+    All three sets come from one token draw, so nothing in a token's bits says which
+    set it belongs to.  Frequency ranks are never emitted.
+    """
+    n_given = int(NAME_VOCABULARY["given"])
+    n_family = int(NAME_VOCABULARY["family"])
+    tokens = _random_tokens(seed, 12, n_given + 2 * n_family)
+    return {
+        "given": tokens[:n_given],
+        "family": tokens[n_given : n_given + n_family],
+        "variant": tokens[n_given + n_family :],
+        "given_weights": _zipf_weights(n_given, NAME_VOCABULARY["zipf"]),
+        "family_weights": _zipf_weights(n_family, NAME_VOCABULARY["zipf"]),
+    }
+
+
+def _true_names(seed: int, vocabulary: dict, n_persons: int) -> tuple[np.ndarray, np.ndarray]:
+    """Each truth person's (given, family) vocabulary indices, drawn from the frequency
+    law.  Receives a row count only, never a truth ID."""
+    rng = np.random.default_rng(np.random.SeedSequence([seed, 0x4E414D, 0]))
+    given = rng.choice(len(vocabulary["given"]), size=n_persons, p=vocabulary["given_weights"])
+    family = rng.choice(len(vocabulary["family"]), size=n_persons, p=vocabulary["family_weights"])
+    return given.astype(np.int64), family.astype(np.int64)
 
 
 def _table_length(table: dict[str, np.ndarray]) -> int:
@@ -389,6 +574,63 @@ def _recorded_state(history: dict, hospitals: dict, snapshot_tick: int) -> dict:
     return state
 
 
+_TICK_SHIFT: Final = 1 << 31
+_TICK_SPAN: Final = 1 << 32
+
+
+def _household_cells_at(
+    history: dict,
+    snapshot_tick: int,
+    household_position: np.ndarray,
+    at_tick: np.ndarray,
+    fallback_cell: np.ndarray,
+) -> np.ndarray:
+    """Cell of each queried household in force at each queried tick.
+
+    Uses only the address events recorded by ``snapshot_tick`` (the same visibility
+    rule as ``_recorded_state``).  A household with no visible address event keeps
+    its recorded cell; before its first visible move it sits at that move's origin.
+    """
+    household_position = np.asarray(household_position, dtype=np.int64)
+    at_tick = np.broadcast_to(np.asarray(at_tick, dtype=np.int64), household_position.shape)
+    fallback = np.asarray(fallback_cell, dtype=np.int64)
+    event = history["event"]
+    visible = event["recorded_tick"] <= snapshot_tick
+    corrections = event["supersedes_event_id"][visible]
+    superseded = corrections[corrections != 0]
+    if len(superseded):
+        visible &= ~np.isin(event["truth_event_id"], superseded)
+    address = visible & np.isin(
+        event["event_type"],
+        (EVENT_TYPES["household_formed"], EVENT_TYPES["household_moved"]),
+    )
+    rows = np.flatnonzero(address)
+    if len(rows) == 0 or len(household_position) == 0:
+        return fallback.copy()
+    hh = _sequence_position(event["truth_household_id"][rows])
+    tick = np.asarray(event["tick"][rows], dtype=np.int64)
+    to_cell = np.asarray(event["to_cell"][rows], dtype=np.int64)
+    from_cell = np.asarray(event["from_cell"][rows], dtype=np.int64)
+    order = np.lexsort((rows, tick, hh))
+    hh, tick, to_cell, from_cell = hh[order], tick[order], to_cell[order], from_cell[order]
+    first = np.ones(len(hh), dtype=np.bool_)
+    first[1:] = hh[1:] != hh[:-1]
+    origin_cell = np.where(from_cell[first] >= 0, from_cell[first], to_cell[first])
+    all_hh = np.concatenate([hh[first], hh])
+    all_tick = np.concatenate([np.full(int(first.sum()), -_TICK_SHIFT + 1, dtype=np.int64), tick])
+    all_cell = np.concatenate([origin_cell, to_cell])
+    order = np.lexsort((np.arange(len(all_hh)), all_tick, all_hh))
+    all_hh, all_tick, all_cell = all_hh[order], all_tick[order], all_cell[order]
+    keys = all_hh * _TICK_SPAN + (all_tick + _TICK_SHIFT)
+    query = household_position * _TICK_SPAN + (at_tick + _TICK_SHIFT)
+    index = np.searchsorted(keys, query, side="right") - 1
+    valid = (index >= 0) & (household_position >= 0)
+    valid[valid] &= all_hh[index[valid]] == household_position[valid]
+    result = fallback.copy()
+    result[valid] = all_cell[index[valid]]
+    return result
+
+
 def _validate_inputs(
     history: dict,
     seed: int,
@@ -582,6 +824,103 @@ def _stale_flags(recorded: dict, exact: dict) -> dict[str, np.ndarray]:
     }
 
 
+def _reported_identity(
+    rng: np.random.Generator,
+    count: int,
+    identity: dict,
+    params: SourceParams,
+    linkage_error: np.ndarray,
+    split: np.ndarray,
+    merge_pairs: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Per-row, per-slot reported name, birth tick, and sex under a reporting-error
+    process.  Slot 1 (the duplicate record) draws independently, so duplicates are
+    near-duplicates.  A linkage error reports another same-county person's name: a
+    true confusable, not a token that matches nothing.  The second member of a merge
+    pair reports the first member's name.  A split's second record carries the other
+    spelling of the family name."""
+    person_position = np.asarray(identity["person_position"], dtype=np.int64)
+    given = np.asarray(identity["given"], dtype=np.int64)
+    family = np.asarray(identity["family"], dtype=np.int64)
+    n_given, n_family = len(identity["given_weights"]), len(identity["family_weights"])
+    true_birth = np.asarray(identity["birth_tick"], dtype=np.int64)
+    true_sex = np.asarray(identity["sex"], dtype=np.int8)
+    person_county = np.asarray(identity["person_county"], dtype=np.int64)
+
+    # Same-county confusables: a random other person from the row person's county.
+    order = np.argsort(person_county, kind="stable")
+    county_size = np.bincount(person_county, minlength=int(person_county.max()) + 1 if len(person_county) else 1)
+    county_start = np.cumsum(county_size) - county_size
+    row_county = person_county[person_position]
+    confusable = order[
+        county_start[row_county]
+        + np.minimum(
+            (rng.random(count) * county_size[row_county]).astype(np.int64),
+            np.maximum(county_size[row_county] - 1, 0),
+        )
+    ] if count else np.empty(0, dtype=np.int64)
+    swapped = np.where(linkage_error, confusable, person_position)
+
+    given_index = np.zeros((count, 2), dtype=np.int64)
+    family_index = np.zeros((count, 2), dtype=np.int64)
+    family_variant = np.zeros((count, 2), dtype=np.bool_)
+    transposed = np.zeros((count, 2), dtype=np.bool_)
+    given_missing = np.zeros((count, 2), dtype=np.bool_)
+    birth = np.zeros((count, 2), dtype=np.int64)
+    sex = np.zeros((count, 2), dtype=np.int8)
+    name_error = np.zeros((count, 2), dtype=np.bool_)
+    birth_error = np.zeros((count, 2), dtype=np.bool_)
+    for slot in range(2):
+        alternate = rng.random(count) < params.name_given_alternate_rate
+        alternate_given = rng.choice(n_given, size=count, p=identity["given_weights"]) if count else np.empty(0, dtype=np.int64)
+        variant = rng.random(count) < params.name_family_variant_rate
+        swap = rng.random(count) < params.name_transposed_rate
+        missing = rng.random(count) < params.name_missing_rate
+        slip = rng.random(count) < params.birth_month_slip_rate
+        slip_size = rng.integers(1, 4, size=count) * np.where(rng.random(count) < 0.5, -1, 1)
+        rounding = rng.random(count) < params.birth_year_round_rate
+        year_shift = rng.random(count) < params.birth_year_shift_rate
+        year_sign = np.where(rng.random(count) < 0.5, -12, 12)
+        miscode = rng.random(count) < params.sex_miscode_rate
+        if slot == 1:
+            variant = np.where(split, ~family_variant[:, 0], variant)
+
+        given_index[:, slot] = np.where(alternate, alternate_given, given[swapped])
+        family_index[:, slot] = family[swapped]
+        family_variant[:, slot] = variant
+        transposed[:, slot] = swap
+        given_missing[:, slot] = missing
+        reported_birth = true_birth[person_position].copy()
+        reported_birth[slip] += slip_size[slip]
+        reported_birth[rounding] = (reported_birth[rounding] // 12) * 12
+        reported_birth[year_shift] += year_sign[year_shift]
+        birth[:, slot] = reported_birth
+        reported_sex = true_sex[person_position].copy()
+        reported_sex[miscode] = 1 - reported_sex[miscode]
+        sex[:, slot] = reported_sex
+        name_error[:, slot] = alternate | variant | swap | missing | linkage_error
+        birth_error[:, slot] = (reported_birth != true_birth[person_position]) | miscode
+
+    for first, second in merge_pairs:
+        given_index[second, :] = given_index[first, 0]
+        family_index[second, :] = family_index[first, 0]
+        family_variant[second, :] = family_variant[first, 0]
+        transposed[second, :] = transposed[first, 0]
+        given_missing[second, :] = given_missing[first, 0]
+        name_error[second, :] = True
+    return {
+        "given_index": given_index,
+        "family_index": family_index,
+        "family_variant": family_variant,
+        "transposed": transposed,
+        "given_missing": given_missing,
+        "reported_birth_tick": birth,
+        "reported_sex": sex,
+        "name_error_slot": name_error,
+        "birth_error_slot": birth_error,
+    }
+
+
 def _mechanism_plan(
     seed: int,
     source_index: int,
@@ -591,6 +930,7 @@ def _mechanism_plan(
     coverage: float,
     params: SourceParams,
     token_domains: tuple[int, int, int],
+    identity: dict | None = None,
 ) -> dict:
     count = len(truth_ids)
     rng = np.random.default_rng(np.random.SeedSequence([seed, 0xAE61A7E, source_index]))
@@ -613,12 +953,13 @@ def _mechanism_plan(
     merge_candidate = np.flatnonzero(rng.random(count) < params.merge_rate)
     if len(merge_candidate) % 2:
         merge_candidate = merge_candidate[:-1]
-    for group, pair in enumerate(merge_candidate.reshape(-1, 2)):
+    merge_pairs = merge_candidate.reshape(-1, 2)
+    for group, pair in enumerate(merge_pairs):
         first, second = int(pair[0]), int(pair[1])
         primary_id[second] = primary_id[first]
         merge_group[first] = merge_group[second] = group
 
-    return {
+    plan = {
         "truth_entity_id": np.asarray(truth_ids, dtype=np.uint64).copy(),
         "covered": covered.astype(np.bool_),
         "duplicate": duplicate.astype(np.bool_),
@@ -631,6 +972,16 @@ def _mechanism_plan(
         "secondary_id": secondary_id,
         "record_id": record_id,
     }
+    if identity is not None:
+        plan.update(
+            _reported_identity(rng, count, identity, params, plan["linkage_error"], plan["split"], merge_pairs)
+        )
+    else:
+        plan["name_error_slot"] = np.zeros((count, 2), dtype=np.bool_)
+        plan["birth_error_slot"] = np.zeros((count, 2), dtype=np.bool_)
+    plan["name_error"] = plan["name_error_slot"][:, 0].copy()
+    plan["birth_error"] = plan["birth_error_slot"][:, 0].copy()
+    return plan
 
 
 def _mechanism_table(plan: dict) -> dict[str, np.ndarray]:
@@ -668,6 +1019,10 @@ def _expand_rows(plan: dict, active: np.ndarray, stale: np.ndarray) -> dict:
     mechanism_code |= np.where(stale[position], MECHANISM_BITS["stale"], 0).astype(
         np.int16
     )
+    for name in ("name_error", "birth_error"):
+        mechanism_code |= np.where(
+            plan[f"{name}_slot"][position, slot], MECHANISM_BITS[name], 0
+        ).astype(np.int16)
     return {
         "position": position,
         "slot": slot,
@@ -691,15 +1046,43 @@ def _county_values(
     return county
 
 
-def _name_values(
-    base_name: np.ndarray, rows: dict, plan: dict, source_index: int
-) -> np.ndarray:
+def _name_codes(
+    vocabulary: dict, rows: dict, plan: dict
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reported (given_code, family_code) tokens for each public row."""
+    position, slot = rows["position"], rows["slot"]
+    given_index = plan["given_index"][position, slot]
+    family_index = plan["family_index"][position, slot]
+    variant = plan["family_variant"][position, slot]
+    given_code = np.asarray(vocabulary["given"][given_index], dtype=np.uint64).copy()
+    family_code = np.where(
+        variant, vocabulary["variant"][family_index], vocabulary["family"][family_index]
+    ).astype(np.uint64)
+    transposed = plan["transposed"][position, slot]
+    given_code, family_code = (
+        np.where(transposed, family_code, given_code).astype(np.uint64),
+        np.where(transposed, given_code, family_code).astype(np.uint64),
+    )
+    given_code[plan["given_missing"][position, slot]] = np.uint64(0)
+    return given_code, family_code
+
+
+def _reported_birth_and_sex(rows: dict, plan: dict) -> tuple[np.ndarray, np.ndarray]:
+    position, slot = rows["position"], rows["slot"]
+    return (
+        plan["reported_birth_tick"][position, slot].astype(np.int64, copy=True),
+        plan["reported_sex"][position, slot].astype(np.int8, copy=True),
+    )
+
+
+def _flag_address_lag(rows: dict, reported_county: np.ndarray, snapshot_county: np.ndarray) -> None:
+    """Mark rows whose reference-date address differs from the snapshot address."""
     position = rows["position"]
-    observed = np.asarray(base_name[position], dtype=np.uint64).copy()
-    error = plan["linkage_error"][position]
-    if error.any():
-        observed[error] ^= np.uint64((source_index + 1) * 0x9E3779)
-    return observed
+    lagged = reported_county != snapshot_county[position]
+    rows["mechanism_code"] = (
+        rows["mechanism_code"]
+        | np.where(lagged, MECHANISM_BITS["address_lag"], 0).astype(np.int16)
+    ).astype(np.int16)
 
 
 def _sort_table(
@@ -745,7 +1128,7 @@ def _population_source(
     county_flat: np.ndarray,
     n_counties: int,
     household_id: np.ndarray,
-    base_name: np.ndarray,
+    vocabulary: dict,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     person = state["person"]
     true_county = _recorded_county(person["cell"], county_flat)
@@ -755,13 +1138,16 @@ def _population_source(
     household_position = _sequence_position(person["truth_household_id"][position])
     education = person["education"][position].astype(np.int8, copy=True)
     education[plan["item_missing"][position]] = -1
+    given_code, family_code = _name_codes(vocabulary, rows, plan)
+    birth_tick, sex = _reported_birth_and_sex(rows, plan)
     table = {
         "record_id": rows["record_id"],
         "person_id": rows["entity_id"],
         "household_id": household_id[household_position],
-        "name_code": _name_values(base_name, rows, plan, 0),
-        "birth_tick": person["birth_tick"][position].astype(np.int64, copy=False),
-        "sex": person["sex"][position].astype(np.int8, copy=False),
+        "given_code": given_code,
+        "family_code": family_code,
+        "birth_tick": birth_tick,
+        "sex": sex,
         "education": education,
         "county": _county_values(true_county, rows, plan, n_counties),
     }
@@ -778,6 +1164,7 @@ def _business_source(
     county_flat: np.ndarray,
     n_counties: int,
     enterprise_id: np.ndarray,
+    income_scale: float,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     establishment = state["establishment"]
     active = establishment["exists"] & establishment["is_active"]
@@ -792,7 +1179,7 @@ def _business_source(
     enterprise_position = _sequence_position(
         establishment["truth_enterprise_id"][position]
     )
-    payroll_value = payroll[position].astype(np.float64)
+    payroll_value = np.rint(payroll[position].astype(np.float64) * income_scale)
     payroll_value[plan["item_missing"][position]] = np.nan
     table = {
         "record_id": rows["record_id"],
@@ -816,12 +1203,15 @@ def _income_source(
     county_flat: np.ndarray,
     n_counties: int,
     household_id: np.ndarray,
-    base_name: np.ndarray,
+    vocabulary: dict,
     business_plan: dict,
+    history: dict,
+    snapshot_tick: int,
+    income_scale: float,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     person = state["person"]
-    true_county = _recorded_county(person["cell"], county_flat)
-    active = person["exists"] & person["is_alive"] & (true_county >= 0)
+    snapshot_county = _recorded_county(person["cell"], county_flat)
+    active = person["exists"] & person["is_alive"] & (snapshot_county >= 0)
     rows = _expand_rows(plan, active, stale)
     position = rows["position"]
     earnings, employer_position, _, _ = _employment_summary(
@@ -830,7 +1220,17 @@ def _income_source(
         len(state["establishment"]["truth_establishment_id"]),
     )
     household_position = _sequence_position(person["truth_household_id"][position])
-    income = earnings[position].astype(np.float64)
+    # Address on file is the household's address one year before the snapshot.
+    lagged_cell = _household_cells_at(
+        history,
+        snapshot_tick,
+        household_position,
+        snapshot_tick - INCOME_ADDRESS_LAG,
+        person["cell"][position],
+    )
+    true_county = snapshot_county.copy()
+    true_county[position] = _recorded_county(lagged_cell, county_flat)
+    income = np.rint(earnings[position].astype(np.float64) * income_scale)
     missing = plan["item_missing"][position]
     income[missing] = np.nan
     selected_employer_position = employer_position[position]
@@ -846,13 +1246,17 @@ def _income_source(
             % len(business_plan["primary_id"])
         ]
     employer_id[missing] = 0
+    _flag_address_lag(rows, true_county[position], snapshot_county)
+    given_code, family_code = _name_codes(vocabulary, rows, plan)
+    birth_tick, sex = _reported_birth_and_sex(rows, plan)
     table = {
         "record_id": rows["record_id"],
         "taxpayer_id": rows["entity_id"],
         "household_id": household_id[household_position],
-        "name_code": _name_values(base_name, rows, plan, 2),
-        "birth_tick": person["birth_tick"][position].astype(np.int64, copy=False),
-        "sex": person["sex"][position].astype(np.int8, copy=False),
+        "given_code": given_code,
+        "family_code": family_code,
+        "birth_tick": birth_tick,
+        "sex": sex,
         "county": _county_values(true_county, rows, plan, n_counties),
         "employment_income_cents": income,
         "employer_id": employer_id,
@@ -869,21 +1273,36 @@ def _health_source(
     stale: np.ndarray,
     county_flat: np.ndarray,
     n_counties: int,
-    base_name: np.ndarray,
+    vocabulary: dict,
     patient_id: np.ndarray,
     facility_id: np.ndarray,
+    history: dict,
+    snapshot_tick: int,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     encounter = state["encounter"]
     person = state["person"]
     all_person_position = _sequence_position(encounter["truth_person_id"])
-    patient_county = _recorded_county(person["cell"][all_person_position], county_flat)
+    snapshot_patient_county = _recorded_county(
+        person["cell"][all_person_position], county_flat
+    )
     # An encounter whose patient has no recorded address yet is not observable in
     # this vintage.
-    rows = _expand_rows(plan, encounter["exists"] & (patient_county >= 0), stale)
+    rows = _expand_rows(plan, encounter["exists"] & (snapshot_patient_county >= 0), stale)
     position = rows["position"]
     person_position = _sequence_position(encounter["truth_person_id"][position])
     hospital_position = _sequence_position(encounter["truth_hospital_id"][position])
     facility_county = county_flat[state["hospital_cell"]]
+    # Patient address as recorded at admission: the household's cell in force then.
+    admission_cell = _household_cells_at(
+        history,
+        snapshot_tick,
+        _sequence_position(person["truth_household_id"][person_position]),
+        encounter["admission_tick"][position],
+        person["cell"][person_position],
+    )
+    patient_county = snapshot_patient_county.copy()
+    patient_county[position] = _recorded_county(admission_cell, county_flat)
+    _flag_address_lag(rows, patient_county[position], snapshot_patient_county)
 
     observed_patient = patient_id[person_position].copy()
     wrong_link = plan["linkage_error"][position]
@@ -891,8 +1310,8 @@ def _health_source(
         observed_patient[wrong_link] = patient_id[
             (person_position[wrong_link] + 1) % len(patient_id)
         ]
-    observed_name = base_name[person_position].copy()
-    observed_name[wrong_link] ^= np.uint64(4 * 0x9E3779)
+    given_code, family_code = _name_codes(vocabulary, rows, plan)
+    birth_tick, sex = _reported_birth_and_sex(rows, plan)
     cost = encounter["cost_cents"][position].astype(np.float64)
     cost[plan["item_missing"][position]] = np.nan
     table = {
@@ -900,11 +1319,10 @@ def _health_source(
         "encounter_id": rows["entity_id"],
         "patient_id": observed_patient,
         "facility_id": facility_id[hospital_position],
-        "name_code": observed_name,
-        "birth_tick": person["birth_tick"][person_position].astype(
-            np.int64, copy=False
-        ),
-        "sex": person["sex"][person_position].astype(np.int8, copy=False),
+        "given_code": given_code,
+        "family_code": family_code,
+        "birth_tick": birth_tick,
+        "sex": sex,
         "patient_county": _county_values(patient_county, rows, plan, n_counties),
         "facility_county": facility_county[hospital_position].astype(
             np.int32, copy=False
@@ -977,6 +1395,27 @@ def _build_observed_sources_unchecked(
         "income": (6, 7, 8),
         "health": (9, 10, 11),
     }
+    n_persons = _table_length(person)
+    vocabulary = _name_vocabulary(seed)
+    true_given, true_family = _true_names(seed, vocabulary, n_persons)
+    person_identity = {
+        "given": true_given,
+        "family": true_family,
+        "given_weights": vocabulary["given_weights"],
+        "family_weights": vocabulary["family_weights"],
+        "birth_tick": np.asarray(person["birth_tick"], dtype=np.int64),
+        "sex": np.asarray(person["sex"], dtype=np.int8),
+        "person_county": person_county,
+    }
+    identities = {
+        "population": {**person_identity, "person_position": np.arange(n_persons)},
+        "business": None,
+        "income": {**person_identity, "person_position": np.arange(n_persons)},
+        "health": {
+            **person_identity,
+            "person_position": _sequence_position(encounter["truth_person_id"]),
+        },
+    }
     plans = {
         source: _mechanism_plan(
             seed,
@@ -987,6 +1426,7 @@ def _build_observed_sources_unchecked(
             coverage[source],
             params,
             domains[source],
+            identities[source],
         )
         for source_index, source in enumerate(OBSERVED_SOURCES)
     }
@@ -995,7 +1435,7 @@ def _build_observed_sources_unchecked(
     enterprise_position = _sequence_position(establishment["truth_enterprise_id"])
     n_enterprises = int(enterprise_position.max()) + 1
     n_hospitals = len(hospitals["hospital"]["truth_hospital_id"])
-    base_name = _random_tokens(seed, 12, _table_length(person))
+    income_scale = float(params.register_income_scale)
     population_household_id = _random_tokens(seed, 13, n_households)
     income_household_id = _random_tokens(seed, 14, n_households)
     enterprise_id = _random_tokens(seed, 15, n_enterprises)
@@ -1018,7 +1458,7 @@ def _build_observed_sources_unchecked(
             county_flat,
             n_counties,
             population_household_id,
-            base_name,
+            vocabulary,
         )
         business_table, business_crosswalk = _business_source(
             recorded,
@@ -1027,6 +1467,7 @@ def _build_observed_sources_unchecked(
             county_flat,
             n_counties,
             enterprise_id,
+            income_scale,
         )
         income_table, income_crosswalk = _income_source(
             recorded,
@@ -1035,8 +1476,11 @@ def _build_observed_sources_unchecked(
             county_flat,
             n_counties,
             income_household_id,
-            base_name,
+            vocabulary,
             plans["business"],
+            history,
+            snapshot_tick,
+            income_scale,
         )
         health_table, health_crosswalk = _health_source(
             recorded,
@@ -1044,9 +1488,11 @@ def _build_observed_sources_unchecked(
             stale["health"],
             county_flat,
             n_counties,
-            base_name,
+            vocabulary,
             patient_id,
             facility_id,
+            history,
+            snapshot_tick,
         )
         public_snapshots[label] = {
             "snapshot_tick": np.int64(snapshot_tick),
@@ -1065,7 +1511,7 @@ def _build_observed_sources_unchecked(
     return {
         "truth_world_id": np.uint64(history["truth_world_id"]),
         "generator_version": int(history["generator_version"]),
-        "source_schema_version": 1,
+        "source_schema_version": 2,
         "preliminary_tick": np.int64(preliminary_tick),
         "revised_tick": np.int64(revised_tick),
         "source_params": _params_record(params),
@@ -1118,7 +1564,7 @@ def _validate_structure(package: dict, history: dict, admin: dict) -> None:
     }
     if set(package) != expected_top:
         raise ValueError("source package top-level fields differ from schema")
-    if int(package["source_schema_version"]) != 1:
+    if int(package["source_schema_version"]) != 2:
         raise ValueError("unsupported source schema version")
     if set(package["public_snapshots"]) != {"preliminary", "revised"}:
         raise ValueError("source package must contain exactly two public snapshots")

@@ -342,15 +342,29 @@ independent `tick` replay, allowing the retained evidence to identify stale repo
 All observed IDs are random `uint64` tokens in source-specific namespaces disjoint from
 the truth-ID namespaces. The random draw receives a source and row count, never a truth
 ID. It is therefore not a hash, encoding, prefix, suffix, or arithmetic transform of a
-truth ID. Names are represented by synthetic `name_code` tokens rather than real names.
-Mostly shared but error-prone name codes, birth ticks, sex, household IDs, employer IDs,
-and county codes create a probabilistic linkage problem; no perfect cross-source person
-key is shipped.
+truth ID. Names are represented by two synthetic tokens, `given_code` and
+`family_code`, rather than real names. Each truth person has one true pair drawn from
+finite vocabularies (1500 given names, 8000 family names) under a Zipf frequency law
+with exponent 0.9, so distinct persons share a pair at a rate the development worlds
+reveal only in aggregate. Every person source re-reports the pair, the birth tick, and
+the sex with its own error process at public constant rates: another given name on file
+(0.040), the family name's second spelling (0.040), given and family entered swapped
+(0.010), given name missing and reported as `0` (0.015), birth month off by one to three
+(0.040), birth month rounded to the year (0.030), birth year off by one (0.010), and sex
+miscoded (0.006). A linkage error reports the name pair of another person in the same
+county. The second record of a duplicate draws its own errors, so duplicates are
+near-duplicates; the second record of a split carries the other spelling of the family
+name; the second member of a merge pair reports the first member's name. Each source
+records the address at its own reference date: the population source at the snapshot,
+the income source twelve ticks earlier, the health source at admission. Error-prone
+names, birth ticks, sex, household IDs, employer IDs, and dated county codes create a
+probabilistic linkage problem; no perfect cross-source person key is shipped.
 
 Population fields are `record_id: uint64`, `person_id: uint64`, `household_id: uint64`,
-`name_code: uint64`, `birth_tick: int64`, `sex: int8`, `education: int8`, and
-`county: int32`. They provide imperfect person and household identities, synthetic
-linkage fields, and reported demographics. Missing education uses `-1`.
+`given_code: uint64`, `family_code: uint64`, `birth_tick: int64`, `sex: int8`,
+`education: int8`, and `county: int32`. They provide imperfect person and household
+identities, synthetic linkage fields, and reported demographics. Missing education
+uses `-1`.
 
 Business fields are `record_id: uint64`, `business_id: uint64`, `enterprise_id: uint64`,
 `industry: int16`, `county: int32`, `employee_count: int32`, and
@@ -358,12 +372,14 @@ Business fields are `record_id: uint64`, `business_id: uint64`, `enterprise_id: 
 source; missing payroll uses `NaN`.
 
 Income fields are `record_id: uint64`, `taxpayer_id: uint64`, `household_id: uint64`,
-`name_code: uint64`, `birth_tick: int64`, `sex: int8`, `county: int32`,
-`employment_income_cents: float64`, and `employer_id: uint64`. A planted mechanism can
-make the employer identifier wrong or zero, while missing income uses `NaN`.
+`given_code: uint64`, `family_code: uint64`, `birth_tick: int64`, `sex: int8`,
+`county: int32`, `employment_income_cents: float64`, and `employer_id: uint64`. A planted
+mechanism can make the employer identifier wrong or zero, while missing income uses
+`NaN`. Earnings and business payroll are reported in the register's own wage unit: truth
+cents times the world's `register_income_scale`, a per-world draw (section 9a).
 
 Health fields are `record_id: uint64`, `encounter_id: uint64`, `patient_id: uint64`,
-`facility_id: uint64`, `name_code: uint64`, `birth_tick: int64`, `sex: int8`,
+`facility_id: uint64`, `given_code: uint64`, `family_code: uint64`, `birth_tick: int64`, `sex: int8`,
 `patient_county: int32`, `facility_county: int32`, `admission_tick: int64`,
 `discharge_tick: int64`, `service: int8`, `diagnosis_group: int16`, `outcome: int8`, and
 `cost_cents: float64`. Open encounters use `-1` for discharge, and missing cost uses
@@ -380,12 +396,39 @@ mechanism may replace that value by another valid code; the retained crosswalk i
 the affected row. Facility county is not corrupted in v0.
 
 The sealed mechanism table has one row per possible truth entity and records `covered`,
-`duplicate`, `split`, `merge_group`, `county_error`, `linkage_error`, and `item_missing`.
+`duplicate`, `split`, `merge_group`, `county_error`, `linkage_error`, `item_missing`,
+`birth_error`, and `name_error` (the last two for the primary record; the crosswalk
+carries the per-record bits, plus `address_lag` where a source's dated address differs
+from the snapshot address).
 Coverage is lower by a declared penalty in outpost counties, creating structural thin-
 county undercoverage. Split entities necessarily receive a second record and observed
 ID; merge groups contain exactly two truth entities. Reporting staleness is not sampled:
 it is measured by comparing the `recorded_tick` view with truth replay at the same
 effective tick.
+
+### 9a. Per-world mechanism draw and the hidden shift family
+
+Four mechanism quantities are one draw per world from `draw_source_params` on its own
+seed sequence key, so geography and society draws and the sealed digests are unchanged.
+Development worlds draw from the development band: population coverage in
+(0.940, 0.985), health coverage in (0.900, 0.950), county miscoding rate in
+(0.012, 0.024), register income scale in (0.94, 1.06). The hidden world draws from the
+published shift family, which lies outside that band: population coverage below the
+band's low edge by 0.02 to 0.08; health coverage below it by 0.06 to 0.20; county
+miscoding rate at 1.5 to 3.0 times the band's high edge; the effective register wage
+level (payroll level times register income scale) in (0.50, 0.63) or in (1.52, 1.90),
+side by a fair coin, against a development band of (0.705, 1.378). The realized values
+live only in `retained/world.json` and the retained source evidence.
+
+### 9b. Benchmark totals
+
+`participant/sources/benchmark_{preliminary,revised}.csv` (`item, level, unit, value`)
+carries the four counts at nation and state level from a separately produced series.
+Each value is the exact count at the snapshot times `exp(b)`: at nation level `|b|` is
+uniform in (0.02, 0.07) with a fair-coin sign per item; at state level `b` is normal
+with a world-specific standard deviation uniform in (0.03, 0.08). The bias is persistent
+across vintages and independent across items and units; values are rounded to the
+nearest hundred. The draws live only in `retained/world.json`.
 
 Each public row has one sealed crosswalk row. Its schema is
 `observed_record_id: uint64`, `observed_entity_id: uint64`, `truth_entity_id: uint64`,

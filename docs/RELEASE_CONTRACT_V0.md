@@ -115,6 +115,30 @@ under its own dynamics, shocks included, and the future table is exact truth.
   over budget is infeasible and fails outright. A point commitment cannot be hedged with a
   wide interval.
 
+## Sources in version three
+
+What the participant may rely on about the observed sources, stated as families and
+ranges. Realized values are never shipped.
+
+- Linkage. No perfect cross-source person key exists. Names are two tokens drawn from
+  finite vocabularies under a heavy-tailed frequency law, so distinct persons share a
+  pair; every source re-reports name, birth tick, and sex with its own error process at
+  the constant rates in `docs/IDENTITY_AND_SCHEMA_V0.md`; each source records the
+  address at its own reference date (population at the snapshot, income one year
+  earlier, health at admission); duplicates are near-duplicates.
+- Per-world mechanism draw. Population coverage, health coverage, the county miscoding
+  rate, and the register wage level are one draw per world. Development worlds draw
+  from the development band. The hidden world draws from a shift family outside that
+  band: lower population and health coverage, a higher miscoding rate, and a register
+  wage level on one side of the band, direction undisclosed. Ranges are in
+  `docs/IDENTITY_AND_SCHEMA_V0.md`, section 9a.
+- Benchmark totals. A separate series gives the four counts at nation and state level
+  with its own persistent bias: national log-bias magnitude in (0.02, 0.07), state
+  log-bias standard deviation in (0.03, 0.08), rounded to the nearest hundred. It is a
+  second total to reconcile against the county-up count, not an answer.
+- Allocation budget. The budget is a fraction of persons aged 65 and over in the revised
+  population source as reported, birth-tick reporting error included.
+
 ## Not yet in v0
 
 Movement classification between vintages and the executable audit trail are scored by

@@ -1,0 +1,48 @@
+{
+ "dispersion_range": [
+  0.8872939369139159,
+  0.9592668240649845
+ ],
+ "dispersion_reference": 0.9189741242722546,
+ "exact_key_union": {
+  "county_q90": {
+   "children_under_16": 0.09655051947028333,
+   "elders_65_plus": 0.10181836312428069,
+   "households": 0.0491435131568742,
+   "persons": 0.09682382788950772
+  },
+  "ratio": {
+   "children_under_16": 0.8715697665338489,
+   "elders_65_plus": 1.1389315897635817,
+   "households": 1.0759343158182662,
+   "persons": 0.8570274867866182
+  },
+  "ratio_spread": {
+   "children_under_16": 0.04011435487437672,
+   "elders_65_plus": 0.030183151134754956,
+   "households": 0.014125013199481472,
+   "persons": 0.039169151957018325
+  }
+ },
+ "low_income_household_share": {
+  "intercept": 0.28637372379531095,
+  "residual_sd": 0.01,
+  "slope": -0.29054282373002804
+ },
+ "mean_income_adults": {
+  "intercept": -1.001040799695609,
+  "residual_sd": 0.02455763378260495,
+  "slope": 1.2752550900538535
+ },
+ "median_household_income": {
+  "intercept": -0.42234151941973613,
+  "residual_sd": 0.01,
+  "slope": 0.6319599709047827
+ },
+ "n_worlds": 3,
+ "ratio_exponent": {
+  "low_income_household_share": 1.6612569612158181,
+  "mean_income_adults": 2.0046382266606866,
+  "median_household_income": 1.0
+ }
+}

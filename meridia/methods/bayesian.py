@@ -9,19 +9,18 @@ The same packet, a different statistical philosophy. Instead of ratio adjustment
 bootstrap, every county quantity is a latent variable with a posterior:
 
 1. Coverage. The deduplicated register count in county c is a binomial draw from the
-   true population with coverage p_c. The survey's nonresponse-adjusted direct estimate
-   is a noisy measurement of the same true population. Coverage rates share a Beta
-   prior within each state and size class (small counties are covered worse), whose
-   hyperparameters are learned from the data. A Gibbs sampler alternates population,
-   coverage, and hyperparameters; posterior draws give intervals that already carry
-   both sampling error and between-county model error.
+   true population with coverage p_c. Coverage rates share a Beta prior within each
+   state whose mean is the state's pooled survey-to-register ratio (the survey's
+   nonresponse-adjusted direct estimates, pooled over every county of the state) and
+   whose concentration is fixed; draws of p_c give intervals that carry the
+   between-county spread of coverage and the pooled ratio's sampling error together.
 2. Income. County log-mean incomes follow a normal hierarchical model shrunk toward a
    state mean plus a slope on the income source's county mean; sampling variances come
    from the survey. Selective nonresponse is corrected by the same development-world
    calibration channel every participant has, fitted for this method.
 3. Projection. Cohort-component on each posterior draw of the county age cube, with
-   mortality and fertility drawn from the public ranges, so the projection's interval
-   integrates over reconstruction and demographic uncertainty together.
+   mortality and fertility drawn around their source estimates, so the projection's
+   interval integrates over reconstruction and demographic uncertainty together.
 4. Allocation proportional to posterior-mean projected elders; detailed table with
    primary suppression and no totals.
 
@@ -63,93 +62,79 @@ def sample_population(register: np.ndarray, direct: np.ndarray, direct_var: np.n
                       county_state: np.ndarray, small: np.ndarray, rng: np.random.Generator,
                       sweeps: int, burn_in: int, n_psu: np.ndarray | None = None,
                       concentration: float = 12.0) -> np.ndarray:
-    """Gibbs draws of true county populations.
+    """Draws of true county populations.
 
-    Coverage p_c has a Beta prior per state and size class whose mean is the pooled
-    survey-to-register ratio of that group and whose concentration is fixed (25,
-    roughly a plus or minus ten percent spread of county coverages). The prior is not
-    re-estimated from the draws, which would collapse it; the group mean carries the
-    survey's information and the concentration carries the modeller's.
+    Coverage p_c has a Beta prior per state whose mean is the state's pooled
+    survey-to-register ratio and whose concentration is fixed (twelve, roughly a plus
+    or minus eight percent spread of county coverages within a state, the size of the
+    declared outpost penalty). The pooled ratio includes the counties no unit landed
+    in (direct estimate zero), so the pool is design-unbiased for the state; a
+    county's own direct estimate is not used, since on this design it carries a
+    relative error of 0.2 to 0.4 and, for a small county, a conditional bias from the
+    units that happened to land there. The prior is not re-estimated from the draws,
+    which would collapse it; the pooled ratio carries the survey's information and
+    the concentration carries the modeller's. ``small`` is accepted for the call
+    signature and not used.
     """
     n_counties = len(register)
     n_states = int(county_state.max()) + 1
-    groups = county_state * 2 + small.astype(np.int64)
-    have = np.isfinite(direct_var) & (direct_var > 0) & (direct > 0)
+    groups = county_state
     if n_psu is None:
         n_psu = np.where(direct > 0, 4.0, 0.0)
-    # Group prior means: pooled register over pooled direct where the survey has
-    # sampled the group; the small-county class is pooled nationally.
-    # Group prior means shrink toward the national ratio in proportion to the sampling
-    # units behind them, and stay within the public mechanism bounds.
-    national = float(np.clip(register[direct > 0].sum() / max(direct[direct > 0].sum(), 1e-9), 0.05, 0.995)) if (direct > 0).any() else 0.9
-    prior_mean = np.full(2 * n_states, national)
-    for g in range(2 * n_states):
-        members = (groups == g) & (direct > 0)
-        if g % 2 == 1:
-            members = small & (direct > 0)
-        if members.sum() >= 1 and direct[members].sum() > 0:
+    national = float(np.clip(register.sum() / max(direct.sum(), 1e-9), 0.05, 0.995)) if direct.sum() > 0 else 0.9
+    prior_mean = np.full(n_states, national)
+    prior_se = np.full(n_states, 0.08)
+    for g in range(n_states):
+        members = groups == g
+        if members.any() and direct[members].sum() > 0:
             ratio = register[members].sum() / direct[members].sum()
             units = float(n_psu[members].sum())
             w = units / (units + A.COVERAGE_PRIOR_UNITS)
             prior_mean[g] = float(np.clip(w * ratio + (1.0 - w) * national, A.COVERAGE_BOUNDS[0], 0.995))
-    # The group mean itself is estimated from the survey; its sampling error widens
-    # the effective prior so the posterior carries it.
-    prior_se = np.zeros(2 * n_states)
-    for g in range(2 * n_states):
-        members = (groups == g) & have if g % 2 == 0 else small & have
-        if members.sum() >= 1 and direct[members].sum() > 0:
-            prior_se[g] = float(np.sqrt(direct_var[members].sum()) / direct[members].sum() * prior_mean[g])
-        else:
-            prior_se[g] = 0.08
+            have = members & np.isfinite(direct_var) & (direct_var > 0)
+            if have.any():
+                # The pooled ratio's own sampling error widens the effective prior.
+                prior_se[g] = float(np.sqrt(direct_var[have].sum()) / direct[members].sum() * prior_mean[g])
     var_eff = prior_mean * (1.0 - prior_mean) / (concentration + 1.0) + prior_se ** 2
     kappa = np.maximum(prior_mean * (1.0 - prior_mean) / np.maximum(var_eff, 1e-9) - 1.0, 2.0)
     a = prior_mean * kappa
     b = (1.0 - prior_mean) * kappa
-    # Marginal sampling on a grid. Register and true population are tied along the
-    # curve N p = r; a Gibbs chain along that ridge mixes too slowly to trust. Instead,
-    # for each county the posterior of p under the Beta prior and, where the survey
-    # sampled the county, the direct measurement's normal likelihood of N = r / p, is
-    # evaluated on a grid and sampled exactly; N then adds the binomial noise.
-    from scipy.stats import beta as beta_dist
-    grid = np.linspace(0.30, 0.999, 400)
     n_draws = sweeps - burn_in
     draws = np.zeros((n_draws, n_counties))
+    # The mean of r / p over the Beta draws exceeds r over the mean coverage by about
+    # the prior's relative variance; the draws are scaled so that their mean is the
+    # register over the state's coverage, not above it.
+    jensen = 1.0 / (1.0 + var_eff / prior_mean ** 2)
     for c in range(n_counties):
         g = groups[c]
-        log_w = beta_dist.logpdf(grid, a[g], b[g])
         r = float(register[c])
-        if have[c]:
-            # A floor on the direct measurement's variance that scales with the sampling
-            # units behind it: between-unit spread is about half the mean, so a county
-            # with n units cannot be certified more tightly than 0.5 / sqrt(n).
-            floor_sd = 0.5 / np.sqrt(max(float(n_psu[c]), 1.0)) * direct[c]
-            var_c = max(direct_var[c], floor_sd ** 2)
-            log_w = log_w - 0.5 * (direct[c] - r / grid) ** 2 / var_c
-        w = np.exp(log_w - np.nanmax(log_w))
-        w = np.where(np.isfinite(w), w, 0.0)
-        if w.sum() <= 0:                      # degenerate: fall back to the prior alone
-            w = np.exp(beta_dist.logpdf(grid, a[g], b[g]))
-        w /= w.sum()
-        p = rng.choice(grid, size=n_draws, p=w)
-        draws[:, c] = np.maximum(r / p + rng.normal(0.0, np.sqrt(max(r, 1.0) * (1.0 - p)) / p), r)
-    # Counties in a group share the error of their group's coverage estimate: one
-    # common factor per group per draw, so state and national intervals carry it.
-    for g in range(2 * n_states):
+        p = np.clip(rng.beta(a[g], b[g], size=n_draws), 0.30, 0.999)
+        draws[:, c] = np.maximum(r / p * jensen[g] + rng.normal(0.0, np.sqrt(max(r, 1.0) * (1.0 - p)) / p), r)
+    # Counties in a state share the error of their state's coverage estimate: one
+    # common factor per state per draw, log-normal with mean one, so state and
+    # national intervals carry it without a shift of the point estimate.
+    for g in range(n_states):
         members = groups == g
         if members.any() and prior_se[g] > 0:
-            shift = rng.normal(0.0, prior_se[g] / prior_mean[g], size=n_draws)
-            draws[:, members] *= np.exp(-shift)[:, None]
+            sigma = prior_se[g] / prior_mean[g]
+            shift = rng.normal(0.0, sigma, size=n_draws)
+            draws[:, members] *= np.exp(shift - 0.5 * sigma ** 2)[:, None]
     return draws
 
 
 def sample_income(frame, register_frame, income, county_state: np.ndarray,
-                  rng: np.random.Generator, sweeps: int, burn_in: int) -> dict:
+                  rng: np.random.Generator, sweeps: int, burn_in: int,
+                  ratio_exponent: dict | None = None) -> dict:
     """Normal hierarchical draws of county income quantities from the survey with the
     income source as a covariate; state and nation from person-weighted aggregation."""
     n_counties = len(county_state)
     n_states = int(county_state.max()) + 1
-    ratios = A.income_source_ratios(income, county_state, A.survey_statistics(frame, county_state)
-                                    ["median_household_income"]["nation"])
+    base_stats = A.survey_statistics(frame, county_state)
+    ratios = A.apply_ratio_exponents(
+        A.income_source_ratios(income, county_state, base_stats["median_household_income"]["nation"],
+                               A.register_income_scale(income, base_stats["mean_income_adults"]["nation"]),
+                               register_frame=register_frame),
+        ratio_exponent)
     out = {}
     w = frame["weight"].to_numpy(dtype=np.float64)
     county = frame["county"].to_numpy(dtype=np.int64)
@@ -200,11 +185,13 @@ def sample_income(frame, register_frame, income, county_state: np.ndarray,
     # the county mean's posterior relative spread as the uncertainty carrier.
     stats = A.survey_statistics(frame, county_state)
     rel = np.exp(draws) / np.maximum(np.exp(draws).mean(axis=0), 1e-9)
-    # The household median tracks the county mean through one survey-estimated
-    # national ratio (median household income over mean adult income), so its
-    # posterior inherits the mean's; the low-income share moves against the mean.
-    national_ratio = stats["median_household_income"]["nation"] / max(stats["mean_income_adults"]["nation"], 1e-9)
-    out["median_household_income"] = out["mean_income_adults"] * national_ratio
+    # The household median is the state survey median scaled by the income source's
+    # county ratio (corroborated records, as for the design-based line), with the
+    # county mean's posterior relative spread as its uncertainty; the low-income
+    # share moves against the mean.
+    state_median = np.asarray([stats["median_household_income"][s] for s in range(n_states)])
+    base_median = state_median[county_state] * ratios["median_household_income"]
+    out["median_household_income"] = base_median[None, :] * rel
     state_values = np.asarray([stats["low_income_household_share"][s] for s in range(n_states)])
     base = state_values[county_state] * ratios["low_income_household_share"]
     out["low_income_household_share"] = np.clip(base[None, :] * (2.0 - rel), 0.0, 1.0)
@@ -220,15 +207,20 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     horizon_months = int(contract["ticks"]["horizon"]) - tick
     rng = np.random.default_rng(params.seed)
 
-    register_frame = A.deduplicate_population(data["population"], tick, data["income"], data.get("health"))
-    register = A.register_counts(register_frame, n_counties)
+    register_frame = A.corroborate_counties(
+        A.deduplicate_population(data["population"], tick, data["income"], data.get("health")), data["income"])
+    miscoding = A.estimate_county_error_rate(data["population_preliminary"], data["population"],
+                                             data["income"], int(contract["ticks"]["preliminary"]), tick)
+    register = A.register_counts(register_frame, n_counties, miscoding["rate"])
     mortality = A.estimate_mortality(data["population_preliminary"], data["population"],
                                      int(contract["ticks"]["preliminary"]), tick)
-    survey = A.impute_income(A.rake_to_register(A.adjusted_survey(data["survey"]), register_frame, county_state))
+    fertility = A.estimate_fertility(register_frame, tick)
+    survey = A.impute_income(A.rake_to_register(A.adjusted_survey(data["survey"]), register_frame, county_state,
+                                                county_persons=register["persons"]))
     dispersion = income_dispersion(survey)
     factors = load_factors(params.calibration_path)
 
-    direct, direct_var = A._direct_county_persons(survey, n_counties)
+    direct, direct_var = A._direct_county_persons(survey, n_counties, floor=False)
     reg_persons = np.asarray(register["persons"], dtype=np.float64)
     small = reg_persons <= np.quantile(reg_persons[reg_persons > 0], 0.25) if (reg_persons > 0).sum() >= 8 \
         else np.zeros(n_counties, bool)
@@ -240,8 +232,22 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     count_draws = {"persons": persons_draws}
     for e in ("households", "children_under_16", "elders_65_plus"):
         count_draws[e] = np.asarray(register[e], dtype=np.float64)[None, :] * ratio_draws
+    # Households have their own coverage (a household is on the register when any
+    # member is); the person ratio is replaced by the state household ratio level.
+    stats0 = A.survey_statistics(survey, county_state)
+    n_states0 = int(county_state.max()) + 1
+    reg_state = np.bincount(county_state, weights=reg_persons, minlength=n_states0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cov_p = np.where(stats0["persons_by_state"] > 0, reg_state / stats0["persons_by_state"], np.nan)
+    nat_p = float(reg_state.sum() / max(stats0["persons_by_state"].sum(), 1e-9))
+    n_psu_state = survey.groupby(county_state[survey["county"].to_numpy(dtype=np.int64)])["psu"].nunique() \
+                        .reindex(range(n_states0), fill_value=0).to_numpy(dtype=np.float64)
+    w_state = n_psu_state / (n_psu_state + A.COVERAGE_PRIOR_UNITS)
+    cov_p = np.clip(np.where(np.isfinite(cov_p), w_state * cov_p + (1.0 - w_state) * nat_p, nat_p), *A.COVERAGE_BOUNDS)
+    hh_factor = A.household_scale(stats0, register, county_state, w_state, nat_p, np.ones(n_counties), cov_p)
+    count_draws["households"] = count_draws["households"] * hh_factor[None, :]
     income_draws = sample_income(survey, register_frame, data["income"], county_state, rng,
-                                 params.sweeps, params.burn_in)
+                                 params.sweeps, params.burn_in, factors.get("ratio_exponent"))
     stats = income_draws.pop("_state_stats")
 
     def aggregate_b(values: dict, persons: np.ndarray) -> dict:
@@ -274,12 +280,22 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
         agg = apply_calibration(aggregate_b(values, values["persons"]), factors, dispersion)
         for key, v in agg.items():
             draws_now.setdefault(key, []).append(v)
-        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng, mortality)
+        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng, mortality, fertility)
         agg_f = apply_calibration(aggregate_b(future, future["persons"]), factors, dispersion)
         for key, v in agg_f.items():
             draws_future.setdefault(key, []).append(v)
     point_now = {key: float(np.nanmean(v)) for key, v in draws_now.items()}
     point_future = {key: float(np.nanmean(v)) for key, v in draws_future.items()}
+    # Benchmark reconciliation of the national counts, as a common factor on every
+    # level and draw (the posterior spread stands in for the bootstrap spread).
+    draw_rows = [{key: v[k] for key, v in draws_now.items()} for k in range(min(n_draws, 60))]
+    reconciliation = A.benchmark_reconciliation(point_now, draw_rows, data.get("benchmark"))
+    point_now = A.apply_reconciliation(point_now, reconciliation)
+    point_future = A.apply_reconciliation(point_future, reconciliation)
+    for draws in (draws_now, draws_future):
+        for key in draws:
+            if key[0] in reconciliation:
+                draws[key] = [v * reconciliation[key[0]] for v in draws[key]]
     # Counts must add exactly: rebuild state and nation points from county points.
     for point in (point_now, point_future):
         for e in COUNT_ITEMS:
@@ -313,6 +329,9 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
             add = 0.0
             if level == "county" and e != "tertiary_share_25_plus":
                 add = 1.645 * 0.10 * (abs(v) if not e.endswith("share") else 0.5)
+            if level != "county" and e in COUNT_ITEMS:
+                # Coverage-model error at nation and state, as in the design-based line.
+                add = 1.645 * A.REGISTER_MODEL_RELATIVE_SD * abs(v)
             if projection and e in COUNT_ITEMS:
                 add = float(np.sqrt(add ** 2 + (1.645 * 0.03 * np.sqrt(horizon_months / 12.0) * abs(v)) ** 2))
             if projection and e in INCOME_ITEMS:
@@ -337,5 +356,15 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
 
 
 def calibrate(dev_packet_dirs, calibration_path: Path, params: MethodParams = MethodParams()) -> dict:
-    quick = MethodParams(sweeps=150, burn_in=50, seed=params.seed)
-    return calibrate_income(lambda d, o: run(d, o, quick), dev_packet_dirs, calibration_path)
+    """Fit the county income ratio exponents first, then the national income
+    corrections with those exponents in place: this line reads nation and state as
+    person-weighted means of county values, so the exponents move them."""
+    import json
+    calibration_path = Path(calibration_path)
+    exponents = A.fit_ratio_exponents(dev_packet_dirs)
+    calibration_path.write_text(json.dumps({"ratio_exponent": exponents}, indent=1, sort_keys=True) + "\n")
+    quick = MethodParams(sweeps=150, burn_in=50, seed=params.seed, calibration_path=str(calibration_path))
+    factors = calibrate_income(lambda d, o: run(d, o, quick), dev_packet_dirs, calibration_path)
+    factors["ratio_exponent"] = exponents
+    calibration_path.write_text(json.dumps(factors, indent=1, sort_keys=True) + "\n")
+    return factors

@@ -1,0 +1,538 @@
+{
+ "allocation": {
+  "budget": 149864.0,
+  "feasible": true,
+  "loss": 0.0011019186702508912,
+  "oracle_loss": 0.0,
+  "regret": 0.0011019186702508912,
+  "spent": 149863.99990000002,
+  "unmet": 159.32642053157636,
+  "waste": 5433.32632053161
+ },
+ "bars_v6_sha256": "50406a1c9122f3f52e1e5ff59af7a2ca44533082aa87dc89264daad6f8bf603b",
+ "metrics": {
+  "children_under_16/all": {
+   "coverage": 1.0,
+   "mean_error": 0.011150633174929397,
+   "mean_interval_score": 0.27372566539937027,
+   "n_units": 41,
+   "worst_error": 0.039092441982422496,
+   "worst_unit": -1
+  },
+  "children_under_16/county": {
+   "coverage": 1.0,
+   "mean_error": 0.012582211966327375,
+   "mean_interval_score": 0.2793713221482161,
+   "n_units": 34,
+   "worst_error": 0.039092441982422496,
+   "worst_unit": 30
+  },
+  "children_under_16/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.004493947795976884,
+   "mean_interval_score": 0.035462955681173525,
+   "n_units": 1,
+   "worst_error": 0.004493947795976884,
+   "worst_unit": 0
+  },
+  "children_under_16/state": {
+   "coverage": 1.0,
+   "mean_error": 0.004147800920166283,
+   "mean_interval_score": 0.2814440621089434,
+   "n_units": 6,
+   "worst_error": 0.008411407875428661,
+   "worst_unit": 4
+  },
+  "elders_65_plus/all": {
+   "coverage": 1.0,
+   "mean_error": 0.03427263555380097,
+   "mean_interval_score": 0.42198938151925625,
+   "n_units": 41,
+   "worst_error": 0.13538112278483985,
+   "worst_unit": -1
+  },
+  "elders_65_plus/county": {
+   "coverage": 1.0,
+   "mean_error": 0.03928153124582957,
+   "mean_interval_score": 0.45594221042751587,
+   "n_units": 34,
+   "worst_error": 0.13538112278483985,
+   "worst_unit": 32
+  },
+  "elders_65_plus/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0015788802879299017,
+   "mean_interval_score": 0.03771815857909908,
+   "n_units": 1,
+   "worst_error": 0.0015788802879299017,
+   "worst_unit": 0
+  },
+  "elders_65_plus/state": {
+   "coverage": 1.0,
+   "mean_error": 0.011337852509950737,
+   "mean_interval_score": 0.29363522152914495,
+   "n_units": 6,
+   "worst_error": 0.02047521805983996,
+   "worst_unit": 5
+  },
+  "households/all": {
+   "coverage": 1.0,
+   "mean_error": 0.022929180543972884,
+   "mean_interval_score": 0.34365064232670045,
+   "n_units": 41,
+   "worst_error": 0.11114774557694464,
+   "worst_unit": -1
+  },
+  "households/county": {
+   "coverage": 1.0,
+   "mean_error": 0.026273217936829556,
+   "mean_interval_score": 0.3490856562861768,
+   "n_units": 34,
+   "worst_error": 0.11114774557694464,
+   "worst_unit": 29
+  },
+  "households/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0008638090791597879,
+   "mean_interval_score": 0.09107775818767551,
+   "n_units": 1,
+   "worst_error": 0.0008638090791597879,
+   "worst_unit": 0
+  },
+  "households/state": {
+   "coverage": 1.0,
+   "mean_error": 0.007657197228587233,
+   "mean_interval_score": 0.35494771057950514,
+   "n_units": 6,
+   "worst_error": 0.021992823831864437,
+   "worst_unit": 5
+  },
+  "low_income_household_share/all": {
+   "coverage": 0.926829268292683,
+   "mean_error": 0.014986425863303617,
+   "mean_interval_score": 0.09437709620005087,
+   "n_units": 41,
+   "worst_error": 0.07957282722078673,
+   "worst_unit": -1
+  },
+  "low_income_household_share/county": {
+   "coverage": 0.9117647058823529,
+   "mean_error": 0.016812756400285442,
+   "mean_interval_score": 0.10409398703617966,
+   "n_units": 34,
+   "worst_error": 0.07957282722078673,
+   "worst_unit": 29
+  },
+  "low_income_household_share/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0031985508334359536,
+   "mean_interval_score": 0.03563362771342668,
+   "n_units": 1,
+   "worst_error": 0.0031985508334359536,
+   "worst_unit": 0
+  },
+  "low_income_household_share/state": {
+   "coverage": 1.0,
+   "mean_error": 0.006601865325384533,
+   "mean_interval_score": 0.04910529287642517,
+   "n_units": 6,
+   "worst_error": 0.013413234864234819,
+   "worst_unit": 0
+  },
+  "mean_income_adults/all": {
+   "coverage": 1.0,
+   "mean_error": 0.037386772271661685,
+   "mean_interval_score": 0.2891615341450538,
+   "n_units": 41,
+   "worst_error": 0.10321060795164824,
+   "worst_unit": -1
+  },
+  "mean_income_adults/county": {
+   "coverage": 1.0,
+   "mean_error": 0.03905662867663218,
+   "mean_interval_score": 0.31179531379986075,
+   "n_units": 34,
+   "worst_error": 0.10321060795164824,
+   "worst_unit": 33
+  },
+  "mean_income_adults/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.022144221846153698,
+   "mean_interval_score": 0.10849097982667995,
+   "n_units": 1,
+   "worst_error": 0.022144221846153698,
+   "worst_unit": 0
+  },
+  "mean_income_adults/state": {
+   "coverage": 1.0,
+   "mean_error": 0.03046467771441354,
+   "mean_interval_score": 0.19101520848754347,
+   "n_units": 6,
+   "worst_error": 0.04477399183544155,
+   "worst_unit": 5
+  },
+  "median_household_income/all": {
+   "coverage": 1.0,
+   "mean_error": 0.059579786178429316,
+   "mean_interval_score": 1.2557916247740093,
+   "n_units": 41,
+   "worst_error": 0.1779062757667981,
+   "worst_unit": -1
+  },
+  "median_household_income/county": {
+   "coverage": 1.0,
+   "mean_error": 0.06284512652191834,
+   "mean_interval_score": 1.4318545385680883,
+   "n_units": 34,
+   "worst_error": 0.1779062757667981,
+   "worst_unit": 33
+  },
+  "median_household_income/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.037252594291527635,
+   "mean_interval_score": 0.1194343300018721,
+   "n_units": 1,
+   "worst_error": 0.037252594291527635,
+   "worst_unit": 0
+  },
+  "median_household_income/state": {
+   "coverage": 1.0,
+   "mean_error": 0.0447973895464752,
+   "mean_interval_score": 0.4474946624029159,
+   "n_units": 6,
+   "worst_error": 0.06650562881987723,
+   "worst_unit": 5
+  },
+  "persons/all": {
+   "coverage": 1.0,
+   "mean_error": 0.013199539392164027,
+   "mean_interval_score": 0.2790405472487366,
+   "n_units": 41,
+   "worst_error": 0.06335600190905655,
+   "worst_unit": -1
+  },
+  "persons/county": {
+   "coverage": 1.0,
+   "mean_error": 0.015217575019405091,
+   "mean_interval_score": 0.28472955064703087,
+   "n_units": 34,
+   "worst_error": 0.06335600190905655,
+   "worst_unit": 28
+  },
+  "persons/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0006678269140829965,
+   "mean_interval_score": 0.03512872441475069,
+   "n_units": 1,
+   "worst_error": 0.0006678269140829965,
+   "worst_unit": 0
+  },
+  "persons/state": {
+   "coverage": 1.0,
+   "mean_error": 0.003852622917478179,
+   "mean_interval_score": 0.2874548317974003,
+   "n_units": 6,
+   "worst_error": 0.00877787984569894,
+   "worst_unit": 5
+  },
+  "tertiary_share_25_plus/all": {
+   "coverage": 0.9512195121951219,
+   "mean_error": 0.0015883303373914544,
+   "mean_interval_score": 0.010779547123711942,
+   "n_units": 41,
+   "worst_error": 0.006491026596483318,
+   "worst_unit": -1
+  },
+  "tertiary_share_25_plus/county": {
+   "coverage": 0.9411764705882353,
+   "mean_error": 0.0017936968694617589,
+   "mean_interval_score": 0.011633443291272076,
+   "n_units": 34,
+   "worst_error": 0.006491026596483318,
+   "worst_unit": 32
+  },
+  "tertiary_share_25_plus/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0002577012104895138,
+   "mean_interval_score": 0.003653741689105594,
+   "n_units": 1,
+   "worst_error": 0.0002577012104895138,
+   "worst_unit": 0
+  },
+  "tertiary_share_25_plus/state": {
+   "coverage": 1.0,
+   "mean_error": 0.0006463581768100524,
+   "mean_interval_score": 0.007128436413305572,
+   "n_units": 6,
+   "worst_error": 0.0012287345962491703,
+   "worst_unit": 3
+  }
+ },
+ "note": "Re-grade of the version-two trajectory's three files against the version-two hidden packet (hidden-keyed-v2) with the version-two frozen verifier image built from tests/ at task commit 537509af and bars/national-v6, /logs/verifier mounted; reward 1.",
+ "pass": true,
+ "projection_metrics": {
+  "children_under_16/all": {
+   "coverage": 0.975609756097561,
+   "mean_error": 0.039738946496601965,
+   "mean_interval_score": 0.396970067290395,
+   "n_units": 41,
+   "worst_error": 0.20374826163134108,
+   "worst_unit": -1
+  },
+  "children_under_16/county": {
+   "coverage": 0.9705882352941176,
+   "mean_error": 0.04512330818851595,
+   "mean_interval_score": 0.43656443045025506,
+   "n_units": 34,
+   "worst_error": 0.20374826163134108,
+   "worst_unit": 25
+  },
+  "children_under_16/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.011790705941916472,
+   "mean_interval_score": 0.14048461004327015,
+   "n_units": 1,
+   "worst_error": 0.011790705941916472,
+   "worst_unit": 0
+  },
+  "children_under_16/state": {
+   "coverage": 1.0,
+   "mean_error": 0.01388560366820365,
+   "mean_interval_score": 0.2153495855923759,
+   "n_units": 6,
+   "worst_error": 0.023009850116600637,
+   "worst_unit": 0
+  },
+  "elders_65_plus/all": {
+   "coverage": 1.0,
+   "mean_error": 0.05798050071221019,
+   "mean_interval_score": 0.3355945099353459,
+   "n_units": 41,
+   "worst_error": 0.1477649402794828,
+   "worst_unit": -1
+  },
+  "elders_65_plus/county": {
+   "coverage": 1.0,
+   "mean_error": 0.057455044111160515,
+   "mean_interval_score": 0.35749978058366133,
+   "n_units": 34,
+   "worst_error": 0.1477649402794828,
+   "worst_unit": 25
+  },
+  "elders_65_plus/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.060991992889512674,
+   "mean_interval_score": 0.22598945633355771,
+   "n_units": 1,
+   "worst_error": 0.060991992889512674,
+   "worst_unit": 0
+  },
+  "elders_65_plus/state": {
+   "coverage": 1.0,
+   "mean_error": 0.06045617275527457,
+   "mean_interval_score": 0.22973215186185658,
+   "n_units": 6,
+   "worst_error": 0.06531940252867267,
+   "worst_unit": 0
+  },
+  "households/all": {
+   "coverage": 1.0,
+   "mean_error": 0.01879045468969152,
+   "mean_interval_score": 0.2868361328341556,
+   "n_units": 41,
+   "worst_error": 0.0905199938056162,
+   "worst_unit": -1
+  },
+  "households/county": {
+   "coverage": 1.0,
+   "mean_error": 0.021604325809959385,
+   "mean_interval_score": 0.2921854912158421,
+   "n_units": 34,
+   "worst_error": 0.0905199938056162,
+   "worst_unit": 29
+  },
+  "households/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.0022532485971107235,
+   "mean_interval_score": 0.05046395219348899,
+   "n_units": 1,
+   "worst_error": 0.0022532485971107235,
+   "worst_unit": 0
+  },
+  "households/state": {
+   "coverage": 1.0,
+   "mean_error": 0.005601386023603759,
+   "mean_interval_score": 0.2959184654447102,
+   "n_units": 6,
+   "worst_error": 0.01263959600908513,
+   "worst_unit": 5
+  },
+  "low_income_household_share/all": {
+   "coverage": 0.9512195121951219,
+   "mean_error": 0.009395427346402299,
+   "mean_interval_score": 0.07500269853111045,
+   "n_units": 41,
+   "worst_error": 0.05683850271077889,
+   "worst_unit": -1
+  },
+  "low_income_household_share/county": {
+   "coverage": 0.9411764705882353,
+   "mean_error": 0.010743249689222223,
+   "mean_interval_score": 0.08147034896271277,
+   "n_units": 34,
+   "worst_error": 0.05683850271077889,
+   "worst_unit": 28
+  },
+  "low_income_household_share/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.000126252984950892,
+   "mean_interval_score": 0.044264168018676886,
+   "n_units": 1,
+   "worst_error": 0.000126252984950892,
+   "worst_unit": 0
+  },
+  "low_income_household_share/state": {
+   "coverage": 1.0,
+   "mean_error": 0.003302629797331295,
+   "mean_interval_score": 0.04347576783743624,
+   "n_units": 6,
+   "worst_error": 0.004659251525273411,
+   "worst_unit": 5
+  },
+  "mean_income_adults/all": {
+   "coverage": 1.0,
+   "mean_error": 0.02731480658835836,
+   "mean_interval_score": 0.36654127135237297,
+   "n_units": 41,
+   "worst_error": 0.08843833175284607,
+   "worst_unit": -1
+  },
+  "mean_income_adults/county": {
+   "coverage": 1.0,
+   "mean_error": 0.028382942148345743,
+   "mean_interval_score": 0.3831249921474087,
+   "n_units": 34,
+   "worst_error": 0.08843833175284607,
+   "worst_unit": 28
+  },
+  "mean_income_adults/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.017750031128862823,
+   "mean_interval_score": 0.18739841500676052,
+   "n_units": 1,
+   "worst_error": 0.017750031128862823,
+   "worst_unit": 0
+  },
+  "mean_income_adults/state": {
+   "coverage": 1.0,
+   "mean_error": 0.02285616765834579,
+   "mean_interval_score": 0.30242399623810595,
+   "n_units": 6,
+   "worst_error": 0.030898628082974985,
+   "worst_unit": 2
+  },
+  "median_household_income/all": {
+   "coverage": 1.0,
+   "mean_error": 0.05659787128835921,
+   "mean_interval_score": 1.4624601258579573,
+   "n_units": 41,
+   "worst_error": 0.16106231585755276,
+   "worst_unit": -1
+  },
+  "median_household_income/county": {
+   "coverage": 1.0,
+   "mean_error": 0.05923725214315878,
+   "mean_interval_score": 1.6194613734544374,
+   "n_units": 34,
+   "worst_error": 0.16106231585755276,
+   "worst_unit": 28
+  },
+  "median_household_income/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.03984581326866077,
+   "mean_interval_score": 0.27354194362303547,
+   "n_units": 1,
+   "worst_error": 0.03984581326866077,
+   "worst_unit": 0
+  },
+  "median_household_income/state": {
+   "coverage": 1.0,
+   "mean_error": 0.04443338944777811,
+   "mean_interval_score": 0.7709394198503894,
+   "n_units": 6,
+   "worst_error": 0.06012849299506966,
+   "worst_unit": 5
+  },
+  "persons/all": {
+   "coverage": 1.0,
+   "mean_error": 0.0199845453095192,
+   "mean_interval_score": 0.32540176533126425,
+   "n_units": 41,
+   "worst_error": 0.06641724398359511,
+   "worst_unit": -1
+  },
+  "persons/county": {
+   "coverage": 1.0,
+   "mean_error": 0.02066132353922768,
+   "mean_interval_score": 0.3475525460986622,
+   "n_units": 34,
+   "worst_error": 0.06641724398359511,
+   "worst_unit": 24
+  },
+  "persons/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.016643953300318093,
+   "mean_interval_score": 0.08091334366979056,
+   "n_units": 1,
+   "worst_error": 0.016643953300318093,
+   "worst_unit": 0
+  },
+  "persons/state": {
+   "coverage": 1.0,
+   "mean_error": 0.016706234009371358,
+   "mean_interval_score": 0.24062874459292105,
+   "n_units": 6,
+   "worst_error": 0.02339510506450426,
+   "worst_unit": 3
+  },
+  "tertiary_share_25_plus/all": {
+   "coverage": 1.0,
+   "mean_error": 0.002333716450099717,
+   "mean_interval_score": 0.030059784779508478,
+   "n_units": 41,
+   "worst_error": 0.013203671974738318,
+   "worst_unit": -1
+  },
+  "tertiary_share_25_plus/county": {
+   "coverage": 1.0,
+   "mean_error": 0.00264425491699439,
+   "mean_interval_score": 0.03166783004724655,
+   "n_units": 34,
+   "worst_error": 0.013203671974738318,
+   "worst_unit": 25
+  },
+  "tertiary_share_25_plus/nation": {
+   "coverage": 1.0,
+   "mean_error": 0.00038686623056949365,
+   "mean_interval_score": 0.013339265560241176,
+   "n_units": 1,
+   "worst_error": 0.00038686623056949365,
+   "worst_unit": 0
+  },
+  "tertiary_share_25_plus/state": {
+   "coverage": 1.0,
+   "mean_error": 0.0008984735076182729,
+   "mean_interval_score": 0.023734281465537316,
+   "n_units": 6,
+   "worst_error": 0.001847335337692435,
+   "worst_unit": 3
+  }
+ },
+ "reasons": [],
+ "schema": "meridia.achieved.v2",
+ "submission_sha256": {
+  "allocation.csv": "669db80e13ee3ac01e35af13353a65abb3f371ae4ad5890bb58379006ef7c8fc",
+  "projection.csv": "4facddc3e4003accd516c75fe829290f4b415a71d9f6da94cf53ab10f57169b3",
+  "release.csv": "ec8d35395872c7f77a262f1ac4caf83c2d0f4593c3835fd25c5e57bfe695f6c1"
+ }
+}

@@ -203,3 +203,120 @@ def test_verifier_audits_generated_packet_totals(packet, submission, tmp_path):
         and report["disclosure"]["n_protected"] > 0
     ):
         assert not report["disclosure"]["pass"]
+
+
+def test_income_calibration_is_held_at_the_development_edge():
+    from meridia.methods.common import apply_calibration
+    from meridia.methods.design_based import _apply_calibration
+    factors = {"dispersion_range": [0.89, 0.94],
+               "mean_income_adults": {"intercept": -1.15, "slope": 1.41, "residual_sd": 0.02}}
+    values = {("mean_income_adults", "nation", 0): 100.0}
+    inside = apply_calibration(values, factors, 0.90)[("mean_income_adults", "nation", 0)]
+    below = apply_calibration(values, factors, 0.63)[("mean_income_adults", "nation", 0)]
+    edge = apply_calibration(values, factors, 0.89)[("mean_income_adults", "nation", 0)]
+    assert below == edge and below < inside
+    assert _apply_calibration(values, factors, 0.63) == _apply_calibration(values, factors, 0.89)
+    # without a stored range the line is read as fitted
+    bare = {"mean_income_adults": factors["mean_income_adults"]}
+    key = ("mean_income_adults", "nation", 0)
+    assert apply_calibration(values, bare, 0.63)[key] < apply_calibration(values, bare, 0.89)[key]
+
+
+def test_fertility_estimate_reads_the_infant_years():
+    import numpy as np
+    import pandas as pd
+    from meridia.methods.design_based import estimate_fertility
+    rng = np.random.default_rng(3)
+    tick = 24
+    women = 20_000
+    birth_women = tick - rng.integers(18 * 12, 45 * 12 + 11, size=women)
+    infants = 0.5 * 2 * 0.08 * women          # two years at 0.08 per woman per year
+    birth_infants = tick - rng.integers(0, 24, size=int(2 * 0.08 * women))
+    frame = pd.DataFrame({"birth_tick": np.concatenate([birth_women, birth_infants]),
+                          "sex": np.concatenate([np.ones(women, dtype=np.int8), rng.integers(0, 2, size=len(birth_infants)).astype(np.int8)])})
+    est = estimate_fertility(frame, tick)
+    assert est["fitted"] and abs(est["fertility_rate"] - 0.08) < 0.002
+    thin = estimate_fertility(frame.iloc[:200], tick)
+    assert not thin["fitted"]
+
+
+def test_direct_county_variance_counts_the_units_that_landed_elsewhere():
+    import numpy as np
+    import pandas as pd
+    from meridia.methods.design_based import _direct_county_persons
+    # One stratum, ten units; county 0 holds two of them, county 1 the other eight.
+    rows = []
+    for psu in range(10):
+        county = 0 if psu < 2 else 1
+        for _ in range(3):
+            rows.append({"stratum": 0, "psu": psu, "county": county, "weight": 100.0})
+    frame = pd.DataFrame(rows)
+    total, var = _direct_county_persons(frame, 3)
+    assert total[0] == 600.0 and total[1] == 2400.0 and total[2] == 0.0
+    # Design variance of the domain total with the eight zero units: n/(n-1) * sum (z - zbar)^2.
+    z = np.array([300.0] * 2 + [0.0] * 8)
+    expected = 10 / 9 * ((z - z.mean()) ** 2).sum()
+    assert abs(var[0] - max(expected, total[0] ** 2 / 2)) < 1e-6
+    # A county no unit landed in has no variance; the floor is one over the units.
+    assert np.isnan(var[2])
+    assert var[1] >= total[1] ** 2 / 8 - 1e-6
+    _, design = _direct_county_persons(frame, 3, floor=False)
+    assert abs(design[0] - expected) < 1e-6 and design[1] < total[1] ** 2 / 8
+
+
+def test_raking_county_margin_follows_the_corrected_counts():
+    import numpy as np
+    import pandas as pd
+    from meridia.methods.design_based import rake_to_register
+    rng = np.random.default_rng(5)
+    county_state = np.array([0, 0])
+    # Register: county 1 is a small county flooded by misfiled records (raw share 0.5).
+    register = pd.DataFrame({"county": np.repeat([0, 1], 500), "age": rng.integers(0, 80, 1000),
+                             "sex": rng.integers(0, 2, 1000), "education": rng.integers(0, 3, 1000)})
+    survey = pd.DataFrame({"county": np.repeat([0, 1], [900, 100]), "age": rng.integers(0, 80, 1000),
+                           "sex": rng.integers(0, 2, 1000), "education": rng.integers(0, 3, 1000).astype(float),
+                           "weight": 1.0, "psu": np.arange(1000) // 10, "stratum": 0, "household": np.arange(1000)})
+    raw = rake_to_register(survey, register, county_state)
+    corrected = rake_to_register(survey, register, county_state, county_persons=np.array([900.0, 100.0]))
+    share_raw = raw.loc[raw["county"] == 1, "weight"].sum() / raw["weight"].sum()
+    share_corrected = corrected.loc[corrected["county"] == 1, "weight"].sum() / corrected["weight"].sum()
+    assert share_raw > 0.35 and abs(share_corrected - 0.10) < 0.02
+
+
+def test_corroborated_income_ratios_ignore_the_misfiled_trickle():
+    import numpy as np
+    import pandas as pd
+    from meridia.methods.design_based import corroborated_income, income_source_ratios
+    rng = np.random.default_rng(11)
+    n = 4000
+    keys = pd.DataFrame({"given_code": np.arange(1, n + 1), "family_code": np.arange(1, n + 1) * 7,
+                         "birth_tick": rng.integers(-800, -200, n), "sex": rng.integers(0, 2, n)})
+    true_county = np.where(np.arange(n) < 3600, 0, 1)          # county 1: 400 true residents
+    register = keys.assign(county=true_county, age=40, education=1, household_id=np.arange(n))
+    # Income source: county 1's residents earn half of county 0's; a fifth of
+    # county 0's records are misfiled into county 1.
+    misfiled = (true_county == 0) & (rng.random(n) < 0.2)
+    income = keys.assign(county=np.where(misfiled, 1, true_county), household_id=np.arange(n),
+                         taxpayer_id=np.arange(n), record_id=np.arange(n),
+                         employment_income_cents=np.where(true_county == 1, 2_000_000.0, 4_000_000.0))
+    flags = corroborated_income(income, register)
+    assert flags["corroborated"].sum() == (~misfiled).sum()
+    raw = income_source_ratios(income, np.array([0, 0]), 30_000.0)
+    confirmed = income_source_ratios(income, np.array([0, 0]), 30_000.0, register_frame=register)
+    assert raw["mean_income_adults"][1] > 0.75
+    pooled = (2880 * 4.0 + 400 * 2.0) / 3280          # corroborated records of the state
+    assert abs(confirmed["mean_income_adults"][1] - 2.0 / pooled) < 0.02
+
+
+def test_ratio_exponents_are_bounded_and_applied_inside_the_band():
+    import numpy as np
+    from meridia.methods.design_based import apply_ratio_exponents
+    ratios = {"mean_income_adults": np.array([0.8, 1.0, 1.3, 2.0]),
+              "median_household_income": np.array([0.8, 1.2]),
+              "low_income_household_share": np.array([1.5])}
+    out = apply_ratio_exponents(ratios, {"mean_income_adults": 2.0, "median_household_income": 1.0,
+                                         "low_income_household_share": 1.66})
+    assert np.allclose(out["mean_income_adults"], [0.64, 1.0, 1.69, 2.0])
+    assert np.allclose(out["median_household_income"], [0.8, 1.2])
+    assert abs(out["low_income_household_share"][0] - 1.5 ** 1.66) < 1e-9
+    assert apply_ratio_exponents(ratios, None) is ratios

@@ -13,7 +13,11 @@ uncertainty can be checked against true coverage. No judge models, no real data.
 The intended use is population science on a world whose truth is known: the world is
 observed imperfectly through surveys and archives; a method reconciles, edits, and
 imputes the sources; estimates and projections are published with uncertainty; retained
-truth decides whether they held. Each stage
+truth decides whether they held. Version three of the sources ships no exact
+cross-source person key, draws the mechanism rates per world with a hidden shift
+family outside the development band, and adds a separately biased benchmark series for
+the national and state counts (`docs/RELEASE_CONTRACT_V0.md`, "Sources in version
+three"). Each stage
 of that chain is a benchmark task; the world keeps them mutually consistent.
 
 ![Seventy-two hours over the first nation](renders/meridia-72-hours.gif)

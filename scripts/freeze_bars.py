@@ -30,10 +30,19 @@ REGRET_MARGIN = 2.0          # ceiling = 2 x worst strong regret, at least 0.02
 # where the strong methods happened to be very accurate on the qualification worlds,
 # and a fresh world then fails them on noise. The floors state the irreducible
 # between-world variability of each quantity from the public mechanism ranges (income
-# nonresponse and register coverage vary by world) and are fixed before any fresh world
-# is seen: relative for counts, means, and medians; absolute for shares.
+# nonresponse, register coverage, county miscoding, and the benchmark bias vary by
+# world, and the hidden world's draw sits outside the development band) and are fixed
+# before any fresh world is seen: relative for counts, means, and medians; absolute for
+# shares. The national count floor is 0.05 under version three of the sources: the
+# population source's coverage sits 0.02 to 0.08 below the development band, so the
+# national count is read through the survey and the benchmark, and the survey's own
+# nonresponse total moves by a few percent between worlds while the benchmark carries a
+# log-bias of magnitude 0.02 to 0.07 (the version-two floor of 0.03 assumed the
+# hidden world's coverage was exchangeable with the development worlds). Qualification
+# worlds must be built under the hidden source regime and the development worlds under
+# the development regime; the script checks both.
 ACCURACY_FLOOR = {
-    "nation": {"count": 0.03, "mean": 0.08, "median": 0.08, "proportion": 0.010},
+    "nation": {"count": 0.05, "mean": 0.08, "median": 0.08, "proportion": 0.010},
     "state": {"count": 0.08, "mean": 0.12, "median": 0.12, "proportion": 0.020},
     "county": {"count": 0.15, "mean": 0.15, "median": 0.15, "proportion": 0.030},
 }
@@ -49,6 +58,14 @@ def main() -> int:
     ap.add_argument("--sweeps", type=int, default=400)
     args = ap.parse_args()
     out = Path(args.out)
+    for packet in args.hidden:
+        world = json.loads((Path(packet) / "retained" / "world.json").read_text())
+        if world.get("regime") != "hidden":
+            raise SystemExit(f"qualification packet {packet} was not built under the hidden source regime")
+    for packet in args.dev:
+        world = json.loads((Path(packet) / "retained" / "world.json").read_text())
+        if world.get("regime") != "development":
+            raise SystemExit(f"development packet {packet} was not built under the development source regime")
     out.mkdir(parents=True, exist_ok=True)
 
     cal_a, cal_b = out / "calibration_A.json", out / "calibration_B.json"

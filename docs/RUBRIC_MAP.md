@@ -21,15 +21,18 @@ done without the artifact.
 - outcome_verified: S, the verifier reads outputs only; the instruction describes the end
   state.
 - anti_cheat_robustness: S, red-team with five attacks and the fixed disclosure hole;
-  strict file set; six controls that must fail.
+  strict file set; eight controls that must fail, one of them the count recipe that
+  cleared version two.
 - task_security: P, no network needed, no credentials, no execution of agent code by the
   verifier beyond reading files.
 - functional_verification: S, numbers recomputed, never pattern-matched.
 - ctrf_reporting: P, per-gate CTRF report to `/logs/verifier/ctrf.json`.
 - ground_truth_provenance: S, retained truth is the generator's exact population; stated
-  in the contract and `bars/national-v6/PROVENANCE.md`.
-- graded_instances_discriminate: S, every gate separates the strong methods from every
-  control on every qualification world (`renders/gate-matrix-national-v6.png`).
+  in the contract and `bars/national-v7/PROVENANCE.md`.
+- graded_instances_discriminate: S, both strong methods pass every bar and all eight
+  controls fail a named gate on every one of the nine qualification worlds and on the
+  sealed world (`bars/national-v7/freeze_report.txt`,
+  `seals/meridia-reconstruction-v3-confirmation.md`).
 - deterministic_reproducible: S, same seed same world byte for byte; pinned dependencies.
 - essential_difficulty: S, no formatting traps; schema is exact but trivial to meet.
 - test_instruction_alignment: S and P, contract to verifier one to one; audit item.

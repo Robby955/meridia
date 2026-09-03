@@ -113,3 +113,51 @@ def test_development_packet_ships_truth_and_hidden_does_not(tmp_path, packet):
     public = {k: v for k, v in dev["participant"].items()
               if not k.startswith("truth/") and k != "contract.json"}
     assert public == {k: v for k, v in hidden["participant"].items() if k != "contract.json"}
+
+
+def test_benchmark_series_is_shipped_with_its_own_bias(packet):
+    import pandas as pd
+    out, manifest = packet
+    for label in ("preliminary", "revised"):
+        assert f"sources/benchmark_{label}.csv" in manifest["participant"]
+    bench = pd.read_csv(out / "participant" / "sources" / "benchmark_revised.csv")
+    assert list(bench.columns) == ["item", "level", "unit", "value"]
+    assert set(bench["item"]) == {"persons", "households", "children_under_16", "elders_65_plus"}
+    assert set(bench["level"]) == {"nation", "state"}
+    assert (bench["value"] % 100 == 0).all()
+    truth = _read_truth(out / "retained" / "truth_revised.csv")
+    world = json.loads((out / "retained" / "world.json").read_text())
+    bias = world["benchmark_bias"]
+    for k, item in enumerate(("persons", "households", "children_under_16", "elders_65_plus")):
+        value = float(bench[(bench["item"] == item) & (bench["level"] == "nation")]["value"].iloc[0])
+        exact = truth[(item, "nation", 0)]
+        assert 0.02 <= abs(bias["nation"][k]) <= 0.07
+        rounding = 60.0 / exact                                            # half of 100, with slack
+        assert abs(np.log(value / exact) - bias["nation"][k]) < rounding + 1e-9
+        assert abs(np.log(value / exact)) > 0.02 - rounding                # never the exact count
+    assert world["regime"] == "development"
+    assert set(world["source_params"]) >= {"population_coverage", "health_coverage", "county_error_rate", "register_income_scale"}
+    contract = json.loads((out / "participant" / "contract.json").read_text())
+    assert "regime" not in json.dumps(contract) and "coverage" not in json.dumps(contract)
+
+
+def test_hidden_regime_packet_is_retained_only(tmp_path):
+    hidden_params = PacketParams(**{**PARAMS.__dict__, "regime": "hidden"})
+    hidden = build_packet(SEED, tmp_path / "hidden", hidden_params, development=False)
+    dev = build_packet(SEED, tmp_path / "dev", PARAMS, development=False)
+    world_h = json.loads((tmp_path / "hidden" / "retained" / "world.json").read_text())
+    world_d = json.loads((tmp_path / "dev" / "retained" / "world.json").read_text())
+    assert world_h["regime"] == "hidden" and world_d["regime"] == "development"
+    assert world_h["source_params"] != world_d["source_params"]
+    assert world_h["character"] == world_d["character"]
+    assert world_h["benchmark_bias"] == world_d["benchmark_bias"]
+    # Same seed, same truth, different observed sources.
+    assert hidden["retained"]["truth_revised.csv"] == dev["retained"]["truth_revised.csv"]
+    assert hidden["participant"]["sources/population_revised.csv"] != dev["participant"]["sources/population_revised.csv"]
+    assert hidden["participant"]["survey_revised.csv"] == dev["participant"]["survey_revised.csv"]
+    assert hidden["participant"]["sources/benchmark_revised.csv"] == dev["participant"]["sources/benchmark_revised.csv"]
+    for name, columns in participant_columns(tmp_path / "hidden").items():
+        for column in columns:
+            assert "regime" not in column and "seed" not in column, (name, column)
+    with pytest.raises(ValueError, match="development"):
+        build_packet(SEED, tmp_path / "bad", hidden_params, development=True)

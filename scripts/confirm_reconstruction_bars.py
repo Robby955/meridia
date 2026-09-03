@@ -1,8 +1,8 @@
 """Run the registered one-look confirmation on one keyed hidden packet.
 
-This script never derives new bars. It runs the two frozen strong witnesses and all six
-controls against the exact three-file task surface, writes a seed-free receipt, and
-fails if a strong witness misses or a control passes.
+This script never derives new bars. It runs the two frozen strong witnesses and every
+control in the battery against the exact three-file task surface, writes a seed-free
+receipt, and fails if a strong witness misses or a control passes.
 """
 
 from __future__ import annotations
@@ -24,10 +24,16 @@ from meridia.sealing import DEFAULT_KEY_PATH, sealed_seed, verify_sealed_world
 from meridia.verify import verify_release_projection_allocation
 
 
+# Digests of the bar set this script is allowed to confirm against: the version-three
+# set in `bars/national-v7/`, which `scripts/freeze_bars.py` reports as frozen on the
+# nine qualification worlds (`RESULT: bars frozen; every control fails a named gate`).
+# Any other input is refused. The refusal is the point: a confirmation spends the sealed
+# world's only look, and a bar set that a control clears is not worth spending it on.
+# See `bars/national-v7/PROVENANCE.md`.
 EXPECTED_SHA256 = {
-    "bars": "50406a1c9122f3f52e1e5ff59af7a2ca44533082aa87dc89264daad6f8bf603b",
-    "calibration_a": "5d1d36b8b58d8cbcf992244137cdbb829b7701840ae7445b819a28457234a1eb",
-    "calibration_b": "8c1fe31b7a8d778b305c212a361da22da1e423ba4ff0a72568278c459339848c",
+    "bars": "f53983161245bb1eca4cb36a6a35325aba3c58262d9d46ef2cd97047d4f6aae9",
+    "calibration_a": "61cf3367661bee14155934be70e1afddf0ae4cf04c57494cd92537f6e2c0b107",
+    "calibration_b": "5fb058218393b113a2d2d16d7939aa0e69ca2a8f1041dac8954a9ab813dc6790",
 }
 
 

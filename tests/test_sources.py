@@ -302,16 +302,26 @@ def test_uncorrupted_counties_are_exact_admin_lookups_from_cells():
         ("business", "establishment", "county"),
     ):
         crosswalk = crosswalks[source]
-        clean = ~(_bit(crosswalk, "stale") | _bit(crosswalk, "county_error"))
+        # The income source records the address one year back; rows where that
+        # differs from the snapshot address carry the address_lag bit.
+        clean = ~(
+            _bit(crosswalk, "stale")
+            | _bit(crosswalk, "county_error")
+            | _bit(crosswalk, "address_lag")
+        )
         position = (crosswalk["truth_entity_id"] & np.uint64((1 << 56) - 1)).astype(
             np.int64
         ) - 1
         expected = county_flat[terminal[truth_table]["cell"][position]]
         assert np.array_equal(revised[source][county_column][clean], expected[clean])
+        if source == "income":
+            assert _bit(crosswalk, "address_lag").any()
 
     health_crosswalk = crosswalks["health"]
     health_clean = ~(
-        _bit(health_crosswalk, "stale") | _bit(health_crosswalk, "county_error")
+        _bit(health_crosswalk, "stale")
+        | _bit(health_crosswalk, "county_error")
+        | _bit(health_crosswalk, "address_lag")
     )
     encounter_position = (
         health_crosswalk["truth_entity_id"] & np.uint64((1 << 56) - 1)
@@ -441,3 +451,136 @@ def test_source_builder_rejects_another_truth_world():
             setup["admin"],
             setup["hospitals"],
         )
+
+
+def _person_position(truth_ids: np.ndarray) -> np.ndarray:
+    return (truth_ids & np.uint64((1 << 56) - 1)).astype(np.int64) - 1
+
+
+def _linked_pairs(package: dict, history: dict, left: str, right: str):
+    """Rows of two person sources that belong to the same truth person, by the sealed
+    crosswalk (health rows map through the encounter's patient)."""
+    import pandas as pd
+
+    frames = {}
+    encounter = history["terminal_state"]["encounter"]
+    for source in (left, right):
+        table = package["public_snapshots"]["revised"][source]
+        crosswalk = package["hidden"]["crosswalks"]["revised"][source]
+        frame = pd.DataFrame({name: values for name, values in table.items()})
+        truth = crosswalk["truth_entity_id"]
+        if source == "health":
+            truth = encounter["truth_person_id"][_person_position(truth)]
+        frame["truth_person"] = truth
+        frames[source] = frame.drop_duplicates("truth_person")
+    return frames[left].merge(frames[right], on="truth_person", suffixes=("_l", "_r"))
+
+
+def test_no_exact_cross_source_person_key_is_shipped():
+    setup = _setup()
+    package = setup["package"]
+    pairs = _linked_pairs(package, setup["history"], "population", "income")
+    assert len(pairs) > 1000
+    same_name = (pairs["given_code_l"] == pairs["given_code_r"]) & (
+        pairs["family_code_l"] == pairs["family_code_r"]
+    )
+    same_birth = pairs["birth_tick_l"] == pairs["birth_tick_r"]
+    same_sex = pairs["sex_l"] == pairs["sex_r"]
+    # Each field disagrees for a material share of true links; none is exact.
+    assert 0.05 < 1.0 - same_name.mean() < 0.50
+    assert 0.03 < 1.0 - same_birth.mean() < 0.30
+    assert 0.002 < 1.0 - same_sex.mean() < 0.05
+    assert (same_name & same_birth & same_sex).mean() < 0.85
+    # Movers legitimately carry different counties across archives.
+    crosswalk = package["hidden"]["crosswalks"]["revised"]["income"]
+    assert _bit(crosswalk, "address_lag").mean() > 0.005
+    for source in ("population", "income", "health"):
+        crosswalk = package["hidden"]["crosswalks"]["revised"][source]
+        assert _bit(crosswalk, "name_error").any()
+        assert _bit(crosswalk, "birth_error").any()
+        table = package["public_snapshots"]["revised"][source]
+        assert "name_code" not in table
+        assert (table["given_code"] == 0).any()          # missing given names exist
+    health_pairs = _linked_pairs(package, setup["history"], "population", "health")
+    assert len(health_pairs) > 100
+    assert (health_pairs["county"] != health_pairs["patient_county"]).any()
+
+
+def test_true_name_collisions_near_duplicates_and_merged_names():
+    import pandas as pd
+
+    setup = _setup()
+    package = setup["package"]
+    table = package["public_snapshots"]["revised"]["population"]
+    crosswalk = package["hidden"]["crosswalks"]["revised"]["population"]
+    frame = pd.DataFrame({name: values for name, values in table.items()})
+    frame["truth"] = crosswalk["truth_entity_id"]
+    frame["code"] = crosswalk["mechanism_code"]
+    # Distinct truth persons share a full name pair.
+    persons_per_pair = frame.drop_duplicates("truth").groupby(["given_code", "family_code"])["truth"].nunique()
+    assert (persons_per_pair > 1).sum() > 100
+    # Duplicate records of one person are near-duplicates: some differ in a reported field.
+    duplicates = frame[(frame["code"] & MECHANISM_BITS["duplicate"]) != 0]
+    spread = duplicates.groupby("truth").agg(
+        given=("given_code", "nunique"), family=("family_code", "nunique"),
+        birth=("birth_tick", "nunique"), n=("record_id", "size"))
+    spread = spread[spread["n"] >= 2]
+    assert len(spread) > 50
+    assert ((spread["given"] > 1) | (spread["family"] > 1) | (spread["birth"] > 1)).mean() > 0.10
+    assert ((spread["given"] == 1) & (spread["family"] == 1) & (spread["birth"] == 1)).mean() > 0.30
+    # The two persons of a merge pair report one name pair.
+    merged = frame[(frame["code"] & MECHANISM_BITS["merged"]) != 0]
+    by_id = merged.groupby("person_id").agg(
+        persons=("truth", "nunique"), pairs=("family_code", lambda v: len(set(zip(merged.loc[v.index, "given_code"], v)))))
+    both = by_id[by_id["persons"] == 2]
+    assert len(both) > 5 and (both["pairs"] == 1).mean() > 0.5
+
+
+def test_source_regime_draw_places_the_hidden_world_outside_the_development_band():
+    from meridia.sources import DEVELOPMENT_BAND, draw_source_params
+
+    for seed in (1, 7, 20260915, 20260916):
+        for payroll in (0.75, 1.0, 1.30):
+            development = draw_source_params(seed, "development", payroll)
+            hidden = draw_source_params(seed, "hidden", payroll)
+            assert development == draw_source_params(seed, "development", payroll)
+            assert hidden == draw_source_params(seed, "hidden", payroll)
+            for name, (lo, hi) in DEVELOPMENT_BAND.items():
+                assert lo <= getattr(development, name) <= hi
+            assert hidden.population_coverage < DEVELOPMENT_BAND["population_coverage"][0] - 0.02 + 1e-12
+            assert hidden.health_coverage < DEVELOPMENT_BAND["health_coverage"][0] - 0.06 + 1e-12
+            assert hidden.county_error_rate > DEVELOPMENT_BAND["county_error_rate"][1] * 1.5 - 1e-12
+            level = payroll * hidden.register_income_scale
+            assert level < 0.705 - 0.07 or level > 1.378 + 0.07
+            # The fixed reporting-error rates do not move with the regime.
+            assert hidden.name_family_variant_rate == development.name_family_variant_rate
+            assert hidden.birth_month_slip_rate == development.birth_month_slip_rate
+    with pytest.raises(ValueError, match="regime"):
+        draw_source_params(1, "other")
+
+
+def test_hidden_regime_changes_only_the_retained_rates_and_shifts_the_sources():
+    from meridia.sources import draw_source_params
+
+    setup = _setup()
+    baseline = setup["package"]
+    hidden_params = draw_source_params(SEED, "hidden", 1.0)
+    hidden = build_observed_sources(
+        setup["history"], SEED, setup["admin"], setup["hospitals"], params=hidden_params
+    )
+    assert hidden["source_params"] != baseline["source_params"]
+    for label in ("preliminary", "revised"):
+        for source in OBSERVED_SOURCES:
+            assert set(hidden["public_snapshots"][label][source]) == set(PUBLIC_SCHEMAS[source])
+            for name in hidden["public_snapshots"][label][source]:
+                assert "rate" not in name and "coverage" not in name and "scale" not in name
+    revised_h = hidden["public_snapshots"]["revised"]
+    revised_b = baseline["public_snapshots"]["revised"]
+    assert len(revised_h["health"]["record_id"]) < len(revised_b["health"]["record_id"])
+    assert len(revised_h["population"]["record_id"]) < len(revised_b["population"]["record_id"])
+    assert hidden["hidden"]["mechanisms"]["population"]["county_error"].mean() > \
+        1.4 * baseline["hidden"]["mechanisms"]["population"]["county_error"].mean()
+    ratio = np.nanmean(revised_h["income"]["employment_income_cents"]) / \
+        np.nanmean(revised_b["income"]["employment_income_cents"])
+    assert abs(np.log(ratio) - np.log(hidden_params.register_income_scale)) < 0.05
+    validate_observed_sources(hidden, setup["history"], SEED, setup["admin"], setup["hospitals"])

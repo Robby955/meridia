@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.packet import build_packet
+from meridia.packet import PacketParams, build_packet
 from meridia.sealing import (DEFAULT_KEY_PATH, sealed_seed,
                              verify_sealed_world)
 
@@ -36,10 +36,12 @@ def main() -> int:
 
     master = args.key.read_bytes()
     seed = sealed_seed(master, args.index)
-    packet_manifest = build_packet(seed, args.out, development=False)
+    packet_manifest = build_packet(seed, args.out, PacketParams(regime="hidden"), development=False)
     retained_world = json.loads((args.out / "retained" / "world.json").read_text())
     if int(retained_world["seed"]) != seed:
         raise RuntimeError("packet seed does not match registered sealed world")
+    if retained_world.get("regime") != "hidden":
+        raise RuntimeError("hidden packet was not built under the hidden source regime")
 
     packet_manifest_path = args.out / "manifest.json"
     digest = hashlib.sha256(packet_manifest_path.read_bytes()).hexdigest()
