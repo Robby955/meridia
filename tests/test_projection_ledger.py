@@ -1,15 +1,19 @@
 """Stage ten on the ledger: the replayed future is the same world the sources came from,
 and at the snapshot it reproduces the microdata truth exactly."""
 
+import hashlib
+import json
 import sys
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.admin import build_admin
+from meridia.actuarial import ObligationContract, regions_from_admin
 from meridia.businesses import build_businesses
 from meridia.character import draw_world_character
 from meridia.demography import draw_world_shocks
@@ -21,7 +25,9 @@ from meridia.identities import build_initial_identity_map
 from meridia.microdata import build_microdata
 from meridia.population import build_population, resource_outposts
 from meridia.projection import (demand_from_truth, person_table_from_state,
-                                project_truth_from_history, score_allocation)
+                                continuation_liabilities, project_truth_from_history,
+                                score_allocation)
+from meridia.packet import continuation_source_law_digest
 from meridia.release import compute_truth, required_rows
 from meridia.scoring import rows_from_values, score_release, validate_release
 from meridia.terrain import generate_elevation
@@ -52,7 +58,8 @@ def _world():
     businesses = build_businesses(micro, SEED, identities)
     hospitals = build_hospitals(micro, SEED, identities, businesses)
     history = build_event_history(micro, SEED, identities, dwellings, businesses, hospitals,
-                                  months=MONTHS, shocks=draw_world_shocks(SEED, 3))
+                                  months=MONTHS, shocks=draw_world_shocks(SEED, 3),
+                                  capture_month=MONTHS // 2)
     return micro, admin, history
 
 
@@ -115,3 +122,64 @@ def test_person_table_excludes_the_dead_and_inactive_households():
     assert len(household_cell) == int(state["household"]["is_active"].sum())
     assert person["household"].max() < len(household_cell)
     assert (person["age"] >= 0).all()
+
+
+def test_shock_redraw_receipt_is_bound_to_actual_members_and_worker_invariant():
+    _, admin, history = _world()
+    start_tick = int(history["branch"]["tick"])
+    contract = ObligationContract(horizon_months=MONTHS // 2)
+    arguments = (
+        history,
+        admin,
+        start_tick,
+        MONTHS // 2,
+        contract,
+        8,
+        regions_from_admin(admin),
+    )
+    keyword = {
+        "shock_source_law_sha256": continuation_source_law_digest(),
+        "return_shock_evidence": True,
+    }
+    serial_liability, serial_receipt = continuation_liabilities(
+        *arguments, workers=1, **keyword
+    )
+    parallel_liability, parallel_receipt = continuation_liabilities(
+        *arguments, workers=2, **keyword
+    )
+    assert np.array_equal(serial_liability, parallel_liability)
+    assert serial_receipt == parallel_receipt
+    assert [row["member"] for row in serial_receipt["member_schedules"]] \
+        == list(range(8))
+    branch_month = int(history["branch"]["month"])
+    priced_last = branch_month + MONTHS // 2
+    first_redrawn = branch_month // 12 if branch_month % 12 == 0 \
+        else branch_month // 12 + 1
+    assert serial_receipt["first_future_year"] == first_redrawn
+    assert serial_receipt["future_year_count"] \
+        == max((priced_last - 1) // 12 - first_redrawn + 1, 0)
+    assert all(
+        12 * int(shock["year"]) + 1 <= priced_last
+        for row in serial_receipt["member_schedules"]
+        for shock in row["future_shocks"]
+    )
+    assert serial_receipt["ordered_member_schedule_digest_sha256"] == hashlib.sha256(
+        json.dumps(
+            serial_receipt["member_schedules"],
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+
+@pytest.mark.parametrize("workers", [0, -1, True, False, 1.5, "2", None])
+def test_continuation_worker_count_fails_before_history_is_opened(workers):
+    with pytest.raises(ValueError, match="workers must be a positive integer"):
+        continuation_liabilities({}, {}, 0, 1, object(), 1, workers=workers)
+
+
+@pytest.mark.parametrize("members", [0, -1, True, False, 1.5, "2", None])
+def test_continuation_member_count_fails_before_history_is_opened(members):
+    with pytest.raises(ValueError, match="member count must be a positive integer"):
+        continuation_liabilities({}, {}, 0, 1, object(), members)

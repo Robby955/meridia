@@ -31,6 +31,7 @@ local measurement scale identifiable while its level is unknown.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -560,6 +561,27 @@ def draw_county_effects(seed: int, n_counties: int, coefficients: dict[str, floa
     return effects
 
 
+def _vector_digest(values: np.ndarray) -> str:
+    """Hash one floating-point vector in application order.
+
+    The retained mechanism record is JSON, so it cannot carry every county-level
+    random effect without becoming another copy of the generator state.  A canonical
+    little-endian float64 digest preserves the part summaries lose: which county
+    received which value.  The length prefix also keeps differently sized byte streams
+    in distinct domains.
+    """
+    vector = np.asarray(values, dtype="<f8")
+    if vector.ndim != 1:
+        raise ValueError("mechanism vector digest requires one-dimensional values")
+    if not np.isfinite(vector).all():
+        raise ValueError("mechanism vector digest requires finite values")
+    vector = np.ascontiguousarray(vector)
+    digest = hashlib.sha256(b"meridia.mechanism-vector.v1\0")
+    digest.update(int(vector.size).to_bytes(8, "little", signed=False))
+    digest.update(vector.tobytes())
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True)
 class WorldMechanisms:
     """Everything the ledger and the sources need to evaluate a local mechanism."""
@@ -603,13 +625,19 @@ class WorldMechanisms:
         return values[np.asarray(county, dtype=np.int64)]
 
     def record(self) -> dict:
+        """Return a compact record that still binds order-sensitive mechanisms."""
         return {
             "design": self.design.record(),
             "coefficients": {k: float(v) for k, v in self.coefficients.items()},
             "county_effect_sd": {
                 family: float(np.std(values)) for family, values in sorted(self.effects.items())
             },
+            "county_effect_digest": {
+                family: _vector_digest(values)
+                for family, values in sorted(self.effects.items())
+            },
             "region_shock_loading": [float(v) for v in self.region_shock_loading],
+            "county_shock_loading_digest": _vector_digest(self.county_shock_loading),
         }
 
 

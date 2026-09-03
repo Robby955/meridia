@@ -1759,6 +1759,22 @@ def capture_branch(history: dict) -> dict:
     return history.get("branch")
 
 
+def continuation_redraw_year_window(branch_month: int, months: int) -> tuple[int, int]:
+    """First fully unobserved year and number of such years touching the horizon.
+
+    A midyear branch keeps that calendar year's already realized shock state. Redraws
+    begin with the next year and end with the year containing the final priced month.
+    """
+    branch_month = int(branch_month)
+    months = int(months)
+    if branch_month < 0 or months < 1:
+        raise ValueError("a continuation window needs a nonnegative branch and months")
+    first_future_year = branch_month // 12 if branch_month % 12 == 0 \
+        else branch_month // 12 + 1
+    last_priced_year = (branch_month + months - 1) // 12
+    return first_future_year, max(last_priced_year - first_future_year + 1, 0)
+
+
 def continuation_shocks(branch: dict, member: int, months: int) -> list[dict]:
     """The shock schedule one continuation runs under: the world's past, its own future.
 
@@ -1771,17 +1787,21 @@ def continuation_shocks(branch: dict, member: int, months: int) -> list[dict]:
     """
     rate = float(branch.get("annual_shock_rate", ANNUAL_SHOCK_RATE))
     branch_month = int(branch["month"])
-    first_future_year = branch_month // 12 if branch_month % 12 == 0 \
-        else branch_month // 12 + 1
+    first_future_year, years = continuation_redraw_year_window(branch_month, months)
     past = [dict(shock) for shock in branch["context"]["shocks"]
             if int(shock["year"]) < first_future_year]
     rng = np.random.default_rng(np.random.SeedSequence(
         [int(branch["seed"]), CONTINUATION_DOMAIN, int(member), SHOCK_SUBSTREAM]))
-    years = (branch_month + int(months) + 11) // 12 - first_future_year + 1
-    return past + draw_annual_shocks(rng, first_future_year, max(years, 1), rate)
+    return past + draw_annual_shocks(rng, first_future_year, years, rate)
 
 
-def continuation_events(branch: dict, member: int, months: int) -> dict:
+def continuation_events(
+    branch: dict,
+    member: int,
+    months: int,
+    *,
+    return_shock_schedule: bool = False,
+) -> dict | tuple[dict, list[dict]]:
     """Event table of one committed continuation, over the months after the branch.
 
     Every member shares the branch state exactly and draws its own months from
@@ -1800,13 +1820,17 @@ def continuation_events(branch: dict, member: int, months: int) -> dict:
     context = dict(branch["context"])
     context["continuation_member"] = member
     context["branch_month"] = int(branch["month"])
-    context["shocks"] = continuation_shocks(branch, member, months)
+    shock_schedule = continuation_shocks(branch, member, months)
+    context["shocks"] = shock_schedule
     loop = {"state": _state_copy(branch["state"]), "records": [],
             "order": int(branch["order"]),
             "household_last_move_tick": np.array(branch["household_last_move_tick"],
                                                  copy=True)}
     _run_ledger_months(context, loop, first, first + months - 1)
-    return _make_event_table(loop["records"], int(branch["n_events"]) + 1)
+    event = _make_event_table(loop["records"], int(branch["n_events"]) + 1)
+    if return_shock_schedule:
+        return event, shock_schedule
+    return event
 
 
 

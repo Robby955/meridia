@@ -16,15 +16,69 @@ development-scale experiments that never touch the ledger; the capstone uses
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 import numpy as np
 
 from .actuarial import (ObligationContract, actuarial_pass, actuarial_pass_from_history,
                         exposure_and_rate_truth, liabilities_from_pass)
 from .demography import DemographyParams, run_years
-from .events import continuation_events, replay_event_history
+from .events import (continuation_events, continuation_redraw_year_window,
+                     replay_event_history)
 from .release import compute_truth
 
 DEMAND_ESTIMAND = "elders_65_plus"   # v0 demand proxy: care demand follows the old
+SHOCK_REDRAW_EVIDENCE_SCHEMA = "meridia.v4.continuation-shock-redraw.v1"
+
+
+def _canonical_digest(value: object) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _shock_redraw_evidence(
+    branch: dict,
+    months: int,
+    n_members: int,
+    schedules: list[tuple[int, list[dict]]],
+    source_law_sha256: str,
+) -> dict:
+    branch_month = int(branch["month"])
+    first_future_year, future_year_count = continuation_redraw_year_window(
+        branch_month, months
+    )
+    member_schedules = []
+    for member, schedule in schedules:
+        future = [
+            dict(shock) for shock in schedule
+            if int(shock["year"]) >= first_future_year
+        ]
+        member_schedules.append({"member": int(member), "future_shocks": future})
+    schedule_values = [row["future_shocks"] for row in member_schedules]
+    evidence = {
+        "schema": SHOCK_REDRAW_EVIDENCE_SCHEMA,
+        "continuation_source_law_sha256": str(source_law_sha256),
+        "member_count": int(n_members),
+        "redrawn_member_count": len(member_schedules),
+        "first_future_year": first_future_year,
+        "future_year_count": future_year_count,
+        "future_year_opportunity_count": len(member_schedules) * future_year_count,
+        "member_schedules": member_schedules,
+        "ordered_member_schedule_digest_sha256": _canonical_digest(member_schedules),
+        "distinct_future_schedule_count": len({
+            json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            for value in schedule_values
+        }),
+        "future_shock_year_count": sum(len(value) for value in schedule_values),
+        "future_mortality_spike_year_count": sum(
+            shock.get("kind") == "mortality_spike"
+            for value in schedule_values for shock in value
+        ),
+    }
+    return evidence
 
 
 def person_table_from_state(state: dict, tick: int) -> tuple[dict, np.ndarray]:
@@ -110,30 +164,33 @@ _ENSEMBLE_JOB: tuple | None = None
 def continuation_liabilities(history: dict, admin: dict, start_tick: int, months: int,
                             contract: ObligationContract, n_members: int,
                             region_of_county: np.ndarray | None = None,
-                            workers: int = 1) -> np.ndarray:
+                            workers: int = 1, *,
+                            shock_source_law_sha256: str | None = None,
+                            return_shock_evidence: bool = False,
+                            ) -> np.ndarray | tuple[np.ndarray, dict]:
     """Regional liabilities on every committed continuation, shape (members, regions).
 
-    Member zero is the ledger's own future, which is the one designated for reporting and
-    the one the horizon truth tables are read from, so the realized path and the tail
-    truth are the same world. Members one and above resume from the branch state the
-    ledger captured at ``start_tick`` and draw their own months, so a member costs the
-    horizon window rather than the whole ledger.
+    Every member resumes from the branch state the ledger captured at ``start_tick`` and
+    independently redraws the public continuation law. The ledger's designated realized
+    horizon remains the point truth outside this ensemble; it is not substituted for one
+    of the tail members. A member therefore costs the horizon window rather than the whole
+    ledger.
 
     ``workers`` changes only how the members are divided between processes. Each member is
     a deterministic function of the seed and its own index, so the matrix does not depend
     on it.
     """
+    if isinstance(n_members, bool) or not isinstance(n_members, int) or n_members < 1:
+        raise ValueError("the ensemble member count must be a positive integer")
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
+        raise ValueError("workers must be a positive integer")
     branch = history.get("branch")
     if branch is None or int(branch["tick"]) != int(start_tick):
         raise ValueError("the ledger kept no branch state at the continuation start tick")
-    if n_members < 1:
-        raise ValueError("the ensemble needs at least one member")
     start_state = replay_event_history(history, start_tick)
-    realized = liabilities_from_pass(
-        actuarial_pass(start_state, history["event"], admin, start_tick, months, contract,
-                       region_of_county), contract)
-    rows = [realized]
-    members = range(1, int(n_members))
+    rows = []
+    schedules: list[tuple[int, list[dict]]] = []
+    members = range(int(n_members))
     if workers > 1:
         import multiprocessing as mp
         context = mp.get_context("fork")
@@ -141,26 +198,40 @@ def continuation_liabilities(history: dict, admin: dict, start_tick: int, months
                                       contract, region_of_county)
         try:
             with context.Pool(int(workers)) as pool:
-                rows.extend(pool.map(_price_member, members, chunksize=8))
+                priced = pool.map(_price_member, members, chunksize=8)
         finally:
             globals().pop("_ENSEMBLE_JOB", None)
     else:
         globals()["_ENSEMBLE_JOB"] = (branch, start_state, admin, start_tick, months,
                                       contract, region_of_county)
         try:
-            rows.extend(_price_member(m) for m in members)
+            priced = [_price_member(m) for m in members]
         finally:
             globals().pop("_ENSEMBLE_JOB", None)
-    return np.asarray(rows, dtype=np.float64)
+    for member, (liability, schedule) in zip(members, priced, strict=True):
+        rows.append(liability)
+        schedules.append((member, schedule))
+    liability = np.asarray(rows, dtype=np.float64)
+    if not return_shock_evidence:
+        return liability
+    if not isinstance(shock_source_law_sha256, str) \
+            or len(shock_source_law_sha256) != 64:
+        raise ValueError("shock evidence requires a continuation source-law digest")
+    return liability, _shock_redraw_evidence(
+        branch, months, n_members, schedules, shock_source_law_sha256
+    )
 
 
-def _price_member(member: int) -> np.ndarray:
+def _price_member(member: int) -> tuple[np.ndarray, list[dict]]:
     """One continuation, priced. Reads the job the pool's parent process set up."""
     branch, start_state, admin, start_tick, months, contract, region = _ENSEMBLE_JOB
-    event = continuation_events(branch, member, months)
-    return liabilities_from_pass(
+    event, schedule = continuation_events(
+        branch, member, months, return_shock_schedule=True
+    )
+    liability = liabilities_from_pass(
         actuarial_pass(start_state, event, admin, start_tick, months, contract, region),
         contract)
+    return liability, schedule
 
 
 def score_allocation(allocation: np.ndarray, demand: np.ndarray, budget: float,

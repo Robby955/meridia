@@ -376,9 +376,46 @@ def test_a_continuation_draws_its_own_future_shock_years():
     years = sum(len({s["year"] for s in schedule if s["year"] >= 2}) or 0
                 for schedule in schedules)
     assert years == drawn                      # at most one shock a year
-    assert 0.05 < drawn / (len(schedules) * 3) < 0.45   # around the published rate
+    assert 0.05 < drawn / (len(schedules) * 2) < 0.45   # around the published rate
     assert continuation_shocks(captured["branch"], 5, 24) == \
         continuation_shocks(captured["branch"], 5, 24)
+
+
+@pytest.mark.parametrize("branch_month", [108, 110])
+def test_continuation_redraw_schedule_stops_at_the_last_priced_year(
+    monkeypatch, branch_month
+):
+    import meridia.events as events
+
+    def every_year(_rng, first_year, n_years, _rate):
+        return [
+            {
+                "year": year,
+                "kind": "mortality_spike",
+                "mortality_multiplier": 2.0,
+                "admission_multiplier": 2.0,
+            }
+            for year in range(first_year, first_year + n_years)
+        ]
+
+    monkeypatch.setattr(events, "draw_annual_shocks", every_year)
+    branch = {
+        "month": branch_month,
+        "seed": 17,
+        "annual_shock_rate": 0.20,
+        "context": {"shocks": []},
+    }
+    months = 60
+    schedule = continuation_shocks(branch, member=3, months=months)
+    priced_first = branch_month + 1
+    priced_last = branch_month + months
+    assert len(schedule) == 5
+    assert all(
+        max(priced_first, 12 * shock["year"] + 1)
+        <= min(priced_last, 12 * (shock["year"] + 1))
+        for shock in schedule
+    )
+    assert max(shock["year"] for shock in schedule) == (priced_last - 1) // 12
 
 
 def test_history_is_byte_deterministic():
