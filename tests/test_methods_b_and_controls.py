@@ -42,6 +42,76 @@ def dev_packet(tmp_path_factory):
     return out
 
 
+def test_reference_baseline_exactly_matches_the_verifier_public_share_rule():
+    from meridia.actuarial import proportional_baseline_allocation
+    from meridia.methods import actuarial_reference as AR
+
+    share = np.asarray([0.125, 0.875], dtype=np.float64)
+    total = 123_456.0
+    assert np.array_equal(
+        AR.proportional_reserve(share, total),
+        proportional_baseline_allocation(share, total),
+    )
+
+
+@pytest.mark.parametrize("line", ("A", "B", "C"))
+def test_reference_lines_keep_legal_allocations_when_q95_sum_exceeds_R(
+    packet, tmp_path, line
+):
+    from meridia.methods import actuarial_reference as AR
+
+    blind = tmp_path / f"packet-{line}"
+    blind.mkdir()
+    shutil.copytree(packet / "participant", blind / "participant")
+    contract_path = blind / "participant" / "contract.json"
+    contract = json.loads(contract_path.read_text())
+    reserve_total = 1.0
+    contract["reserve"]["total"] = reserve_total
+    contract_path.write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n")
+    assert AR.has_actuarial_inputs(blind)
+
+    out = tmp_path / line
+    simulation = AR.SimulationParams(n_paths=32, path_chunk=16)
+    if line == "A":
+        design_based.run(
+            blind,
+            out,
+            design_based.MethodParams(
+                bootstrap_replicates=10,
+                actuarial="on",
+                actuarial_params=AR.LayerParams(simulation=simulation),
+            ),
+        )
+    elif line == "B":
+        bayesian.run(
+            blind,
+            out,
+            bayesian.MethodParams(
+                sweeps=24,
+                burn_in=8,
+                actuarial="on",
+                actuarial_params=AR.LayerParams(simulation=simulation),
+            ),
+        )
+    else:
+        third_reference.run(
+            blind,
+            out,
+            third_reference.ThirdReferenceParams(
+                bootstrap_replicates=10,
+                linkage_bootstraps=4,
+                simulation_paths=32,
+            ),
+        )
+
+    reserve = pd.read_csv(out / "reserve.csv")
+    assert float(reserve["q95"].sum()) > reserve_total
+    allocation = reserve["allocation"].to_numpy(dtype=np.float64)
+    assert np.isfinite(allocation).all()
+    assert (allocation >= 0.0).all()
+    assert float(allocation.sum()) == pytest.approx(reserve_total)
+
+
 def test_method_b_clears_hard_gates_from_participant_files(packet, tmp_path):
     blind = tmp_path / "packet"
     blind.mkdir()
@@ -85,20 +155,12 @@ def test_every_control_writes_a_complete_submission(packet, dev_packet, tmp_path
             "total"
         ]
     )
-    q95_total = float(reserve["q95"].sum())
-    if q95_total <= reserve_total + 1e-6:
-        assert report["reserve"]["feasible"], (name, report["reserve"])
-    else:
-        # This fixture still carries the legacy sealed-tail-derived total. Raw predictive
-        # q95 floors can exceed that total once tail-to-total fitting is correctly disabled,
-        # leaving no mathematically feasible allocation. The refrozen exposure-rule packets
-        # must take the branch above on every qualification world.
-        assert not report["reserve"]["feasible"], (name, report["reserve"])
-        assert any(
-            "allocations sum" in reason
-            or "below the region's own submitted q95" in reason
-            for reason in report["reserve"]["feasibility_reasons"]
-        )
+    assert np.isfinite(reserve["q95"]).all()
+    # q95 and ES95 are forecast quantities scored by the tail gate. They are not capital
+    # floors: a control is structurally feasible whenever its allocation is nonnegative
+    # and spends the independently published reserve total.
+    assert report["reserve"]["feasible"], (name, report["reserve"])
+    assert float(reserve["allocation"].sum()) == pytest.approx(reserve_total)
     if name == "inflated_intervals":
         release = pd.read_csv(out / "release.csv")
         proportion = release[

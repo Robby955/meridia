@@ -40,7 +40,9 @@ from ..actuarial import (ACTUARIAL_AGE_BANDS, ACTUARIAL_AGE_BAND_LABELS,  # noqa
                          EXPOSURE_BAND_LABELS, EXPOSURE_ESTIMAND, INCIDENCE_ESTIMAND,
                          MORTALITY_ESTIMAND, ObligationContract, RATE_ESTIMANDS,
                          RATE_EXTRA_COLUMNS, RATE_LEVELS, RESERVE_COLUMNS,
-                         V4_PROJECTION_COLUMNS, V4_RELEASE_COLUMNS, empirical_tail)
+                         V4_PROJECTION_COLUMNS, V4_RELEASE_COLUMNS, empirical_tail,
+                         perfect_information_allocation,
+                         proportional_baseline_allocation)
 # Re-exported so a caller writing a version-four submission needs one import, not two.
 SUBMISSION_VOCABULARY = (RATE_ESTIMANDS, RATE_EXTRA_COLUMNS, RATE_LEVELS,
                          EXPOSURE_BAND_LABELS, RESERVE_COLUMNS)
@@ -71,9 +73,9 @@ class ActuarialContract:
     """What a participant is told about the obligation, the regions, and the reserve.
 
     Read from participant/contract.json only. ``reserve_total`` is protocol section 9's
-    R, published because the submission must satisfy sum_r A_r = R exactly; it is the
-    one field of this block the packet does not yet write, and the reader says so by
-    name rather than guessing a value.
+    R and ``reserve_baseline_share`` fixes the comparison allocation before any
+    submission is seen. The submitted allocation must be finite, nonnegative, and sum
+    to R; its tail forecasts are separate scored quantities.
     """
     obligation: ObligationContract
     region_of_county: np.ndarray
@@ -88,6 +90,7 @@ class ActuarialContract:
     experience_file: str
     experience_last_tick: int
     shock_family: dict | None = None
+    reserve_baseline_share: np.ndarray | None = None
 
     @property
     def horizon_months(self) -> int:
@@ -278,10 +281,18 @@ def read_actuarial_contract(contract: dict, county_state: np.ndarray) -> Actuari
     total = _first(reserve, ("total", "R", "reserve_total"))
     if total is None:
         missing.append('contract["reserve"]["total"] (protocol section 9 R)')
+    baseline_share = _first(reserve, ("baseline_share",), None)
+    if baseline_share is None:
+        missing.append('contract["reserve"]["baseline_share"]')
     if missing:
         raise MissingActuarialInputs(
             "contract.json carries no complete actuarial block; missing "
             + "; ".join(missing))
+    total = float(total)
+    if not np.isfinite(total) or total < 0.0:
+        raise MissingActuarialInputs(
+            "contract reserve total must be finite and nonnegative"
+        )
     obligation = ObligationContract.from_public(obligation_block)
     region_spec = _first(reserve, ("regions", "region"), "state")
     if isinstance(region_spec, dict):
@@ -295,12 +306,34 @@ def read_actuarial_contract(contract: dict, county_state: np.ndarray) -> Actuari
     n_regions = int(region_of_county.max()) + 1
     weights = _first(reserve, ("weights", "w"), None)
     weights = np.ones(n_regions) if weights is None else np.asarray(weights, dtype=np.float64)
+    if weights.shape != (n_regions,):
+        raise MissingActuarialInputs(
+            "contract reserve weights must contain one value per region"
+        )
+    if not np.isfinite(weights).all() or (weights < 0.0).any():
+        raise MissingActuarialInputs(
+            "contract reserve weights must be finite and nonnegative"
+        )
+    baseline_share = np.asarray(baseline_share, dtype=np.float64)
+    if baseline_share.shape != (n_regions,):
+        raise MissingActuarialInputs(
+            "contract reserve baseline_share must contain one value per region"
+        )
+    if not np.isfinite(baseline_share).all() or (baseline_share < 0.0).any():
+        raise MissingActuarialInputs(
+            "contract reserve baseline_share must be finite and nonnegative"
+        )
+    if float(baseline_share.sum()) <= 0.0:
+        raise MissingActuarialInputs(
+            "contract reserve baseline_share must have positive total weight"
+        )
     return ActuarialContract(
         obligation=obligation,
         region_of_county=region_of_county,
         n_regions=n_regions,
-        reserve_total=float(total),
+        reserve_total=total,
         reserve_weights=weights,
+        reserve_baseline_share=baseline_share,
         anchor_item=str(_first(anchor, ("item", "column"), "recent_hospitalization")),
         anchor_sensitivity=float(_first(anchor, ("sensitivity", "se"), 1.0)),
         anchor_specificity=float(_first(anchor, ("specificity", "sp"), 1.0)),
@@ -344,8 +377,12 @@ def has_actuarial_inputs(packet_dir: Path) -> bool:
         return False
     if load_experience(packet_dir, contract) is None:
         return False
+    reserve = contract.get("reserve") or {}
+    region_spec = reserve.get("regions", "state")
+    county_level = isinstance(region_spec, str) and region_spec.startswith("count")
+    n_probe = int(contract.get("n_counties" if county_level else "n_states", 1))
     try:
-        read_actuarial_contract(contract, np.zeros(1, dtype=np.int64))
+        read_actuarial_contract(contract, np.arange(max(n_probe, 1), dtype=np.int64))
     except MissingActuarialInputs:
         return False
     return True
@@ -2358,88 +2395,68 @@ def shortfall_objective(allocation: np.ndarray, liability: np.ndarray,
     return float((np.asarray(weights, dtype=np.float64) * short.mean(axis=0)).sum())
 
 
-def _quantile_at(sorted_liability: np.ndarray, p: np.ndarray) -> np.ndarray:
-    """Per-region empirical quantile at a per-region probability."""
-    n = sorted_liability.shape[0]
-    out = np.empty(sorted_liability.shape[1])
-    for r in range(sorted_liability.shape[1]):
-        out[r] = float(np.interp(np.clip(p[r], 0.0, 1.0), np.linspace(0.0, 1.0, n),
-                                 sorted_liability[:, r]))
-    return out
-
-
-def allocate_reserve(liability: np.ndarray, q_hat: np.ndarray, total: float,
-                     weights: np.ndarray | None = None, iterations: int = 80) -> dict:
+def allocate_reserve(liability: np.ndarray, total: float,
+                     weights: np.ndarray | None = None) -> dict:
     """Allocate the fixed reserve to minimise the weighted expected shortfall.
 
-    J(A) is separable and convex in A, so at the optimum every region not held at its
-    own floor shares one marginal cost: w_r P(L_r > A_r) = nu. Inverting that gives
-    A_r(nu) = max(q_hat_r, F_r inverse of 1 - nu / w_r), and the sum is monotone in nu,
-    so one bisection on the single multiplier solves the constrained problem exactly on
-    the empirical distribution. This is the step a proportional split cannot imitate:
-    money goes where the marginal probability of a shortfall is highest, not where the
-    exposure is largest.
+    The feasible set is exactly the public one: every allocation is finite and
+    nonnegative and the regional values sum to ``total``. Submitted q95 and ES95 are
+    forecasts scored by the tail gate, not capital floors. On an empirical distribution,
+    expected shortfall is piecewise linear: each interval between ordered liabilities has
+    slope ``w_r P(L_r > A_r)``. The shared verifier routine fills those intervals from
+    highest to lowest marginal value, which is the exact optimum against this method's
+    own simulated paths.
     """
     liability = np.asarray(liability, dtype=np.float64)
+    if liability.ndim != 2 or min(liability.shape, default=0) <= 0:
+        raise ValueError("liability must be a nonempty (members, regions) array")
+    if not np.isfinite(liability).all() or (liability < 0.0).any():
+        raise ValueError("liability must be finite and nonnegative")
     n_regions = liability.shape[1]
-    weights = np.ones(n_regions) if weights is None else np.asarray(weights, dtype=np.float64)
-    floor = np.maximum(np.asarray(q_hat, dtype=np.float64), 0.0)
-    ordered = np.sort(liability, axis=0)
-    if floor.sum() > total + 1e-6:
-        return {"allocation": floor, "feasible": False, "nu": float("nan"),
-                "reason": "submitted quantiles already sum above the reserve total"}
-
-    def at(nu: float) -> np.ndarray:
-        p = 1.0 - nu / np.maximum(weights, 1e-12)
-        return np.maximum(_quantile_at(ordered, p), floor)
-
-    hi = float(weights.max())
-    if at(0.0).sum() <= total:
-        allocation = at(0.0)
-        residual = total - allocation.sum()
-        allocation = allocation + residual / n_regions
-        return {"allocation": allocation, "feasible": True, "nu": 0.0,
-                "reason": "reserve covers every simulated path"}
-    lo = 0.0
-    for _ in range(iterations):
-        mid = 0.5 * (lo + hi)
-        if at(mid).sum() > total:
-            lo = mid
-        else:
-            hi = mid
-    allocation = at(hi)
-    allocation = _repair_to_total(allocation, floor, total)
-    return {"allocation": allocation, "feasible": True, "nu": float(hi), "reason": ""}
-
-
-def _repair_to_total(allocation: np.ndarray, floor: np.ndarray, total: float) -> np.ndarray:
-    """Close the residual the bisection leaves, without breaking either constraint."""
-    allocation = np.asarray(allocation, dtype=np.float64).copy()
-    for _ in range(50):
-        residual = total - allocation.sum()
-        if abs(residual) <= 1e-9 * max(abs(total), 1.0):
-            break
-        if residual > 0:
-            allocation += residual / len(allocation)
-        else:
-            slack = np.maximum(allocation - floor, 0.0)
-            if slack.sum() <= 1e-12:
-                break
-            allocation -= (-residual) * slack / slack.sum()
-            allocation = np.maximum(allocation, floor)
-    return allocation
+    total = float(total)
+    if not np.isfinite(total) or total < 0.0:
+        raise ValueError("reserve total must be finite and nonnegative")
+    weights = (
+        np.ones(n_regions, dtype=np.float64)
+        if weights is None
+        else np.asarray(weights, dtype=np.float64)
+    )
+    if weights.shape != (n_regions,):
+        raise ValueError("weights must contain one value per region")
+    if not np.isfinite(weights).all() or (weights < 0.0).any():
+        raise ValueError("weights must be finite and nonnegative")
+    allocation = np.asarray(
+        perfect_information_allocation(liability, total, weights), dtype=np.float64
+    )
+    tolerance = 1e-10 * max(total, 1.0)
+    if (
+        allocation.shape != (n_regions,)
+        or not np.isfinite(allocation).all()
+        or (allocation < -tolerance).any()
+        or abs(float(allocation.sum()) - total) > tolerance
+    ):
+        raise RuntimeError("reserve optimizer returned an allocation outside the public feasible set")
+    allocation = np.maximum(allocation, 0.0)
+    return {
+        "allocation": allocation,
+        "feasible": True,
+        "nu": float("nan"),
+        "reason": (
+            "weighted expected-shortfall optimum over finite nonnegative allocations "
+            "summing to the public reserve total; q95 and es95 are forecasts only"
+        ),
+    }
 
 
-def proportional_reserve(q_hat: np.ndarray, share: np.ndarray, total: float) -> np.ndarray:
-    """The practical baseline and the ablation: the floor plus the remaining reserve
-    split in proportion to a size measure, with no reference to the regional tails."""
-    floor = np.maximum(np.asarray(q_hat, dtype=np.float64), 0.0)
-    share = np.maximum(np.asarray(share, dtype=np.float64), 0.0)
-    share = share / max(share.sum(), 1e-12)
-    remainder = total - floor.sum()
-    if remainder < 0:
-        return floor * (total / max(floor.sum(), 1e-9))
-    return floor + remainder * share
+def proportional_reserve(share: np.ndarray, total: float) -> np.ndarray:
+    """Return the verifier's frozen public ``baseline_share`` allocation exactly."""
+    share = np.asarray(share, dtype=np.float64)
+    total = float(total)
+    if share.ndim != 1 or len(share) == 0:
+        raise ValueError("baseline share must be a nonempty one-dimensional array")
+    if not np.isfinite(total) or total < 0.0:
+        raise ValueError("reserve total must be finite and nonnegative")
+    return proportional_baseline_allocation(share, total)
 
 
 # ------------------------------------------------------------------------- writers
@@ -3516,9 +3533,9 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
         q_hat = summary["mean"] + 1.6448536269514722 * sd
         es_hat = summary["mean"] + 2.0627128 * sd
     elif params.tail == "padded":
-        # A cushion of a fixed share of the expected cost, the shape an over-cautious
-        # analyst adds. A multiplicative pad would be undone exactly by the calibration
-        # to the public reserve total, since that step shrinks along the same ray.
+        # A cushion of a fixed share of expected cost, the shape an over-cautious
+        # analyst adds. It changes only the tail forecasts; allocation is scored under
+        # the separate public-total constraint below.
         cushion = (params.padding - 1.0) * summary["mean"]
         q_hat = summary["q"] + cushion
         es_hat = summary["es"] + cushion
@@ -3528,22 +3545,26 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     mean_hat = summary["mean"].copy()
     q_hat = np.maximum(q_hat, mean_hat)
     es_hat = np.maximum(es_hat, q_hat)
-    # The practical baseline splits the reserve above the floors in proportion to
-    # projected eligible exposure, which is the size measure a reserving office would
-    # reach for and the analogue of the version-three elders-proportional allocation.
-    eligible_bands = [b for b, (lo, hi) in enumerate(ACTUARIAL_AGE_BANDS)
-                      if lo >= ac.eligible_min_age]
-    county_eligible = simulated["exposure"].mean(axis=0)[:, :, eligible_bands].sum(axis=(1, 2))
-    share = np.zeros(ac.n_regions)
-    np.add.at(share, ac.region_of_county, county_eligible)
-    baseline = proportional_reserve(q_hat, share, ac.reserve_total)
+    # A_B is fixed before the submission: the verifier and every reference line read the
+    # same participant-visible baseline_share from the contract. Forecast q95 and ES95 do
+    # not change either this baseline or the feasible allocation set.
+    if ac.reserve_baseline_share is None:
+        raise MissingActuarialInputs(
+            "contract reserve baseline_share is required for the frozen reserve baseline"
+        )
+    baseline = proportional_reserve(ac.reserve_baseline_share, ac.reserve_total)
     if params.allocation == "proportional":
         allocation = baseline
         allocation_detail = {"feasible": True, "nu": float("nan"),
-                             "reason": "proportional to projected eligible exposure"}
+                             "reason": (
+                                 "public contract baseline_share proportional split over "
+                                 "finite nonnegative allocations summing to the public "
+                                 "reserve total; q95 and es95 are forecasts only"
+                             )}
     else:
-        allocation_detail = allocate_reserve(liability, q_hat, ac.reserve_total,
-                                             ac.reserve_weights)
+        allocation_detail = allocate_reserve(
+            liability, ac.reserve_total, ac.reserve_weights
+        )
         allocation = allocation_detail["allocation"]
     summary_out = {"mean": mean_hat, "q": q_hat, "es": es_hat}
     rows = reserve_rows(summary_out, allocation)
@@ -3570,6 +3591,11 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
         "exceedance": exceedance_probability(q_hat, liability).tolist(),
         "quantile_score": quantile_score(q_hat, liability).tolist(),
         "reserve_feasible": bool(allocation_detail.get("feasible", True)),
+        "reserve_allocation_rule": str(allocation_detail["reason"]),
+        "reserve_baseline_rule": (
+            "public contract baseline_share proportional split; q95 and es95 are "
+            "forecast quantities, not allocation floors"
+        ),
         "n_paths": int(liability.shape[0]),
         # What this world was read to be. Every one of these is a per-world draw the
         # generator makes, so a freeze report that carries them can say whether the

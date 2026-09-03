@@ -16,7 +16,9 @@ def _packet(path: Path, development: bool) -> Path:
     (path / "manifest.json").write_text(
         json.dumps(
             {
+                "schema": phase_three.PACKET_MANIFEST_SCHEMA,
                 "development": development,
+                "packet_class": "development" if development else "qualification",
                 "participant": {
                     "contract.json": {
                         "bytes": contract.stat().st_size,
@@ -72,9 +74,28 @@ def test_packet_validation_returns_resolved_paths_and_requires_exact_class(tmp_p
     alias.symlink_to(target, target_is_directory=True)
     assert phase_three._validate_packet_group([alias], 1, True) == [target.resolve()]
 
-    (target / "manifest.json").write_text('{"development": 1}\n')
+    (target / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": phase_three.PACKET_MANIFEST_SCHEMA,
+                "development": 1,
+                "packet_class": "development",
+            }
+        )
+        + "\n"
+    )
     with pytest.raises(ValueError, match="not a development packet"):
         phase_three._validate_packet_group([target], 1, True)
+
+
+def test_packet_class_cannot_be_changed_by_renaming_a_graded_packet(tmp_path):
+    packet = _packet(tmp_path / "qualification" / "qual-0", False)
+    manifest_path = packet / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["packet_class"] = "graded"
+    manifest_path.write_text(json.dumps(manifest) + "\n")
+    with pytest.raises(ValueError, match="not a qualification packet"):
+        phase_three._validate_packet_group([packet], 1, False)
 
 
 def test_full_packet_sets_require_canonical_parent_and_names(tmp_path):
@@ -109,6 +130,28 @@ def test_full_packet_sets_reject_mixed_build_roots(tmp_path):
 def test_nonempty_unbound_measurement_output_is_refused(tmp_path):
     out = tmp_path / "measurement"
     out.mkdir()
+    (out / "orphan.json").write_text("{}\n")
+
+    with pytest.raises(ValueError, match="nonempty measurement output"):
+        phase_three._bind_measurement_output(out, {"run": 1})
+
+
+def test_lone_interrupted_measurement_contract_is_recovered(tmp_path):
+    out = tmp_path / "measurement"
+    out.mkdir()
+    temporary = out / ".measurement_contract.json.tmp"
+    temporary.write_text("{torn")
+
+    phase_three._bind_measurement_output(out, {"run": 1})
+
+    assert json.loads((out / "measurement_contract.json").read_text()) == {"run": 1}
+    assert not temporary.exists()
+
+
+def test_interrupted_measurement_contract_with_companion_is_refused(tmp_path):
+    out = tmp_path / "measurement"
+    out.mkdir()
+    (out / ".measurement_contract.json.tmp").write_text("{torn")
     (out / "orphan.json").write_text("{}\n")
 
     with pytest.raises(ValueError, match="nonempty measurement output"):
@@ -407,6 +450,9 @@ def test_packet_inventory_rejects_a_symlinked_side_directory(tmp_path):
     (packet / "manifest.json").write_text(
         json.dumps(
             {
+                "schema": phase_three.PACKET_MANIFEST_SCHEMA,
+                "development": False,
+                "packet_class": "qualification",
                 "participant": {
                     "contract.json": {
                         "bytes": 3,
@@ -756,7 +802,10 @@ def test_elder_audit_writes_exact_six_world_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(
         phase_three,
         "mortality_gap_decomposition",
-        lambda packet: {"world": Path(packet).name},
+        lambda packet: {
+            "world": Path(packet).name,
+            "continuation_shocks_redrawn_per_member": True,
+        },
     )
     monkeypatch.setattr(
         phase_three,

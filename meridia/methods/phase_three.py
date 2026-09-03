@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -32,6 +33,7 @@ except ImportError:  # Removed when this lane follows the verifier contract comm
         "reserve.csv": RESERVE_COLUMNS,
     }
 from ..verify import verify_submission
+from ..packet import PACKET_MANIFEST_SCHEMA
 from . import actuarial_reference as AR
 from . import bayesian as B
 from . import controls
@@ -51,6 +53,7 @@ COMPOSITE_FAMILIES = (
 SUBMISSION_FILES = tuple(V4_SUBMISSION_COLUMNS)
 CALIBRATION_RECEIPT_SCHEMA = "meridia-phase-three-calibration-receipts-v1"
 RUN_RECEIPT_SCHEMA = "meridia-phase-three-method-run-receipt-v1"
+RUN_INTENT_SCHEMA = "meridia-phase-three-method-run-intent-v1"
 RAW_PRE_FREEZE_MODE = "raw_pre_freeze"
 FROZEN_EVALUATION_MODE = "frozen_evaluation"
 SHARED_SIMULATION_SEED = AR.SimulationParams().seed
@@ -87,6 +90,8 @@ def _read_packet_manifest(packet: Path) -> tuple[dict, Path]:
         raise ValueError(f"packet has an invalid manifest: {packet}") from error
     if not isinstance(manifest, dict):
         raise ValueError(f"packet manifest is not a JSON object: {packet}")
+    if manifest.get("schema") != PACKET_MANIFEST_SCHEMA:
+        raise ValueError(f"packet manifest schema is not version four: {packet}")
     return manifest, manifest_path
 
 
@@ -225,11 +230,9 @@ def _bind_measurement_output(out_dir: Path, contract: dict) -> None:
         out_dir, out_dir / ".measurement_contract.json.tmp", "measurement contract"
     )
     encoded = json.dumps(contract, indent=2, sort_keys=True) + "\n"
-    if not path.exists() and any(out_dir.iterdir()):
-        raise ValueError(
-            "nonempty measurement output has no measurement_contract.json"
-        )
     if path.exists():
+        if temporary.exists() or temporary.is_symlink():
+            raise ValueError("partial measurement contract accompanies final contract")
         if not path.is_file():
             raise ValueError("measurement_contract.json is not a regular file")
         if path.read_text() != encoded:
@@ -237,8 +240,16 @@ def _bind_measurement_output(out_dir: Path, contract: dict) -> None:
                 "measurement output already belongs to a different code or run"
             )
         return
-    if temporary.exists():
-        raise ValueError("partial measurement contract is present")
+    entries = list(out_dir.iterdir())
+    if entries:
+        if entries != [temporary] or temporary.is_symlink() \
+                or not temporary.is_file():
+            raise ValueError(
+                "nonempty measurement output has no measurement_contract.json"
+            )
+        # The final contract was never published. This exact lone regular temp file
+        # is safe to discard and deterministically recreate from the current payload.
+        temporary.unlink()
     temporary.write_text(encoded)
     temporary.replace(path)
 
@@ -1026,6 +1037,19 @@ def mortality_gap_decomposition(packet_dir: Path) -> dict:
 
     packet = Path(packet_dir)
     contract = json.loads((packet / "participant" / "contract.json").read_text())
+    from meridia.packet import _validate_shock_redraw_evidence
+
+    shock_runtime = _validate_shock_redraw_evidence(
+        json.loads(
+            (packet / "retained" / "continuation_shock_redraw.json").read_text()
+        ),
+        expected_members=contract.get("reserve", {}).get("members"),
+    )
+    measured_member_redraw = bool(
+        shock_runtime["redrawn_member_count"] == shock_runtime["member_count"]
+        and shock_runtime["distinct_future_schedule_count"] > 1
+        and shock_runtime["future_shock_year_count"] > 0
+    )
     experience = AR.load_experience(packet, contract)
     if experience is None:
         raise AR.MissingActuarialInputs(
@@ -1137,7 +1161,7 @@ def mortality_gap_decomposition(packet_dir: Path) -> dict:
         "designated_horizon_mortality_shock_years": mortality_shock_years(
             revised_tick, horizon_tick
         ),
-        "continuation_shocks_redrawn_per_member": True,
+        "continuation_shocks_redrawn_per_member": measured_member_redraw,
     }
 
 
@@ -1308,7 +1332,9 @@ def write_elder_reconstruction_audit(
         family = contract["shock_family"]
         current = {
             "annual_probability": float(family["annual_rate"]),
-            "independent_per_member": True,
+            "independent_per_member": worlds[-1]["mortality_gap_decomposition"].get(
+                "continuation_shocks_redrawn_per_member"
+            ) is True,
             "magnitude_source": "participant/contract.json:shock_family",
             "mortality_ranges": [
                 {"kind": str(kind), "range": list(fields["mortality_multiplier"])}
@@ -1419,6 +1445,152 @@ def _run_receipt_path(output_root: Path, submission: Path) -> Path:
         Path(submission).parent / f".{Path(submission).name}.run_receipt.json",
         "method run receipt",
     )
+
+
+def _run_intent_path(output_root: Path, submission: Path) -> Path:
+    return _assert_output_location(
+        output_root,
+        Path(submission).parent / f".{Path(submission).name}.run_intent.json",
+        "method run intent",
+    )
+
+
+def _expected_run_intent(
+    output_root: Path,
+    packet: Path,
+    submission: Path,
+    measurement_contract_sha256: str,
+    run_spec: dict,
+    bound_inputs: dict[Path, str] | None,
+) -> dict:
+    return {
+        "schema": RUN_INTENT_SCHEMA,
+        "measurement_contract_sha256": measurement_contract_sha256,
+        "packet": str(Path(packet).resolve()),
+        "packet_manifest_sha256": _bound_manifest_sha256(
+            output_root, measurement_contract_sha256, packet
+        ),
+        "submission": str(Path(submission).resolve()),
+        "run_spec": json.loads(json.dumps(run_spec, sort_keys=True)),
+        "bound_input_sha256": {
+            str(Path(path).resolve()): digest
+            for path, digest in sorted(
+                (bound_inputs or {}).items(), key=lambda item: str(item[0])
+            )
+        },
+    }
+
+
+def _read_matching_run_json(path: Path, expected: dict, label: str) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{label} must be a regular file")
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} is incomplete or invalid") from error
+    if payload != expected:
+        raise ValueError(f"{label} does not match this run")
+
+
+def _clear_run_intent(path: Path) -> None:
+    """Separate operation so crash-injection tests cover the last commit window."""
+    path.unlink()
+
+
+def _recover_run_publication(
+    output_root: Path,
+    packet: Path,
+    submission: Path,
+    stage: Path,
+    measurement_contract_sha256: str,
+    run_spec: dict,
+    bound_inputs: dict[Path, str] | None,
+) -> None:
+    """Finish or discard only artifacts carrying this run's exact intent journal."""
+    intent_path = _run_intent_path(output_root, submission)
+    receipt_path = _run_receipt_path(output_root, submission)
+    intent_temporary = _assert_output_location(
+        output_root,
+        intent_path.with_name(f".{intent_path.name}.tmp"),
+        "method run intent",
+    )
+    receipt_temporary = _assert_output_location(
+        output_root,
+        receipt_path.with_name(f".{receipt_path.name}.tmp"),
+        "method run receipt",
+    )
+    expected_intent = _expected_run_intent(
+        output_root,
+        packet,
+        submission,
+        measurement_contract_sha256,
+        run_spec,
+        bound_inputs,
+    )
+
+    def present(path: Path) -> bool:
+        return path.exists() or path.is_symlink()
+
+    if present(intent_temporary):
+        if any(
+            present(path)
+            for path in (intent_path, stage, submission, receipt_path, receipt_temporary)
+        ):
+            raise ValueError("partial method run intent has ambiguous companion artifacts")
+        if intent_temporary.is_symlink() or not intent_temporary.is_file():
+            raise ValueError("partial method run intent must be a regular file")
+        # The runner starts only after the intent rename. With no companion artifacts,
+        # even a torn temporary write is safe to discard and recreate.
+        intent_temporary.unlink()
+
+    if present(receipt_path):
+        if present(stage) or present(receipt_temporary):
+            raise ValueError("completed method run has ambiguous partial artifacts")
+        if present(intent_path):
+            _read_matching_run_json(intent_path, expected_intent, "method run intent")
+        if not _validate_run_receipt(
+            output_root,
+            packet,
+            submission,
+            measurement_contract_sha256,
+            run_spec,
+        ):
+            raise ValueError("method run receipt disappeared during recovery")
+        if present(intent_path):
+            _clear_run_intent(intent_path)
+        return
+
+    if not present(intent_path):
+        return
+    _read_matching_run_json(intent_path, expected_intent, "method run intent")
+
+    if present(receipt_temporary):
+        if receipt_temporary.is_symlink() or not receipt_temporary.is_file():
+            raise ValueError("partial method run receipt must be a regular file")
+        # A committed intent is authoritative. Regenerate a torn receipt temporary
+        # from the verified submission below, or rerun if no submission was published.
+        receipt_temporary.unlink()
+
+    if present(submission):
+        if present(stage):
+            raise ValueError("method run has both staged and published submissions")
+        receipt = _expected_run_receipt(
+            output_root,
+            packet,
+            submission,
+            measurement_contract_sha256,
+            run_spec,
+        )
+        _write_json_atomic(
+            output_root, receipt_path, receipt, "method run receipt"
+        )
+        _clear_run_intent(intent_path)
+        return
+
+    if present(stage):
+        if stage.is_symlink() or not stage.is_dir():
+            raise ValueError("partial method submission must be a real directory")
+        shutil.rmtree(stage)
 
 
 def _write_json_atomic(
@@ -1573,7 +1745,16 @@ def _run_once(
         submission.parent / f".{submission.name}.phase-three-tmp",
         "method submission staging directory",
     )
-    if stage.exists():
+    _recover_run_publication(
+        output_root,
+        packet,
+        submission,
+        stage,
+        measurement_contract_sha256,
+        run_spec,
+        bound_inputs,
+    )
+    if stage.exists() or stage.is_symlink():
         raise ValueError(f"partial method submission is present: {stage}")
     if _validate_run_receipt(
         output_root,
@@ -1596,6 +1777,20 @@ def _run_once(
         return scored
     if submission.exists():
         raise ValueError(f"unreceipted method submission is present: {submission}")
+    intent = _expected_run_intent(
+        output_root,
+        packet,
+        submission,
+        measurement_contract_sha256,
+        run_spec,
+        bound_inputs,
+    )
+    _write_json_atomic(
+        output_root,
+        _run_intent_path(output_root, submission),
+        intent,
+        "method run intent",
+    )
     runner(stage)
     _verify_bound_inputs(bound_inputs)
     _verify_bound_packet(output_root, measurement_contract_sha256, packet)
@@ -1614,6 +1809,15 @@ def _run_once(
         receipt,
         "method run receipt",
     )
+    if not _validate_run_receipt(
+        output_root,
+        packet,
+        submission,
+        measurement_contract_sha256,
+        run_spec,
+    ):
+        raise ValueError("method run receipt disappeared during publication")
+    _clear_run_intent(_run_intent_path(output_root, submission))
     scored = _score(packet, submission, bars, raw_pre_freeze)
     if not _validate_run_receipt(
         output_root,
@@ -1789,7 +1993,8 @@ def _validate_packet_group(
             )
     for packet in resolved:
         manifest, _ = _read_packet_manifest(packet)
-        if manifest.get("development") is not development:
+        if manifest.get("development") is not development \
+                or manifest.get("packet_class") != label:
             raise ValueError(f"{packet} is not a {label} packet")
     return resolved
 

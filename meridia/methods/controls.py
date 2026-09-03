@@ -15,8 +15,9 @@ means the gate it targets is too loose.
   Targets the interval-score ceiling.
 - ``static_projection``: method A now, projection equal to the present. Targets the
   projection accuracy bar on elders and children.
-- ``uniform_allocation``: method A with reserve slack above the submitted regional
-  q95 floors spread equally across regions. Targets the reserve-skill ceiling.
+- ``uniform_allocation``: method A with the public reserve total split equally across
+  regions, independently of the submitted tail forecasts. Targets the reserve-skill
+  ceiling.
 - ``benchmark_only``: the benchmark nation total spread over counties in proportion
   to raw register counts, with tight intervals. Targets the accuracy bar on national
   counts (the benchmark carries its own bias) and the county bars.
@@ -63,11 +64,11 @@ says the gate is loose rather than that the control was subtle.
   deviations. Ablation 6. Targets the quantile score, to the extent the regional
   liability distribution is skewed.
 - ``padded_tail``: the reference's quantile plus a cushion of six tenths of the expected
-  cost. Ablation 7. Targets the lower calibration bound and the quantile score. The
-  public reserve total bounds how far a padded tail can travel, since the submission
-  must satisfy sum A = R.
+  cost. Ablation 7. Targets the lower calibration bound and the quantile score. Tail
+  forecasts do not constrain the separately scored reserve allocation.
 - ``proportional_reserve``: the reference forecast with the reserve split in proportion
-  to projected eligible exposure rather than by marginal expected shortfall.
+  to the participant-visible revised-source eligible-population share rather than by
+  marginal expected shortfall.
   Ablation 8. Targets the decision skill gate.
 - ``version_three_recipe``: the recipe that solved version three, on the
   version-four surface.
@@ -952,7 +953,7 @@ def run_decomposition(
         )
         summary = AR.tail_summary(oracle_residual_paths)
         allocation_detail = AR.allocate_reserve(
-            oracle_residual_paths, summary["q"], float(reserve["total"]), weights
+            oracle_residual_paths, float(reserve["total"]), weights
         )
         rows = AR.reserve_rows(summary, allocation_detail["allocation"])
         import pandas as pd
@@ -1409,24 +1410,14 @@ def run(
             core[list(projection.columns)].to_csv(
                 out_dir / "projection.csv", index=False
             )
-        else:   # equal reserve slack above every submitted regional floor
+        else:   # equal split of the independently published reserve total
             reserve_path = out_dir / "reserve.csv"
             if reserve_path.exists():
                 rows = pd.read_csv(reserve_path)
                 total = float(data["contract"]["reserve"]["total"])
-                floor = rows["q95"].to_numpy(dtype=np.float64)
-                slack = total - float(floor.sum())
-                if slack < -1e-6:
-                    # The legacy contract built R from sealed q95 and ES. Once the
-                    # prohibited tail-to-total fit is removed, a participant forecast can
-                    # therefore file floors whose sum exceeds R. There is no feasible
-                    # uniform allocation in that state. Keep the complete filing and let
-                    # the hard feasibility check report the contract obstruction. New
-                    # exposure-rule packets must instead demonstrate non-negative slack.
-                    allocation = floor
-                else:
-                    allocation = floor + max(slack, 0.0) / len(rows)
-                    allocation[-1] = total - float(allocation[:-1].sum())
+                allocation = AR.proportional_reserve(
+                    np.ones(len(rows), dtype=np.float64), total
+                )
                 rows["allocation"] = allocation
                 rows.to_csv(reserve_path, index=False)
             else:
