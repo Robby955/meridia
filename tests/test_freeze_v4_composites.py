@@ -94,6 +94,15 @@ def _report(world: str, submission_label: str, offset: float = 0.0,
                 for band, (status, floor, eligible, minimum) in band_evidence.items()
             },
         },
+        "reserve_q95_feasibility": {
+            "q95_sum": 60.0,
+            "allocation_sum": 100.0,
+            "reserve_total": 100.0,
+            "total_minus_q95_sum": 40.0,
+            "all_regions_at_or_above_q95": True,
+            "allocation_sums_to_total": True,
+            "feasible": True,
+        },
         "evidence": {
             "schema": "meridia.v4.verifier-evidence.v1",
             "packet_digest_sha256": _digest(f"packet-{world}"),
@@ -110,6 +119,8 @@ def _reference(freeze, line: str, world: str, *, offset: float = 0.0) -> dict:
         "world": world,
         "method_digest_sha256": _digest(f"reference-method-{line}"),
         "runner_digest_sha256": _digest("runner"),
+        "measurement_contract_digest_sha256": _digest("measurement-contract"),
+        "run_receipt_digest_sha256": _digest(f"reference-receipt-{line}-{world}"),
         "deterministic": True,
         "report": _report(world, f"final-submission-{line}-{world}", offset),
     }
@@ -124,9 +135,11 @@ def _replicate(freeze, line: str, world: str, replicate: int, offset: float) -> 
         "replicate_id": str(replicate),
         "method_digest_sha256": _digest(f"reference-method-{line}"),
         "runner_digest_sha256": _digest("runner"),
-        "resample_digest_sha256": _digest(
-            f"resample-{line}-{world}-{replicate}"
+        "measurement_contract_digest_sha256": _digest("measurement-contract"),
+        "run_receipt_digest_sha256": _digest(
+            f"replicate-receipt-{line}-{world}-{replicate}"
         ),
+        "resample_digest_sha256": _digest(f"resample-{world}-{replicate}"),
         "resampling_design": {
             "method": "stratified participant-file bootstrap",
             "version": 1,
@@ -151,6 +164,8 @@ def _control(freeze, name: str, world: str, gate: str, component: str, value: fl
         "world": world,
         "method_digest_sha256": _digest(f"control-method-{name}"),
         "runner_digest_sha256": _digest("runner"),
+        "measurement_contract_digest_sha256": _digest("measurement-contract"),
+        "run_receipt_digest_sha256": _digest(f"control-receipt-{name}-{world}"),
         "deterministic": True,
         "report": report,
     }
@@ -185,6 +200,29 @@ def _evidence(freeze, replicates_per_pair: int = 7):
         for world in worlds
     ]
     return references, replicates, controls
+
+
+def _diagnostic(freeze, name: str, world: str) -> dict:
+    entry = {
+        "diagnostic": name,
+        "world": world,
+        "method_digest_sha256": _digest(f"diagnostic-method-{name}"),
+        "runner_digest_sha256": _digest("runner"),
+        "measurement_contract_digest_sha256": _digest("measurement-contract"),
+        "run_receipt_digest_sha256": _digest(f"diagnostic-receipt-{name}-{world}"),
+        "deterministic": True,
+        "report": _report(world, f"diagnostic-submission-{name}-{world}"),
+    }
+    entry["evidence_id"] = freeze.evidence_id_for(entry, kind="diagnostic")
+    return entry
+
+
+def _diagnostics(freeze) -> list[dict]:
+    return [
+        _diagnostic(freeze, name, world)
+        for name in freeze.DEVELOPMENT_DIAGNOSTICS
+        for world in freeze.DEVELOPMENT_WORLDS
+    ]
 
 
 def _elder_audit(freeze, references: list[dict]) -> dict:
@@ -340,14 +378,130 @@ def _regime_audit(freeze) -> dict:
     return audit
 
 
+def _signed(freeze, payload: dict) -> dict:
+    payload.pop("digest_sha256", None)
+    payload["digest_sha256"] = freeze._canonical_digest(payload)
+    return payload
+
+
+def _reserve_audits(freeze, references: list[dict], controls: list[dict]):
+    measurement_contract = _digest("measurement-contract")
+    calibration = _signed(freeze, {
+        "schema": freeze.RESERVE_CALIBRATION_SCHEMA,
+        "measurement_contract_digest_sha256": measurement_contract,
+        "candidate": True,
+        "accepted": True,
+        "blockers": [],
+        "rate_per_person_year": 1.0,
+        "rate_grid": 1.0,
+        "tail_slack_share": 0.25,
+        "target_rule": "sum(q95) + tail_slack_share * sum(ES95 - q95)",
+        "reference_lines": list(freeze.REFERENCE_LINES),
+        "qualification_worlds": list(freeze.QUALIFICATION_WORLDS),
+        "evidence": [
+            {
+                "reference_line": row["reference_line"],
+                "world": row["world"],
+                "evidence_id": row["evidence_id"],
+                "submitted_q95_sum": 60.0,
+                "submitted_es95_sum": 80.0,
+                "candidate_reserve_total": 100.0,
+                "candidate_margin": 35.0,
+            }
+            for row in references
+        ],
+    })
+    red_team = _signed(freeze, {
+        "schema": freeze.RESERVE_RED_TEAM_SCHEMA,
+        "measurement_contract_digest_sha256": measurement_contract,
+        "independent_unit": "world",
+        "world_counts": {"development": 12, "qualification": 6, "total": 18},
+        "reserve_total_public_rule_verified": True,
+        "primary_measure": (
+            "qualification incremental regional R2 over development region means"
+        ),
+        "public_quantities": {
+            "development": [
+                {
+                    "world": world,
+                    "latest_year_total_exposure": 1000.0,
+                    "reserve_total": 100.0,
+                }
+                for world in freeze.DEVELOPMENT_WORLDS
+            ],
+            "qualification": [
+                {
+                    "world": world,
+                    "latest_year_total_exposure": 1000.0,
+                    "reserve_total": 100.0,
+                }
+                for world in freeze.QUALIFICATION_WORLDS
+            ],
+        },
+        "qualification_incremental_regional_r2_over_region_means": {
+            "q95": 0.10,
+            "es95": 0.20,
+            "headline_max": 0.20,
+        },
+    })
+
+    def qualification_row(row: dict, identity: str, skill_pass: bool) -> dict:
+        receipt = row["report"]["reserve_q95_feasibility"]
+        return {
+            identity: row[identity],
+            "world": row["world"],
+            "evidence_id": row["evidence_id"],
+            "q95_feasible": True,
+            "reserve_skill_pass": skill_pass,
+            **{
+                key: receipt[key]
+                for key in (
+                    "q95_sum", "allocation_sum", "reserve_total",
+                    "total_minus_q95_sum",
+                )
+            },
+        }
+
+    qualification = _signed(freeze, {
+        "schema": freeze.RESERVE_QUALIFICATION_SCHEMA,
+        "measurement_contract_digest_sha256": measurement_contract,
+        "reference_lines": list(freeze.REFERENCE_LINES),
+        "qualification_worlds": list(freeze.QUALIFICATION_WORLDS),
+        "calibration_audit_digest_sha256": calibration["digest_sha256"],
+        "red_team_audit_digest_sha256": red_team["digest_sha256"],
+        "reference_results": [
+            qualification_row(row, "reference_line", True) for row in references
+        ],
+        "proportional_reserve_results": [
+            qualification_row(row, "control", False)
+            for row in controls
+            if row["control"] == "proportional_reserve"
+        ],
+    })
+    return qualification, calibration, red_team
+
+
 def _calibrate(freeze, references, replicates, controls):
     return freeze.calibrate_composite_bars(
         references,
         replicates,
         controls,
-        elder_reconstruction_audit=_elder_audit(freeze, references),
-        regime_identifiability_audit=_regime_audit(freeze),
+        **_calibration_kwargs(freeze, references, controls),
     )
+
+
+def _calibration_kwargs(freeze, references, controls) -> dict:
+    qualification, calibration, red_team = _reserve_audits(
+        freeze, references, controls
+    )
+    return {
+        "development_diagnostic_reports": _diagnostics(freeze),
+        "elder_reconstruction_audit": _elder_audit(freeze, references),
+        "regime_identifiability_audit": _regime_audit(freeze),
+        "reserve_qualification_audit": qualification,
+        "reserve_calibration_audit": calibration,
+        "reserve_red_team_audit": red_team,
+    }
 
 
 def _rebind(freeze, entry: dict, kind: str) -> None:
@@ -460,7 +614,13 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
             "disposition constrained_to_development_range"
         ) in document
         assert "Control separation" in document
-        assert "normal_tail: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5" \
+        assert "Authenticated evidence design" in document
+        assert "reference results at false-fail rate" in document
+        assert "A/qual-0: pass; evidence" in document
+        assert "deterministic_linkage [primary]: failed worlds" in document
+        assert "q95 feasibility margin" in document
+        assert "unique run receipts: 300" in document
+        assert "normal_tail [primary]: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5" \
             in document
         assert "absolute 65+ exposure error 10.0% before, 5.0% after" in document
         assert "pooled exceedance deviation 0.03 before, 0.03 after" in document
@@ -476,6 +636,31 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
         ) in document
 
 
+def test_freezer_uses_the_fixed_world_counts_and_control_registry():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    wrong_world_count = freeze.calibrate_composite_bars(
+        references, replicates, controls, graded_world_count=4, **kwargs
+    )
+    assert wrong_world_count["frozen"] is False
+    assert any("three graded worlds" in blocker
+               for blocker in wrong_world_count["blockers"])
+
+    registry = {
+        gate: tuple(names)
+        for gate, names in freeze.SCIENTIFIC_CONTROLS_BY_GATE.items()
+    }
+    registry["exposures_and_rates"] = tuple(
+        reversed(registry["exposures_and_rates"])
+    )
+    wrong_registry = freeze.calibrate_composite_bars(
+        references, replicates, controls, control_registry=registry, **kwargs
+    )
+    assert wrong_registry["frozen"] is False
+    assert any("fixed V4 battery" in blocker for blocker in wrong_registry["blockers"])
+
+
 def test_final_reports_are_not_used_as_missing_replicates():
     freeze = _freeze()
     references, _, controls = _evidence(freeze)
@@ -489,17 +674,20 @@ def test_final_reports_are_not_used_as_missing_replicates():
 def test_tail_freeze_requires_the_bound_elder_reconstruction_audit():
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
-    missing = freeze.calibrate_composite_bars(references, replicates, controls)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs.pop("elder_reconstruction_audit")
+    missing = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
     assert missing["frozen"] is False
     assert any("elder_reconstruction_audit" in blocker for blocker in missing["blockers"])
 
     audit = _elder_audit(freeze, references)
     audit["shock_redraw"]["independent_per_member"] = False
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["elder_reconstruction_audit"] = audit
     wrong_shocks = freeze.calibrate_composite_bars(
-        references,
-        replicates,
-        controls,
-        elder_reconstruction_audit=audit,
+        references, replicates, controls, **kwargs
     )
     assert wrong_shocks["frozen"] is False
     assert any("shock redraw" in blocker for blocker in wrong_shocks["blockers"])
@@ -517,12 +705,10 @@ def test_freeze_requires_unidentified_axes_to_stay_inside_the_development_range(
         key: value for key, value in audit.items() if key != "digest_sha256"
     })
 
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["regime_identifiability_audit"] = audit
     bars = freeze.calibrate_composite_bars(
-        references,
-        replicates,
-        controls,
-        elder_reconstruction_audit=_elder_audit(freeze, references),
-        regime_identifiability_audit=audit,
+        references, replicates, controls, **kwargs
     )
 
     assert bars["frozen"] is False
@@ -544,7 +730,7 @@ def test_nonfinite_or_unequally_weighted_replicates_fail_closed():
     unbalanced = replicates[:-1]
     bars = _calibrate(freeze, references, unbalanced, controls)
     assert bars["frozen"] is False
-    assert any("equal" in blocker for blocker in bars["blockers"])
+    assert any("exactly 126" in blocker for blocker in bars["blockers"])
 
 
 def test_too_few_replicates_cannot_claim_an_empirical_one_percent_tail():
@@ -553,8 +739,7 @@ def test_too_few_replicates_cannot_claim_an_empirical_one_percent_tail():
     bars = _calibrate(freeze, references, replicates, controls)
     assert bars["frozen"] is False
     assert any(
-        "each leave-one-world-out training fold needs at least 100" in blocker
-        and "found 90" in blocker
+        "exactly 126" in blocker
         for blocker in bars["blockers"]
     )
 
@@ -663,9 +848,10 @@ def test_a_control_must_pass_hard_structure_and_fail_its_registered_gate():
     ]
     bars = _calibrate(freeze, references, replicates, controls)
     assert bars["frozen"] is False
-    assert "unregistered_shortcut" in bars["control_support"]["unexpected_controls"]
-    assert "deterministic_linkage" not in \
-        bars["gates"]["exposures_and_rates"]["supporting_controls"]
+    assert any(
+        "unexpected ['unregistered_shortcut']" in blocker
+        for blocker in bars["blockers"]
+    )
 
 
 def test_a_control_must_cover_each_qualification_world_exactly_once():
@@ -674,10 +860,7 @@ def test_a_control_must_cover_each_qualification_world_exactly_once():
     controls.pop(0)
     bars = _calibrate(freeze, references, replicates, controls)
     assert bars["frozen"] is False
-    assert "deterministic_linkage" not in \
-        bars["gates"]["exposures_and_rates"]["supporting_controls"]
-    missing = bars["control_support"]["matrix"]["deterministic_linkage"]
-    assert missing["missing_worlds"] == ["qual-0"]
+    assert any("exactly 132" in blocker for blocker in bars["blockers"])
 
     references, replicates, controls = _evidence(freeze)
     controls[0] = deepcopy(controls[1])
@@ -688,9 +871,7 @@ def test_a_control_must_cover_each_qualification_world_exactly_once():
     )
     bars = _calibrate(freeze, references, replicates, controls)
     assert bars["frozen"] is False
-    duplicate = bars["control_support"]["matrix"]["deterministic_linkage"]
-    assert duplicate["missing_worlds"] == ["qual-0"]
-    assert duplicate["duplicate_worlds"] == ["qual-1"]
+    assert any("run receipt was reused" in blocker for blocker in bars["blockers"])
 
 
 def test_one_control_pass_on_qual_two_makes_the_gate_a_deletion_candidate():
@@ -774,3 +955,464 @@ def test_cli_writes_an_incomplete_bar_set_when_only_packet_paths_are_given(tmp_p
     assert bars["frozen"] is False
     assert any("replicate evidence missing" in blocker for blocker in bars["blockers"])
     assert "NOT FROZEN" in (out / "freeze_report.txt").read_text()
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("measurement_contract_digest_sha256", "measurement_contract_digest_sha256"),
+        ("run_receipt_digest_sha256", "run_receipt_digest_sha256"),
+    ],
+)
+def test_every_report_must_bind_the_measurement_contract_and_run_receipt(field, message):
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    del references[0][field]
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any(message in blocker for blocker in bars["blockers"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("runner_digest_sha256", _digest("other-runner"), "more than one runner"),
+        (
+            "measurement_contract_digest_sha256",
+            _digest("other-measurement-contract"),
+            "more than one measurement_contract",
+        ),
+        (
+            "resampling_design",
+            {"method": "different bootstrap", "version": 1},
+            "more than one resampling design",
+        ),
+    ],
+)
+def test_all_reports_share_one_runner_measurement_contract_and_resampling_design(
+    field, value, message
+):
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    replicates[0][field] = value
+    _rebind(freeze, replicates[0], "replicate")
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any(message in blocker for blocker in bars["blockers"])
+
+
+def test_reference_lines_are_exactly_a_b_and_c():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    for row in [*references, *replicates]:
+        if row["reference_line"] == "C":
+            row["reference_line"] = "D"
+            row["method_digest_sha256"] = _digest("reference-method-D")
+            _rebind(
+                freeze,
+                row,
+                "replicate" if "replicate_id" in row else "reference",
+            )
+    bars = freeze.calibrate_composite_bars(references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any("exactly A, B, and C" in blocker for blocker in bars["blockers"])
+
+
+def test_reference_resamples_are_paired_across_lines():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    row = next(
+        row for row in replicates
+        if row["reference_line"] == "B"
+        and row["world"] == "qual-0"
+        and row["replicate_id"] == "0"
+    )
+    row["resample_digest_sha256"] = _digest("unpaired-resample")
+    _rebind(freeze, row, "replicate")
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any(
+        "A, B, and C use different resample digests" in blocker
+        for blocker in bars["blockers"]
+    )
+
+
+def test_run_receipts_cannot_be_reused_or_control_methods_relabelled():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    controls[1]["run_receipt_digest_sha256"] = controls[0][
+        "run_receipt_digest_sha256"
+    ]
+    _rebind(freeze, controls[1], "control")
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any("run receipt was reused" in blocker for blocker in bars["blockers"])
+
+    references, replicates, controls = _evidence(freeze)
+    register_digest = next(
+        row["method_digest_sha256"]
+        for row in controls if row["control"] == "register_only"
+    )
+    for row in controls:
+        if row["control"] == "survey_only":
+            row["method_digest_sha256"] = register_digest
+            _rebind(freeze, row, "control")
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any(
+        "method digest reused under different" in blocker for blocker in bars["blockers"]
+    )
+
+
+def test_control_method_digest_must_be_stable_across_worlds():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    row = next(
+        row for row in controls
+        if row["control"] == "normal_tail" and row["world"] == "qual-2"
+    )
+    row["method_digest_sha256"] = _digest("changed-normal-tail-method")
+    _rebind(freeze, row, "control")
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["frozen"] is False
+    assert any(
+        "normal_tail: control method digest is not stable" in blocker
+        for blocker in bars["blockers"]
+    )
+
+
+def test_development_diagnostics_are_required_and_do_not_count_as_controls():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    assert bars["control_report_count"] == 132
+    assert bars["development_diagnostic_report_count"] == 24
+    assert bars["development_diagnostics"]["counts_as_qualification_control"] is False
+    assert set(bars["control_support"]["matrix"]) \
+        == set(freeze.REQUIRED_SCIENTIFIC_CONTROLS)
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["development_diagnostic_reports"] = kwargs[
+        "development_diagnostic_reports"
+    ][:-1]
+    incomplete = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert incomplete["frozen"] is False
+    assert any("exactly 24" in blocker for blocker in incomplete["blockers"])
+
+
+def test_reserve_audits_and_control_q95_feasibility_are_authenticated():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["reserve_calibration_audit"]["evidence"][0]["submitted_q95_sum"] = 61.0
+    kwargs["reserve_calibration_audit"]["digest_sha256"] = freeze._canonical_digest({
+        key: value
+        for key, value in kwargs["reserve_calibration_audit"].items()
+        if key != "digest_sha256"
+    })
+    mismatched = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert mismatched["frozen"] is False
+    assert any(
+        "calibration q95 sum differs from the verifier" in blocker
+        for blocker in mismatched["blockers"]
+    )
+
+    references, replicates, controls = _evidence(freeze)
+    controls[0]["report"]["reserve_q95_feasibility"]["q95_sum"] = 101.0
+    controls[0]["report"]["reserve_q95_feasibility"][
+        "total_minus_q95_sum"
+    ] = -1.0
+    _rebind(freeze, controls[0], "control")
+    invalid = _calibrate(freeze, references, replicates, controls)
+    assert invalid["frozen"] is False
+    assert any("reserve q95 feasibility" in blocker for blocker in invalid["blockers"])
+
+
+def test_bar_schema_rejects_relabelled_methods_and_duplicate_run_receipts():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    relabelled = deepcopy(bars)
+    rows = relabelled["evidence_provenance"]["control_reports"]
+    register_digest = next(
+        row["method_digest_sha256"] for row in rows
+        if row["control"] == "register_only"
+    )
+    for row in rows:
+        if row["control"] == "survey_only":
+            row["method_digest_sha256"] = register_digest
+            unsigned = {key: value for key, value in row.items() if key != "evidence_id"}
+            row["evidence_id"] = freeze._canonical_digest(unsigned)
+    provenance = relabelled["evidence_provenance"]
+    provenance["digest_sha256"] = freeze._canonical_digest({
+        key: value for key, value in provenance.items() if key != "digest_sha256"
+    })
+    assert any(
+        "relabeled" in error for error in _bar_schema_errors(relabelled)
+    )
+
+    duplicated = deepcopy(bars)
+    rows = duplicated["evidence_provenance"]["control_reports"]
+    rows[1]["run_receipt_digest_sha256"] = rows[0]["run_receipt_digest_sha256"]
+    unsigned = {key: value for key, value in rows[1].items() if key != "evidence_id"}
+    rows[1]["evidence_id"] = freeze._canonical_digest(unsigned)
+    provenance = duplicated["evidence_provenance"]
+    provenance["digest_sha256"] = freeze._canonical_digest({
+        key: value for key, value in provenance.items() if key != "digest_sha256"
+    })
+    assert any(
+        "reuses a run receipt" in error for error in _bar_schema_errors(duplicated)
+    )
+
+
+def test_bar_schema_binds_gate_witnesses_to_the_registered_reports():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    fake_reference = deepcopy(bars)
+    component = fake_reference["gates"]["release_accuracy"]["components"][
+        "p95_relative_error"
+    ]
+    component["reference_witnesses"][0]["evidence_id"] = _digest(
+        "unregistered-reference"
+    )
+    assert any(
+        "final witness receipt" in error for error in _bar_schema_errors(fake_reference)
+    )
+
+    fake_replicate = deepcopy(bars)
+    component = fake_replicate["gates"]["release_accuracy"]["components"][
+        "p95_relative_error"
+    ]
+    component["replicate_evidence_ids"][0] = _digest("unregistered-replicate")
+    component["replicate_evidence_ids"].sort()
+    component["replicate_evidence_digest_sha256"] = hashlib.sha256(
+        "\n".join(component["replicate_evidence_ids"]).encode("utf-8")
+    ).hexdigest()
+    assert any(
+        "replicate evidence receipt" in error
+        for error in _bar_schema_errors(fake_replicate)
+    )
+
+
+def test_bar_schema_rejects_re_signed_reserve_values_not_bound_to_run_evidence():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    changed = deepcopy(bars)
+    calibration = changed["reserve_audits"]["calibration"]
+    qualification = changed["reserve_audits"]["qualification"]
+    calibration_row = calibration["evidence"][0]
+    qualification_row = next(
+        row for row in qualification["reference_results"]
+        if row["reference_line"] == calibration_row["reference_line"]
+        and row["world"] == calibration_row["world"]
+    )
+    calibration_row.update({
+        "submitted_q95_sum": 90.0,
+        "submitted_es95_sum": 95.0,
+        "candidate_reserve_total": 100.0,
+        "candidate_margin": 8.75,
+    })
+    qualification_row["q95_sum"] = 90.0
+    qualification_row["total_minus_q95_sum"] = 10.0
+    _signed(freeze, calibration)
+    qualification["calibration_audit_digest_sha256"] = calibration["digest_sha256"]
+    _signed(freeze, qualification)
+    assert any(
+        "reserve qualification, calibration, or red-team audit is invalid" in error
+        for error in _bar_schema_errors(changed)
+    )
+
+    changed = deepcopy(bars)
+    red_team = changed["reserve_audits"]["red_team"]
+    qualification = changed["reserve_audits"]["qualification"]
+    del red_team["public_quantities"]["development"][0][
+        "latest_year_total_exposure"
+    ]
+    _signed(freeze, red_team)
+    qualification["red_team_audit_digest_sha256"] = red_team["digest_sha256"]
+    _signed(freeze, qualification)
+    assert any(
+        "reserve qualification, calibration, or red-team audit is invalid" in error
+        for error in _bar_schema_errors(changed)
+    )
+
+
+def test_bar_schema_binds_control_q95_feasibility_to_its_report():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    changed = deepcopy(bars)
+    receipt = changed["control_support"]["matrix"]["deterministic_linkage"][
+        "gates"
+    ]["exposures_and_rates"]["per_world"]["qual-0"][
+        "reserve_q95_feasibility"
+    ]
+    receipt["q95_sum"] = 50.0
+    receipt["total_minus_q95_sum"] = 50.0
+    assert any(
+        "separation receipt is incomplete" in error
+        for error in _bar_schema_errors(changed)
+    )
+
+    changed = deepcopy(bars)
+    changed["control_support"]["matrix"]["deterministic_linkage"]["gates"][
+        "tail_calibration"
+    ] = {}
+    assert any(
+        "tail_calibration/deterministic_linkage" in error
+        for error in _bar_schema_errors(changed)
+    )
+
+
+def test_bar_schema_rejects_wrong_pairs_and_malformed_resample_digests_without_crashing():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    wrong_pair = deepcopy(bars)
+    provenance = wrong_pair["evidence_provenance"]
+    row = provenance["reference_reports"][0]
+    row["world"] = "qual-1"
+    row["evidence_id"] = freeze._canonical_digest({
+        key: value for key, value in row.items() if key != "evidence_id"
+    })
+    _signed(freeze, provenance)
+    assert any(
+        "replay-bound evidence provenance" in error
+        for error in _bar_schema_errors(wrong_pair)
+    )
+
+    malformed = deepcopy(bars)
+    provenance = malformed["evidence_provenance"]
+    row = provenance["replicate_reports"][0]
+    row["resample_digest_sha256"] = "not-a-sha256"
+    row["evidence_id"] = freeze._canonical_digest({
+        key: value for key, value in row.items() if key != "evidence_id"
+    })
+    _signed(freeze, provenance)
+    assert any(
+        "replay-bound evidence provenance" in error
+        for error in _bar_schema_errors(malformed)
+    )
+
+    bad_digest = deepcopy(bars)
+    bad_digest["evidence_provenance"]["digest_sha256"] = "0" * 64
+    errors = _bar_schema_errors(bad_digest)
+    assert "freeze receipt lacks a valid replay-bound evidence provenance" in errors
+
+
+def test_malformed_red_team_rows_fail_closed_instead_of_raising():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    red_team = kwargs["reserve_red_team_audit"]
+    red_team["public_quantities"]["development"].append("bad-row")
+    _signed(freeze, red_team)
+
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["frozen"] is False
+    assert any("reserve red-team development worlds differ" in blocker
+               for blocker in bars["blockers"])
+
+    for audit_name, block_name in (
+        ("reserve_calibration_audit", "evidence"),
+        ("reserve_qualification_audit", "reference_results"),
+    ):
+        kwargs = _calibration_kwargs(freeze, references, controls)
+        audit = kwargs[audit_name]
+        audit[block_name][0]["reference_line"] = []
+        _signed(freeze, audit)
+        bars = freeze.calibrate_composite_bars(
+            references, replicates, controls, **kwargs
+        )
+        assert bars["frozen"] is False
+        assert any(
+            "reference_line" in blocker
+            or "pairs differ" in blocker
+            or "identities differ" in blocker
+            for blocker in bars["blockers"]
+        )
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    qualification = kwargs["reserve_qualification_audit"]
+    qualification["reference_results"][0]["extra"] = "not registered"
+    _signed(freeze, qualification)
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["frozen"] is False
+    assert any("result fields differ" in blocker for blocker in bars["blockers"])
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    calibration = kwargs["reserve_calibration_audit"]
+    calibration["rate_grid"] = "1.0"
+    _signed(freeze, calibration)
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["frozen"] is False
+    assert any("rate_grid must be numeric" in blocker for blocker in bars["blockers"])
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    calibration = kwargs["reserve_calibration_audit"]
+    calibration["evidence"][0]["reference_line"] = " A "
+    _signed(freeze, calibration)
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["frozen"] is False
+    assert any("identities are not canonical" in blocker for blocker in bars["blockers"])
+
+
+def test_bar_schema_handles_malformed_gate_and_audit_shapes_without_raising():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bars = _calibrate(freeze, references, replicates, controls)
+    from meridia.verify import _bar_schema_errors
+
+    for malformed_bars in ([], "bad", 1):
+        assert _bar_schema_errors(malformed_bars) == [
+            "composite bars must be a JSON object"
+        ]
+
+    for malformed_gates in ([], {**bars["gates"], "reserve_skill": "bad"}):
+        changed = deepcopy(bars)
+        changed["gates"] = malformed_gates
+        assert _bar_schema_errors(changed)
+
+    changed = deepcopy(bars)
+    changed["gates"]["release_accuracy"]["components"][
+        "p95_relative_error"
+    ]["replicate_evidence_ids"][0] = []
+    assert _bar_schema_errors(changed)
+
+    for audit_name, block_name in (
+        ("calibration", "evidence"),
+        ("qualification", "reference_results"),
+    ):
+        changed = deepcopy(bars)
+        audit = changed["reserve_audits"][audit_name]
+        audit[block_name][0]["reference_line"] = []
+        _signed(freeze, audit)
+        if audit_name == "calibration":
+            qualification = changed["reserve_audits"]["qualification"]
+            qualification["calibration_audit_digest_sha256"] = audit["digest_sha256"]
+            _signed(freeze, qualification)
+        assert _bar_schema_errors(changed)

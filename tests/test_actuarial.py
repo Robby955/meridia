@@ -614,8 +614,7 @@ TOY_EXPOSURE_SCALE = 4_000.0
 def _packet(tmp_path):
     """A minimal version-four packet: geography, contract, retained truth, ensemble."""
     from meridia.actuarial import ensemble_truth, reserve_total
-    from meridia.release import (AGE_BAND_LABELS, SEX_LABELS,
-                                 compute_detailed_table_truth, compute_truth)
+    from meridia.release import compute_detailed_table_truth, compute_truth
     admin = tiny_admin() | {"state": np.asarray([[0, 1]], dtype=np.int64)}
     person = {"household": np.asarray([0, 0, 1, 1]), "cell": np.asarray([0, 0, 1, 1]),
               "age": np.asarray([70, 30, 80, 10]), "sex": np.asarray([0, 1, 0, 1]),
@@ -697,7 +696,6 @@ def _packet(tmp_path):
 
 def _oracle_submission(directory, admin, truth, detailed, rate_truth, sealed, total,
                        allocation, q_hat):
-    from meridia.release import AGE_BAND_LABELS, SEX_LABELS
     from meridia.scoring import rows_from_values
     directory.mkdir(parents=True)
     rows = rows_from_values(truth, 0.0)
@@ -761,6 +759,15 @@ def test_the_version_four_verifier_scores_five_composites_from_three_files(tmp_p
         "packet_digest_sha256", "contract_digest_sha256",
         "submission_digest_sha256", "verifier_digest_sha256",
     ))
+    q95_feasibility = report["reserve_q95_feasibility"]
+    assert q95_feasibility["q95_sum"] == pytest.approx(float(q_hat.sum()))
+    assert q95_feasibility["allocation_sum"] == pytest.approx(float(oracle.sum()))
+    assert q95_feasibility["reserve_total"] == pytest.approx(float(total))
+    assert q95_feasibility["total_minus_q95_sum"] \
+        == pytest.approx(float(total - q_hat.sum()))
+    assert q95_feasibility["all_regions_at_or_above_q95"] is True
+    assert q95_feasibility["allocation_sums_to_total"] is True
+    assert q95_feasibility["feasible"] is True
     first_packet_digest = report["evidence"]["packet_digest_sha256"]
     participant_input.write_text("value\n2\n")
     rebound = verify_submission(packet, tmp_path / "submission")
