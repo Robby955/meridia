@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.events import EVENT_TYPES, replay_event_history
 from meridia.mechanisms import (COEFFICIENT_RANGES, DEVELOPMENT_BAND, DEVELOPMENT_DESIGN,
-                                HIDDEN_LEVEL_PATTERNS, N_HIDDEN_OUTSIDE_AXES,
-                                MECHANISM_AXES,
+                                HIDDEN_EXTRAPOLATION_AXES, HIDDEN_IN_BAND_AXES,
+                                HIDDEN_LEVEL_PATTERNS, N_HIDDEN_OUTSIDE_AXES, MECHANISM_AXES,
                                 N_DEVELOPMENT_CELLS, PAIRWISE_AXIS_INTERACTIONS,
                                 PUBLIC_ENVELOPE, build_world_mechanisms,
                                 contract_block, draw_mechanism_coefficients,
@@ -100,6 +100,8 @@ def test_hidden_world_is_a_new_joint_configuration_with_two_intensities_outside(
         assert design.cell == -1
         assert design.levels in HIDDEN_LEVEL_PATTERNS
         assert len(design.outside) == N_HIDDEN_OUTSIDE_AXES
+        assert set(design.outside) <= set(HIDDEN_EXTRAPOLATION_AXES)
+        assert not set(design.outside) & set(HIDDEN_IN_BAND_AXES)
         seen_levels.add(design.levels)
         seen_outside.add(design.outside)
         outside = 0
@@ -111,9 +113,19 @@ def test_hidden_world_is_a_new_joint_configuration_with_two_intensities_outside(
                 outside += 1
                 assert axis in design.outside
         assert outside == N_HIDDEN_OUTSIDE_AXES
+        for axis in HIDDEN_IN_BAND_AXES:
+            low, high = DEVELOPMENT_BAND[axis]
+            assert low <= design.intensity[axis] <= high
     # The hidden configuration is a draw, not a constant of this repository.
     assert len(seen_levels) > 1
     assert len(seen_outside) > 1
+    policy = contract_block()["hidden_axis_policy"]
+    assert policy == {
+        "outside_axis_count": 2,
+        "eligible_for_outside_development_band": list(HIDDEN_EXTRAPOLATION_AXES),
+        "held_inside_development_band": list(HIDDEN_IN_BAND_AXES),
+        "anchor_correlation_required_for_extrapolation": 0.4,
+    }
     with pytest.raises(ValueError, match="design cell"):
         draw_mechanism_design(1, "hidden", 0)
 

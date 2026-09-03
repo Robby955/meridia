@@ -17,29 +17,29 @@ that the release, projection, and verifier modules then call:
    seed, one of them designated the realized future for reporting. Regional truth is the
    ensemble mean, its 0.95 quantile, and the mean above that quantile. Binary tail and
    reserve gates read the ensemble, never one path.
-4. The scored surface: exposure and rate gates, the tail gates, the reserve construction
-   R = sum q95* + gamma sum (ES95* - q95*), the sealed expected uncovered obligation, and
-   the skill score against a frozen practical baseline and a perfect-information oracle.
+4. The scored surface: one pooled exposure-and-rate gate, one tail gate, the public
+   exposure-based reserve total, the sealed expected uncovered obligation, and the skill
+   score against a frozen practical baseline and a perfect-information oracle.
 
 Every threshold is a named field of ``ActuarialThresholds`` carrying a placeholder value.
 Placeholders are frozen on qualification worlds before the hidden world exists, following
 protocol section 12; none of them may be tuned to a submission.
 
-Age band vocabulary: the release's disclosure bands stay as they are. The actuarial bands
-are a separate constant, because redefining the disclosure bands would change the detailed
-truth cube and invalidate every frozen bar keyed on its shape.
+Age band vocabulary: the population release bands stay as they are. The actuarial bands
+are a separate constant because attained-age rate estimation needs a finer old-age split.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
+from decimal import Decimal, ROUND_CEILING
 from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
 from .events import EVENT_TYPES
-from .release import SEX_LABELS
+from .release import RELEASE_COLUMNS, SEX_LABELS
 
 # ------------------------------------------------------------------- frozen vocabulary
 
@@ -62,6 +62,14 @@ RATE_ESTIMANDS: tuple[str, ...] = (EXPOSURE_ESTIMAND, MORTALITY_ESTIMAND, INCIDE
 # carry two columns the eight version-three estimands leave blank.
 RATE_EXTRA_COLUMNS: tuple[str, ...] = ("sex", "age_band")
 RESERVE_COLUMNS: tuple[str, ...] = ("region", "liability_mean", "q95", "es95", "allocation")
+V4_RELEASE_COLUMNS: tuple[str, ...] = (
+    RELEASE_COLUMNS[:3] + RATE_EXTRA_COLUMNS + RELEASE_COLUMNS[3:])
+V4_PROJECTION_COLUMNS: tuple[str, ...] = RELEASE_COLUMNS
+V4_SUBMISSION_COLUMNS: dict[str, tuple[str, ...]] = {
+    "release.csv": V4_RELEASE_COLUMNS,
+    "projection.csv": V4_PROJECTION_COLUMNS,
+    "reserve.csv": RESERVE_COLUMNS,
+}
 
 MONTHS_PER_YEAR = 12
 TAIL_LEVEL = 0.95
@@ -73,11 +81,12 @@ CONTINUATION_DOMAIN = 0xC047      # substream tag; distinct from the ledger's ow
 
 @dataclass(frozen=True)
 class ActuarialThresholds:
-    """Named gate parameters. Every value is a placeholder.
+    """Named scoring parameters and legacy diagnostic thresholds.
 
-    To be frozen on qualification worlds before the hidden world exists, by establishing
-    the oracle distribution, preregistering a fixed slack, and checking attainability with
-    several methodologically different legitimate references. Never tuned to a submission.
+    Stabilizers, the eligibility floor, the tail-width divisor, rounding, and numerical
+    tolerance remain inputs to version-four measurements. The old individual ceilings and
+    floors remain for legacy diagnostic reports only. The version-four pass decision reads
+    the separate exact composite bar document and never falls back to these values.
     """
 
     # Section 7: stabilizers c_x in e = |x_hat - x*| / (x* + c_x).
@@ -101,7 +110,6 @@ class ActuarialThresholds:
     es95_width_error_ceiling: float = 0.500              # to be frozen
     min_tail_width_fraction: float = 0.010               # fixed, guards the divisor
     # Section 9: the reserve construction and the decision gate.
-    gamma: float = 0.25                                  # protocol range 0.20 to 0.30
     reserve_rounding_unit: float = 1_000.0               # public rounding rule
     skill_minimum: float = 0.35                          # to be frozen
     regional_shortfall_ceiling: float = 0.20             # to be frozen
@@ -112,75 +120,40 @@ class ActuarialThresholds:
 PLACEHOLDER_THRESHOLDS = ActuarialThresholds()
 
 
-# Structural eligibility, derived from a published rule rather than set by hand.
-#
-# A cell decides a rate gate only when the quantity it carries can be resolved at all.
-# Version four's first pass held one flat five thousand person-years across every band,
-# which removed every cell at 65 and over from every rate gate: the ages the obligation is
-# made of, since the benefit starts at 65 and deaths and first qualifying events
-# concentrate there. A submission could be arbitrarily wrong about old-age mortality and
-# clear every rate ceiling. The pass after it fell back on a hand-written floor per band,
-# which gated the right ages but stated no rule.
-#
-# The rule has two parts, both published, and the floors below are computed from it:
-#
-# 1. The denominator rule. Every cell, whatever its estimand, must stand on at least
-#    MIN_CELL_PERSONS expected persons over the scored window, so the exposure a rate
-#    divides by is a quantity a reconstruction can resolve. A person count of 120 carries
-#    a nine percent relative standard error if the count itself were Poisson.
-# 2. The numerator rule. A rate cell must also carry at least MIN_EXPECTED_EVENTS expected
-#    events of its own kind, which is one over the square of the declared relative standard
-#    error target: 25 events at a target of 0.20. The expected count is the cell's exposure
-#    times a published reference rate for its band, so the floor is a minimum expected
-#    death count and a minimum expected event count, not a person-year count that buys two
-#    orders of magnitude more deaths at 85 than at 8.
-#
-# REFERENCE_EVENT_RATES is a published schedule of the shape a reserving office reads off
-# a standard table. Its values are rounded to two figures from the twelve development
-# worlds, which ship truth and which a method may tune on; no qualification or graded
-# world enters it.
-SCORED_WINDOW_YEARS = 5.0            # the sixty-month horizon the rate truth is read over
-CELL_RSE_TARGET = 0.20               # the relative standard error a gated rate cell may have
-MIN_EXPECTED_EVENTS = round(1.0 / CELL_RSE_TARGET ** 2, 6)   # 25 events at 0.20
-MIN_CELL_PERSONS = 120.0             # expected persons behind any scored cell
-
-REFERENCE_EVENT_RATES: dict[str, dict[str, float]] = {
-    MORTALITY_ESTIMAND: {"0-17": 0.00050, "18-44": 0.0015, "45-64": 0.010,
-                         "65-74": 0.050, "75-84": 0.125, "85+": 0.30,
-                         "18-64": 0.0050, "65+": 0.080},
-    INCIDENCE_ESTIMAND: {"0-17": 0.020, "18-44": 0.030, "45-64": 0.040,
-                         "65-74": 0.055, "75-84": 0.050, "85+": 0.040,
-                         "18-64": 0.035, "65+": 0.052},
+# Structural eligibility reads sealed exposure only. It does not use an expected-event
+# schedule. Rates are pooled to the three broad bands before this rule is applied, so the
+# 65-and-over quantity the obligation prices is one scored state cell rather than three
+# thin cells whose inclusion depends on a reference rate.
+EXPOSURE_ELIGIBILITY_BY_BAND: dict[str, float] = {
+    "0-17": 600.0,
+    "18-64": 600.0,
+    "65+": 500.0,
 }
+RATE_GATE_BANDS: tuple[str, ...] = BROAD_AGE_BAND_LABELS
 
-ELIGIBILITY_BANDS: tuple[str, ...] = ACTUARIAL_AGE_BAND_LABELS + tuple(
-    b for b in BROAD_AGE_BAND_LABELS if b not in ACTUARIAL_AGE_BAND_LABELS)
-
-
-def _derive_eligibility_floors() -> dict[str, dict[str, float]]:
-    """Person-year floors implied by the two published parts of the rule."""
-    person_floor = MIN_CELL_PERSONS * SCORED_WINDOW_YEARS
-    floors = {EXPOSURE_ESTIMAND: {band: person_floor for band in ELIGIBILITY_BANDS}}
-    for estimand, schedule in REFERENCE_EVENT_RATES.items():
-        floors[estimand] = {band: max(person_floor, MIN_EXPECTED_EVENTS / rate)
-                            for band, rate in schedule.items()}
-    return floors
-
-
-ELIGIBILITY_FLOORS: dict[str, dict[str, float]] = _derive_eligibility_floors()
+_BROAD_BAND_FOR_ACTUARIAL = {
+    band: broad
+    for broad, members in zip(BROAD_AGE_BAND_LABELS, BROAD_BAND_MEMBERS)
+    for member in members
+    for band in (ACTUARIAL_AGE_BAND_LABELS[member],)
+}
 
 
 def eligibility_floor(thresholds: ActuarialThresholds, band: str,
                       estimand: str = EXPOSURE_ESTIMAND) -> float:
-    """Person-years a cell of ``estimand`` in ``band`` needs before any gate reads it.
+    """Sealed person-years a broad cell needs before the composite rate gate reads it.
 
-    A threshold set that moves the denominator rule (a test, or a bar file) moves every
-    floor with it, so the derived table stays a shape and never a second hidden constant.
+    ``estimand`` remains in the signature for callers that label diagnostics by quantity;
+    it cannot change the floor. That is the phase-three rule: eligibility is a property of
+    exposure, not of a reference event-rate schedule.
     """
-    default = MIN_CELL_PERSONS * SCORED_WINDOW_YEARS
-    scale = float(thresholds.exposure_eligibility_person_years) / default if default else 1.0
-    table = ELIGIBILITY_FLOORS.get(estimand, ELIGIBILITY_FLOORS[EXPOSURE_ESTIMAND])
-    return float(table.get(band, default)) * scale
+    del estimand
+    default = float(thresholds.exposure_eligibility_person_years)
+    if not math.isfinite(default) or default <= 0.0:
+        raise ValueError("the exposure eligibility floor must be positive and finite")
+    broad = _BROAD_BAND_FOR_ACTUARIAL.get(band, band)
+    base = float(EXPOSURE_ELIGIBILITY_BY_BAND.get(broad, 600.0))
+    return base * default / 600.0
 
 
 # ----------------------------------------------------------------- obligation contract
@@ -453,16 +426,35 @@ class ContinuationEnsemble:
         return np.asarray(self.liability[self.realized_member], dtype=np.float64)
 
 
-def ensemble_truth(liability: np.ndarray, level: float = TAIL_LEVEL) -> dict:
-    """Regional truth: mean, the ``level`` quantile, and the mean at or above it."""
+def empirical_tail(liability: np.ndarray, level: float = TAIL_LEVEL) -> tuple[np.ndarray,
+                                                                              np.ndarray]:
+    """Exact empirical quantile and expected shortfall, column by column.
+
+    For ``M`` observations the quantile is order statistic ``ceil(level * M)`` using
+    one-based ranks. Expected shortfall is the mean of every observation at or above that
+    value, including all ties. This definition is shared by truth, references, and audits;
+    no interpolated quantile convention is allowed to change it.
+    """
     liability = np.asarray(liability, dtype=np.float64)
     if liability.ndim != 2 or liability.shape[0] < 2:
         raise ValueError("liability must be a (members, regions) matrix of two or more rows")
-    q = np.quantile(liability, level, axis=0, method="higher")
+    if not math.isfinite(float(level)) or not 0.0 < float(level) <= 1.0:
+        raise ValueError("the empirical tail level must lie in (0, 1]")
+    if not np.isfinite(liability).all():
+        raise ValueError("liability must contain only finite values")
+    rank = int(math.ceil(float(level) * liability.shape[0]))
+    q = np.sort(liability, axis=0)[rank - 1]
     tail_mean = np.empty(liability.shape[1], dtype=np.float64)
     for r in range(liability.shape[1]):
         above = liability[:, r][liability[:, r] >= q[r]]
-        tail_mean[r] = float(above.mean()) if len(above) else float(q[r])
+        tail_mean[r] = float(above.mean())
+    return q, tail_mean
+
+
+def ensemble_truth(liability: np.ndarray, level: float = TAIL_LEVEL) -> dict:
+    """Regional mean, exact empirical quantile, and tied-tail expected shortfall."""
+    liability = np.asarray(liability, dtype=np.float64)
+    q, tail_mean = empirical_tail(liability, level)
     return {"mean": liability.mean(axis=0), "q": q, "es": tail_mean, "level": float(level)}
 
 
@@ -492,10 +484,11 @@ def build_continuation_ensemble(continue_member: Callable[[int], np.ndarray],
 def exposure_and_rate_truth(result: dict, admin: dict) -> dict:
     """Exposure and rate truth keyed (estimand, level, unit, sex, band).
 
-    Exposure is in person-years, at county and state on the broad bands and on the
-    actuarial bands. Mortality and incidence are occurrence-exposure rates per person-year
-    at state and county on the actuarial bands. The county rates are diagnostic and carry
-    no gate; the gates read exposure at county on the broad bands and the rates at state.
+    Exposure is in person-years at county and state on the actuarial and broad bands.
+    Mortality and incidence are occurrence-exposure rates per person-year at both levels
+    and both band vocabularies. Fine-band rates remain diagnostics. The composite gate
+    reads county broad-band exposure and state broad-band rates, all selected by sealed
+    exposure alone.
     """
     county_state = np.asarray(admin["county_state"], dtype=np.int64)
     n_states = int(admin["n_states"])
@@ -522,17 +515,21 @@ def exposure_and_rate_truth(result: dict, admin: dict) -> dict:
                     truth[(INCIDENCE_ESTIMAND, level, u, sex_label, band)] = \
                         float(event_cube[u, s, b]) / e if e > 0 else float("nan")
                 for broad, members in zip(BROAD_AGE_BAND_LABELS, BROAD_BAND_MEMBERS):
-                    if len(members) == 1:
-                        continue      # the single-band broad label is already written
-                    truth[(EXPOSURE_ESTIMAND, level, u, sex_label, broad)] = \
-                        float(sum(years[u, s, b] for b in members))
+                    exposure = float(sum(years[u, s, b] for b in members))
+                    truth[(EXPOSURE_ESTIMAND, level, u, sex_label, broad)] = exposure
+                    truth[(MORTALITY_ESTIMAND, level, u, sex_label, broad)] = \
+                        float(sum(death_cube[u, s, b] for b in members)) / exposure \
+                        if exposure > 0 else float("nan")
+                    truth[(INCIDENCE_ESTIMAND, level, u, sex_label, broad)] = \
+                        float(sum(event_cube[u, s, b] for b in members)) / exposure \
+                        if exposure > 0 else float("nan")
     return truth
 
 
 GATED_RATE_CELLS = {
     EXPOSURE_ESTIMAND: ("county", BROAD_AGE_BAND_LABELS),
-    MORTALITY_ESTIMAND: ("state", ACTUARIAL_AGE_BAND_LABELS),
-    INCIDENCE_ESTIMAND: ("state", ACTUARIAL_AGE_BAND_LABELS),
+    MORTALITY_ESTIMAND: ("state", BROAD_AGE_BAND_LABELS),
+    INCIDENCE_ESTIMAND: ("state", BROAD_AGE_BAND_LABELS),
 }
 
 
@@ -669,7 +666,13 @@ def parse_rate_rows(rows: list[dict], admin: dict) -> tuple[dict, list[str]]:
         if lower < 0.0:
             errors.append(f"rate row {i}: negative lower bound")
             continue
-        key = (estimand, level, int(row["unit"]), sex, band)
+        unit = row["unit"]
+        limit = int(admin["n_states"] if level == "state" else admin["n_counties"])
+        if isinstance(unit, bool) or not isinstance(unit, (int, np.integer)) \
+                or not 0 <= int(unit) < limit:
+            errors.append(f"rate row {i}: unit is not a known {level} integer")
+            continue
+        key = (estimand, level, int(unit), sex, band)
         counts[key] = counts.get(key, 0) + 1
         parsed[key] = (estimate, lower, upper)
     required = required_rate_rows(admin)
@@ -747,70 +750,185 @@ def interval_score(lower: float, upper: float, truth: float, scale: float,
     return float(score) / float(scale)
 
 
+def _empirical_quantile_1d(values: Sequence[float], level: float) -> float:
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim != 1 or not len(array) or not np.isfinite(array).all():
+        raise ValueError("an empirical quantile needs a non-empty finite vector")
+    if not 0.0 < float(level) <= 1.0:
+        raise ValueError("an empirical quantile level must lie in (0, 1]")
+    rank = int(math.ceil(float(level) * len(array)))
+    return float(np.sort(array)[rank - 1])
+
+
+def _broad_exposure(truth: dict, level: str, unit: int, sex: str,
+                    band: str) -> float | None:
+    key = (EXPOSURE_ESTIMAND, level, unit, sex, band)
+    if key in truth:
+        return float(truth[key])
+    members = BROAD_BAND_MEMBERS[BROAD_AGE_BAND_LABELS.index(band)]
+    values = [truth.get((EXPOSURE_ESTIMAND, level, unit, sex,
+                         ACTUARIAL_AGE_BAND_LABELS[m])) for m in members]
+    if any(value is None for value in values):
+        return None
+    return float(sum(float(value) for value in values))
+
+
+def _broad_truth_rate(truth: dict, estimand: str, level: str, unit: int,
+                      sex: str, band: str) -> float | None:
+    key = (estimand, level, unit, sex, band)
+    if key in truth and math.isfinite(float(truth[key])):
+        return float(truth[key])
+    members = BROAD_BAND_MEMBERS[BROAD_AGE_BAND_LABELS.index(band)]
+    numerator, denominator = 0.0, 0.0
+    for member in members:
+        fine = ACTUARIAL_AGE_BAND_LABELS[member]
+        exposure = truth.get((EXPOSURE_ESTIMAND, level, unit, sex, fine))
+        rate = truth.get((estimand, level, unit, sex, fine))
+        if exposure is None or rate is None or not math.isfinite(float(rate)):
+            continue
+        numerator += float(exposure) * float(rate)
+        denominator += float(exposure)
+    return numerator / denominator if denominator > 0.0 else None
+
+
+def _broad_submitted_rate(parsed: dict, estimand: str, level: str, unit: int,
+                          sex: str, band: str) -> tuple[float, float, float] | None:
+    members = BROAD_BAND_MEMBERS[BROAD_AGE_BAND_LABELS.index(band)]
+    numerator = np.zeros(3, dtype=np.float64)
+    denominator = 0.0
+    for member in members:
+        fine = ACTUARIAL_AGE_BAND_LABELS[member]
+        exposure_row = parsed.get((EXPOSURE_ESTIMAND, level, unit, sex, fine))
+        rate_row = parsed.get((estimand, level, unit, sex, fine))
+        if exposure_row is None or rate_row is None:
+            return None
+        exposure = float(exposure_row[0])
+        if exposure < 0.0 or not math.isfinite(exposure):
+            return None
+        numerator += exposure * np.asarray(rate_row, dtype=np.float64)
+        denominator += exposure
+    if denominator <= 0.0:
+        return None
+    values = numerator / denominator
+    return float(values[0]), float(values[1]), float(values[2])
+
+
 def score_rates(parsed: dict, truth: dict, thresholds: ActuarialThresholds,
                 alpha: float = 0.10) -> dict:
-    """Cell errors reduced to the gate percentile and the maximum, per estimand and level.
+    """Score the exposure-and-rate surface and form its single pooled gate statistic.
 
-    Eligible cells are those whose true exposure over the window is at or above the floor
-    the published rule gives their own estimand and band, so a cell no method could resolve
-    never decides a pass and the oldest bands, which carry the obligation, are still gated.
-    Exposure is gated at county on the broad bands, mortality and incidence at state on the
-    actuarial bands; the other blocks are reported with ``gated`` false.
-
-    A block whose cells all fail the floor is recorded with ``n_cells`` zero and a reason,
-    never dropped. A gated block that carries no eligible cell is a gate that decides
-    nothing, and the caller has to see it rather than read a shorter dictionary.
+    Eligibility is fixed from retained exposure before a submission is read. The scored
+    cells are broad-band county exposures and broad-band state mortality and incidence.
+    Submitted broad rates are reconstructed from the submitted fine rates and exposures;
+    the fine blocks remain available as diagnostics but do not create more pass events.
     """
     stabilizer = {EXPOSURE_ESTIMAND: thresholds.exposure_stabilizer,
                   MORTALITY_ESTIMAND: thresholds.mortality_stabilizer,
                   INCIDENCE_ESTIMAND: thresholds.incidence_stabilizer}
     metrics: dict[str, dict] = {}
+    pooled: list[tuple[float, bool, float, tuple[str, str, int, str, str]]] = []
+    pooled_eligible: list[tuple[str, str, int, str, str]] = []
     for estimand in RATE_ESTIMANDS:
-        gated_level, _ = GATED_RATE_CELLS[estimand]
+        gated_level, gated_bands = GATED_RATE_CELLS[estimand]
         for level in RATE_LEVELS:
-            cells = []
-            for band in bands_for(estimand, level):
+            gated = level == gated_level
+            cells: list[tuple[float, bool, float, tuple[int, str, str]]] = []
+            eligible: list[tuple[int, str, str]] = []
+            if gated:
+                units = sorted({int(key[2]) for key in truth
+                                if key[0] == EXPOSURE_ESTIMAND and key[1] == level})
+                for unit in units:
+                    for sex in SEX_LABELS:
+                        for band in gated_bands:
+                            exposure = _broad_exposure(truth, level, unit, sex, band)
+                            if exposure is None or not math.isfinite(exposure) \
+                                    or exposure < eligibility_floor(thresholds, band):
+                                continue
+                            eligible.append((unit, sex, band))
+                            pooled_eligible.append((estimand, level, unit, sex, band))
+                            if estimand == EXPOSURE_ESTIMAND:
+                                value = exposure
+                                submitted = parsed.get((estimand, level, unit, sex, band))
+                            else:
+                                value = _broad_truth_rate(truth, estimand, level, unit, sex, band)
+                                submitted = _broad_submitted_rate(
+                                    parsed, estimand, level, unit, sex, band)
+                            if value is None or not math.isfinite(float(value)) or submitted is None:
+                                continue
+                            estimate, lower, upper = submitted
+                            record = (
+                                relative_error(estimate, float(value), stabilizer[estimand]),
+                                bool(lower <= float(value) <= upper),
+                                interval_score(lower, upper, float(value),
+                                               float(value) + stabilizer[estimand], alpha),
+                                (unit, sex, band),
+                            )
+                            cells.append(record)
+                            pooled.append(record[:3] + ((estimand, level, unit, sex, band),))
+            else:
+                # Diagnostics use the directly published fine rows. They never set a bar.
                 for key, value in truth.items():
-                    if key[0] != estimand or key[1] != level or key[4] != band:
+                    if key[0] != estimand or key[1] != level or key not in parsed \
+                            or key[4] not in ACTUARIAL_AGE_BAND_LABELS \
+                            or not math.isfinite(float(value)):
                         continue
-                    if not math.isfinite(value) or key not in parsed:
-                        continue
-                    _, _, unit, sex, _ = key
+                    _, _, unit, sex, band = key
                     exposure = truth.get((EXPOSURE_ESTIMAND, level, unit, sex, band))
-                    floor = eligibility_floor(thresholds, band, estimand)
-                    if exposure is None or float(exposure) < floor:
+                    if exposure is None or float(exposure) < eligibility_floor(thresholds, band):
                         continue
                     estimate, lower, upper = parsed[key]
-                    cells.append((
-                        relative_error(estimate, value, stabilizer[estimand]),
-                        bool(lower <= value <= upper),
-                        interval_score(lower, upper, value,
-                                       float(value) + stabilizer[estimand], alpha),
-                        (unit, sex, band)))
+                    cells.append((relative_error(estimate, value, stabilizer[estimand]),
+                                  bool(lower <= value <= upper),
+                                  interval_score(lower, upper, value,
+                                                 float(value) + stabilizer[estimand], alpha),
+                                  (unit, sex, band)))
+            name = f"{estimand}/{level}"
             if not cells:
-                metrics[f"{estimand}/{level}"] = {
-                    "n_cells": 0, "percentile_error": float("nan"),
-                    "max_error": float("nan"), "worst_cell": None,
-                    "coverage": float("nan"), "mean_interval_score": float("nan"),
-                    "gated": level == gated_level, "cells": [],
-                    "reason": "no cell of this block clears the eligibility floor of "
-                              "its band, so the block scores nothing",
+                metrics[name] = {
+                    "n_cells": 0, "n_eligible": len(eligible),
+                    "percentile_error": float("nan"), "max_error": float("nan"),
+                    "worst_cell": None, "coverage": float("nan"),
+                    "mean_interval_score": float("nan"), "gated": gated,
+                    "cells": [], "eligible_cells": sorted(eligible),
+                    "raw_errors": [], "raw_covered": [], "raw_interval_scores": [],
+                    "reason": "no submitted cell was scored from the fixed eligible set",
                 }
                 continue
-            errors = np.asarray([c[0] for c in cells], dtype=np.float64)
+            errors = [float(cell[0]) for cell in cells]
             worst = int(np.argmax(errors))
-            metrics[f"{estimand}/{level}"] = {
-                "n_cells": len(cells),
-                "cells": sorted(c[3] for c in cells),
-                "reason": "",
-                "percentile_error": float(np.quantile(errors, thresholds.rate_gate_percentile,
-                                                      method="higher")),
-                "max_error": float(errors.max()),
-                "worst_cell": cells[worst][3],
-                "coverage": float(np.mean([c[1] for c in cells])),
-                "mean_interval_score": float(np.mean([c[2] for c in cells])),
-                "gated": level == gated_level,
+            metrics[name] = {
+                "n_cells": len(cells), "n_eligible": len(eligible) if gated else len(cells),
+                "cells": sorted(cell[3] for cell in cells),
+                "eligible_cells": sorted(eligible) if gated else [], "reason": "",
+                "percentile_error": _empirical_quantile_1d(
+                    errors, thresholds.rate_gate_percentile),
+                "max_error": float(max(errors)), "worst_cell": cells[worst][3],
+                "coverage": float(np.mean([cell[1] for cell in cells])),
+                "mean_interval_score": float(np.mean([cell[2] for cell in cells])),
+                "raw_errors": errors,
+                "raw_covered": [bool(cell[1]) for cell in cells],
+                "raw_interval_scores": [float(cell[2]) for cell in cells],
+                "gated": gated,
             }
+    pooled_errors = [float(cell[0]) for cell in pooled]
+    metrics["composite"] = {
+        "gated": False,
+        "n_cells": len(pooled),
+        "n_eligible": len(pooled_eligible),
+        "cells": [list(cell[3]) for cell in pooled],
+        # This list is derived from retained exposure before submitted rows are looked up.
+        # It therefore remains identical for a complete submission and one that omits rows.
+        "eligible_cells": [list(cell) for cell in sorted(pooled_eligible)],
+        "p95_relative_error": _empirical_quantile_1d(
+            pooled_errors, thresholds.rate_gate_percentile) if pooled_errors else float("nan"),
+        "coverage": float(np.mean([cell[1] for cell in pooled])) if pooled else float("nan"),
+        "mean_interval_score": float(np.mean([cell[2] for cell in pooled]))
+        if pooled else float("nan"),
+        "raw_errors": pooled_errors,
+        "raw_covered": [bool(cell[1]) for cell in pooled],
+        "raw_interval_scores": [float(cell[2]) for cell in pooled],
+        "reason": "" if pooled else "the fixed eligible set contains no scored cell",
+    }
     return metrics
 
 
@@ -885,18 +1003,25 @@ def shortfall_error(es_hat: np.ndarray, es_truth: np.ndarray,
 
 # ------------------------------------------------------------ reserve and the decision
 
-def reserve_total(q_truth: np.ndarray, es_truth: np.ndarray,
-                  thresholds: ActuarialThresholds = PLACEHOLDER_THRESHOLDS) -> float:
-    """R = sum_r q_r* + gamma sum_r (e_r* - q_r*), rounded up by the public rule.
+def reserve_total(exposure_person_years: float, rate_per_person_year: float,
+                  rounding_unit: float = PLACEHOLDER_THRESHOLDS.reserve_rounding_unit) -> float:
+    """Public reserve total from published exposure, a frozen rate, and round-up.
 
-    This publishes one aggregate scalar by design, so the submission can be held to
-    sum_r A_r = R exactly.
+    No continuation quantile or expected shortfall enters this function. Packet creation
+    recomputes ``exposure_person_years`` from the six-decimal participant CSV, so a reader
+    can reproduce the total byte for byte from the files they receive.
     """
-    q_truth = np.asarray(q_truth, dtype=np.float64)
-    es_truth = np.asarray(es_truth, dtype=np.float64)
-    raw = float(q_truth.sum() + thresholds.gamma * float((es_truth - q_truth).sum()))
-    unit = float(thresholds.reserve_rounding_unit)
-    return float(math.ceil(raw / unit) * unit)
+    exposure = float(exposure_person_years)
+    rate = float(rate_per_person_year)
+    unit = float(rounding_unit)
+    if not all(math.isfinite(value) for value in (exposure, rate, unit)):
+        raise ValueError("reserve-total inputs must be finite")
+    if exposure < 0.0 or rate <= 0.0 or unit <= 0.0:
+        raise ValueError("reserve exposure must be non-negative and rate and unit positive")
+    # Decimal-from-string makes an exact multiple stay an exact multiple. Binary floating
+    # point can represent 100 * 4.4 as 440.00000000000006 and incorrectly round it up.
+    raw_units = (Decimal(str(exposure)) * Decimal(str(rate)) / Decimal(str(unit)))
+    return float(raw_units.to_integral_value(rounding=ROUND_CEILING) * Decimal(str(unit)))
 
 
 def proportional_baseline_allocation(share: np.ndarray, total: float) -> np.ndarray:

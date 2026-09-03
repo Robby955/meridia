@@ -25,11 +25,23 @@ Run it on development and qualification worlds. Graded worlds are not opened.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from meridia.mechanisms import (
+    DEVELOPMENT_BAND,
+    HIDDEN_EXTRAPOLATION_AXES,
+    HIDDEN_IN_BAND_AXES,
+    N_HIDDEN_OUTSIDE_AXES,
+    PUBLIC_ENVELOPE,
+)
 
 AXES = ("mortality_improvement", "migration_age_pattern", "age_reporting_error",
         "linkage_urban_gradient", "administrative_completeness",
@@ -51,6 +63,35 @@ EXPECTED_SIGN = {"mortality_improvement": +1, "migration_age_pattern": +1,
                  "age_reporting_error": +1, "linkage_urban_gradient": -1,
                  "administrative_completeness": +1,
                  "missingness_target_dependence": +1}
+ANCHOR_CORRELATION_THRESHOLD = 0.4
+RECEIPT_SCHEMA = "meridia.v4.regime-identifiability-audit.v1"
+
+
+def _canonical_digest(value: object) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _participant_digest(packet: Path) -> str:
+    participant = packet / "participant"
+    records = []
+    for path in sorted(participant.rglob("*")):
+        if path.is_symlink():
+            raise ValueError(f"linked participant path is not valid evidence: {path}")
+        if path.is_file():
+            records.append({
+                "path": str(path.relative_to(participant)),
+                "sha256": _file_digest(path),
+            })
+    if not records:
+        raise ValueError(f"participant packet has no files: {packet}")
+    return _canonical_digest(records)
 
 
 def _rank01(values: np.ndarray) -> np.ndarray:
@@ -210,6 +251,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--packets", nargs="+", required=True)
     ap.add_argument("--out", default=None)
+    ap.add_argument(
+        "--receipt",
+        default=None,
+        help="write the machine-readable freeze receipt without per-world hidden values",
+    )
     args = ap.parse_args()
     rows = []
     for path in args.packets:
@@ -246,6 +292,7 @@ def main() -> None:
                      "drift_se": float(measured["mortality_improvement_se"])})
     frame = pd.DataFrame(rows)
     lines = [f"# Identifiability of the six axes, {len(frame)} generator-only worlds", ""]
+    axis_receipts = {}
     for axis in AXES:
         truth = frame[f"true_{axis}"].to_numpy()
         read = frame[f"read_{axis}"].to_numpy()
@@ -254,13 +301,18 @@ def main() -> None:
             if keep.sum() > 2 else float("nan")
         signed = rho * EXPECTED_SIGN[axis]
         within = []
+        within_values = {}
         for family in sorted(set(frame["regime"])):
             block = frame[frame["regime"] == family]
             t = block[f"true_{axis}"].to_numpy()
             r = block[f"read_{axis}"].to_numpy()
             ok = np.isfinite(t) & np.isfinite(r)
             if ok.sum() > 2:
-                within.append(f"{family} {float(np.corrcoef(_rank01(t[ok]), _rank01(r[ok]))[0, 1]) * EXPECTED_SIGN[axis]:+.3f}")
+                within_signed = float(
+                    np.corrcoef(_rank01(t[ok]), _rank01(r[ok]))[0, 1]
+                ) * EXPECTED_SIGN[axis]
+                within_values[family] = within_signed
+                within.append(f"{family} {within_signed:+.3f}")
         lines.append(f"- {axis}: {STATISTIC[axis]}; signed rank correlation {signed:+.3f} "
                      f"pooled, within regime " + ", ".join(within) +
                      f"; intensity spread {truth.min():.3f} to {truth.max():.3f}")
@@ -268,11 +320,75 @@ def main() -> None:
             lines.append(f"    drift estimator standard error, mean over worlds "
                          f"{frame['drift_se'].mean():.4f}, against an intensity spread of "
                          f"{truth.max() - truth.min():.4f}")
+        constrained = axis in HIDDEN_IN_BAND_AXES
+        qualified = signed > ANCHOR_CORRELATION_THRESHOLD
+        axis_receipts[axis] = {
+            "statistic": STATISTIC[axis],
+            "expected_sign": EXPECTED_SIGN[axis],
+            "signed_rank_correlation": signed,
+            "within_regime_signed_rank_correlation": within_values,
+            "intensity_range_observed": [float(truth.min()), float(truth.max())],
+            "anchor_correlation_qualified": qualified,
+            "disposition": (
+                "constrained_to_development_range" if constrained
+                else "participant_anchor"
+            ),
+            "development_range": list(DEVELOPMENT_BAND[axis]),
+            "hidden_generation_range": list(
+                DEVELOPMENT_BAND[axis] if constrained else PUBLIC_ENVELOPE[axis]
+            ),
+            "hidden_out_of_band_allowed": not constrained,
+        }
     text = "\n".join(lines) + "\n"
     print(text)
     if args.out:
         Path(args.out).write_text(text)
         frame.to_csv(Path(args.out).with_suffix(".csv"), index=False)
+    if args.receipt:
+        packet_paths = [Path(path) for path in args.packets]
+        bindings = []
+        for packet in packet_paths:
+            world = json.loads((packet / "retained" / "world.json").read_text())
+            manifest = packet / "manifest.json"
+            bindings.append({
+                "world": packet.name,
+                "regime": world["regime"],
+                "participant_digest_sha256": _participant_digest(packet),
+                "packet_manifest_digest_sha256": _file_digest(manifest),
+            })
+        source_paths = [
+            Path(__file__),
+            Path(__file__).resolve().parents[1] / "meridia" / "mechanisms.py",
+            Path(__file__).resolve().parent / "build_sealed_reconstruction_packet.py",
+        ]
+        source_digest = _canonical_digest([
+            {
+                "path": str(path.relative_to(Path(__file__).resolve().parents[1])),
+                "sha256": _file_digest(path),
+            }
+            for path in source_paths
+        ])
+        measurement_rows = frame.to_dict(orient="records")
+        receipt = {
+            "schema": RECEIPT_SCHEMA,
+            "anchor_correlation_threshold": ANCHOR_CORRELATION_THRESHOLD,
+            "world_count": len(frame),
+            "world_bindings": sorted(bindings, key=lambda row: row["world"]),
+            "measurement_rows_digest_sha256": _canonical_digest(measurement_rows),
+            "generator_source_digest_sha256": source_digest,
+            "generator_policy": {
+                "outside_axis_count": N_HIDDEN_OUTSIDE_AXES,
+                "eligible_for_outside_development_band": list(
+                    HIDDEN_EXTRAPOLATION_AXES
+                ),
+                "held_inside_development_band": list(HIDDEN_IN_BAND_AXES),
+            },
+            "axes": axis_receipts,
+        }
+        receipt["digest_sha256"] = _canonical_digest(receipt)
+        Path(args.receipt).write_text(
+            json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        )
 
 
 if __name__ == "__main__":

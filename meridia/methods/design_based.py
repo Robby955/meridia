@@ -1355,7 +1355,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     projection_rows = rows(future, future_reps, widen=params.carry_forward_width)
 
     # Detailed table: primary suppression of small estimated cells, no totals published.
-    threshold = int(contract["disclosure_threshold"])
+    threshold = int(contract.get("disclosure_threshold", 10))
     cube = point["cube"]
     detail = []
     for c in range(n_counties):

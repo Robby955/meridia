@@ -1,12 +1,12 @@
 """Packet builder: one world, split into what an agent receives and what stays sealed.
 
-A packet is a directory. ``participant/`` holds flat files only: a household survey at
+A packet is a directory. ``participant/`` holds a household survey at
 two snapshots carrying the health anchor, the four observed sources at two snapshots, a
 five-year aggregate experience file, the county-to-state map with each county's land
 area, and the contract that names the estimands, levels, snapshot ticks, projection
-horizon, disclosure threshold, allocation budget, obligation, mechanism families, and
+horizon, obligation, public reserve rule, mechanism families, and
 covariate definitions. ``retained/`` holds the exact truth tables
-at the revised snapshot and at the horizon, the detailed table, and the source package's
+at the revised snapshot and at the horizon and the source package's
 crosswalks and mechanisms. A development packet copies the truth tables into
 ``participant/truth/`` so methods can be tuned on an open world; a hidden packet never
 does. The manifest hashes every file and records which side it is on, and the builder
@@ -24,8 +24,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .actuarial import (ACTUARIAL_AGE_BAND_LABELS, ActuarialThresholds,
-                        ObligationContract, actuarial_pass, ensemble_truth,
+from .actuarial import (ACTUARIAL_AGE_BAND_LABELS, BROAD_AGE_BAND_LABELS,
+                        RATE_ESTIMANDS, V4_SUBMISSION_COLUMNS, ActuarialThresholds,
+                        ObligationContract, actuarial_pass, eligibility_floor,
                         regions_from_admin, reserve_total)
 from .admin import build_admin
 from .businesses import build_businesses
@@ -73,6 +74,8 @@ class PacketParams:
     experience_lag_months: int = 12  # publication lag of that file behind the snapshot
     ensemble_members: int = 2048     # committed continuations behind the tail truth
     reserve_weight_spread: float = 4.0   # highest regional shortfall weight over lowest
+    # Provisional execution value. Qualification must replace and record it before freeze.
+    reserve_rate_per_person_year: float = 4_600.0
     shock_annual_rate: float = ANNUAL_SHOCK_RATE   # published shock years per year
 
 
@@ -441,10 +444,18 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     obligation = ObligationContract(
         horizon_months=params.horizon_months,
         qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
-    _write_table(participant / "experience_history.csv",
+    experience_path = participant / "experience_history.csv"
+    _write_table(experience_path,
                  _experience_history(built, admin, obligation, params.experience_years,
-                                     params.experience_lag_months),
-                 forbid_truth=True)
+                                     params.experience_lag_months), forbid_truth=True)
+    # Read the file back after six-decimal serialization. The public total is therefore a
+    # deterministic function of the exact values a participant receives, not of a
+    # higher-precision array retained only while the packet is being built.
+    import pandas as pd
+    public_experience = pd.read_csv(experience_path)
+    latest_experience_year = int(public_experience["year"].max())
+    reserve_exposure = float(public_experience.loc[
+        public_experience["year"] == latest_experience_year, "exposure"].sum())
     population_revised = snapshots["revised"]["population"]
     age_years = (ticks["revised"] - population_revised["birth_tick"]) // 12
     budget = int(round(params.budget_fraction * int((age_years >= 65).sum())))
@@ -466,17 +477,30 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
                                          params.horizon_months, obligation,
                                          params.ensemble_members, region_of_county,
                                          workers=workers)
-    tail = ensemble_truth(liability)
+    rounding_unit = thresholds.reserve_rounding_unit
+    total = reserve_total(reserve_exposure, params.reserve_rate_per_person_year,
+                          rounding_unit)
     reserve = {"obligation": obligation.as_public(),
-               "total": reserve_total(tail["q"], tail["es"], thresholds),
-               "gamma": thresholds.gamma,
+               "total": total,
+               "total_rule": {
+                   "file": "experience_history.csv",
+                   "year": "maximum published year",
+                   "year_column": "year",
+                   "selected_year": latest_experience_year,
+                   "exposure_column": "exposure",
+                   "aggregation": "sum exposure over every row in the selected year",
+                   "exposure_person_years": reserve_exposure,
+                   "rate_per_person_year": float(params.reserve_rate_per_person_year),
+                   "rounding": "up",
+                   "rounding_unit": rounding_unit,
+               },
                "regions": "state",
                "weights": [float(w) for w in weights],
                "baseline_share": [float(v) for v in baseline_share],
                "baseline_rule": "A_B splits the total in proportion to each region's share "
                                 "of persons at or above the eligibility age in the revised "
                                 "population source",
-               "rounding_unit": thresholds.reserve_rounding_unit,
+               "rounding_unit": rounding_unit,
                "weight_rule": "public ladder over regions ranked by the share of persons "
                               "85 and over in the revised population source",
                "members": int(params.ensemble_members)}
@@ -490,12 +514,28 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         "ticks": {"preliminary": ticks["preliminary"], "revised": ticks["revised"],
                   "horizon": ticks["horizon"]},
         "months_per_tick": 1,
-        "disclosure_threshold": params.disclosure_threshold,
         "allocation": {"demand": DEMAND_ESTIMAND, "level": "county", "budget": budget},
+        "submission": {
+            "files": {name: list(columns)
+                      for name, columns in V4_SUBMISSION_COLUMNS.items()},
+            "additional_entries": "forbidden",
+        },
         "mechanisms": contract_block(),
         "obligation": obligation.as_public(),
         "reserve": reserve,
         "actuarial_age_bands": list(ACTUARIAL_AGE_BAND_LABELS),
+        "rate_eligibility": {
+            "truth_quantity": "retained person-years exposure",
+            "estimands": list(RATE_ESTIMANDS),
+            "bands": list(BROAD_AGE_BAND_LABELS),
+            "exposure_level": "county",
+            "rate_level": "state",
+            "floor_person_years_by_band": {
+                band: eligibility_floor(thresholds, band)
+                for band in BROAD_AGE_BAND_LABELS
+            },
+            "reduction": "one empirical 95th percentile over all eligible cells",
+        },
         "shock_family": {
             "annual_rate": params.shock_annual_rate,
             "kinds": {kind: {field: list(bounds) for field, bounds in fields.items()}
@@ -543,13 +583,12 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     }
     (participant / "contract.json").write_text(json.dumps(contract, indent=1, sort_keys=True) + "\n")
 
-    # Retained side: exact truth now and at the horizon, the detailed table, the
+    # Retained side: exact truth now and at the horizon, the continuation ensemble, the
     # source package's sealed evidence, and the world's character draw.
-    truth_revised, detailed = _truth_at(built, ticks["revised"])
+    truth_revised, _ = _truth_at(built, ticks["revised"])
     future = project_truth_from_history(built["history"], admin, ticks["horizon"])
     _write_table(retained / "truth_revised.csv", _truth_rows(truth_revised), forbid_truth=False)
     _write_table(retained / "truth_horizon.csv", _truth_rows(future["truth"]), forbid_truth=False)
-    _write_table(retained / "detailed_revised.csv", _detailed_rows(detailed), forbid_truth=False)
     _write_table(retained / "rate_truth_horizon.csv",
                  _rate_truth_rows(rate_truth_from_history(
                      built["history"], admin, ticks["revised"], params.horizon_months,
@@ -569,7 +608,7 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     }, indent=1, sort_keys=True, default=str) + "\n")
     if development:
         (participant / "truth").mkdir()
-        for name in ("truth_revised.csv", "truth_horizon.csv", "detailed_revised.csv"):
+        for name in ("truth_revised.csv", "truth_horizon.csv"):
             (participant / "truth" / name).write_bytes((retained / name).read_bytes())
 
     manifest = {"schema": "meridia.packet.manifest.v0", "development": development,

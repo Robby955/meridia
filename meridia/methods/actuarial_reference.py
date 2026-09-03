@@ -38,7 +38,8 @@ from ..actuarial import (ACTUARIAL_AGE_BANDS, ACTUARIAL_AGE_BAND_LABELS,  # noqa
                          BROAD_AGE_BAND_LABELS, BROAD_BAND_MEMBERS,
                          EXPOSURE_BAND_LABELS, EXPOSURE_ESTIMAND, INCIDENCE_ESTIMAND,
                          MORTALITY_ESTIMAND, ObligationContract, RATE_ESTIMANDS,
-                         RATE_EXTRA_COLUMNS, RATE_LEVELS, RESERVE_COLUMNS)
+                         RATE_EXTRA_COLUMNS, RATE_LEVELS, RESERVE_COLUMNS,
+                         V4_PROJECTION_COLUMNS, V4_RELEASE_COLUMNS, empirical_tail)
 # Re-exported so a caller writing a version-four submission needs one import, not two.
 SUBMISSION_VOCABULARY = (RATE_ESTIMANDS, RATE_EXTRA_COLUMNS, RATE_LEVELS,
                          EXPOSURE_BAND_LABELS, RESERVE_COLUMNS)
@@ -78,7 +79,6 @@ class ActuarialContract:
     n_regions: int
     reserve_total: float
     reserve_weights: np.ndarray
-    gamma: float
     anchor_item: str
     anchor_sensitivity: float
     anchor_specificity: float
@@ -246,7 +246,6 @@ def read_actuarial_contract(contract: dict, county_state: np.ndarray) -> Actuari
         n_regions=n_regions,
         reserve_total=float(total),
         reserve_weights=weights,
-        gamma=float(_first(reserve, ("gamma",), 0.25)),
         anchor_item=str(_first(anchor, ("item", "column"), "recent_hospitalization")),
         anchor_sensitivity=float(_first(anchor, ("sensitivity", "se"), 1.0)),
         anchor_specificity=float(_first(anchor, ("specificity", "sp"), 1.0)),
@@ -1621,11 +1620,7 @@ def tail_summary(liability: np.ndarray, alpha: float = 0.95) -> dict:
     """Region liability mean, value at risk and expected shortfall at ``alpha``."""
     liability = np.asarray(liability, dtype=np.float64)
     mean = liability.mean(axis=0)
-    q = np.quantile(liability, alpha, axis=0)
-    es = np.zeros_like(q)
-    for r in range(liability.shape[1]):
-        tail = liability[:, r][liability[:, r] >= q[r]]
-        es[r] = float(tail.mean()) if len(tail) else float(q[r])
+    q, es = empirical_tail(liability, alpha)
     return {"mean": mean, "q": q, "es": es}
 
 
@@ -1652,54 +1647,6 @@ def shortfall_objective(allocation: np.ndarray, liability: np.ndarray,
     a = np.asarray(allocation, dtype=np.float64)[None, :]
     short = np.maximum(np.asarray(liability, dtype=np.float64) - a, 0.0)
     return float((np.asarray(weights, dtype=np.float64) * short.mean(axis=0)).sum())
-
-
-# The tail calibration may widen a tail as well as narrow it, but not without limit: a
-# factor this far from one says the method's own tail is not the thing that is wrong, and
-# a submission is better served filing what it estimated than a shape rescaled past
-# recognition.
-MAX_TAIL_CALIBRATION = 3.0
-
-
-def calibrate_quantiles_to_total(mean: np.ndarray, q: np.ndarray, es: np.ndarray, total: float,
-                                 gamma: float) -> tuple[np.ndarray, np.ndarray, np.ndarray,
-                                                        float, float]:
-    """Bring the tail the method believes into agreement with the public reserve total.
-
-    R is not the sum of the regional quantiles: it is sum_r q_r* + gamma sum_r (e_r* -
-    q_r*), so a method that scales its own tail until the quantiles alone sum to R has
-    forced sum_r q_hat_r = R and left itself no allocation to make. The coherent target is
-    the total R was built from. Pulling the quantile and the shortfall toward the mean by
-    one common factor and solving for the factor that puts the method's own implied
-    reserve at R keeps the ordering across regions, leaves the means untouched, and leaves
-    exactly the slack the construction implies.
-
-    The factor moves the tail in both directions. An earlier pass applied it only when it
-    shrank, on the argument that a method should not inflate its own tail to meet a public
-    number. That argument is wrong about what R is: R is built from the sealed regional
-    quantiles, so a method whose implied reserve sits under R has been told, by a published
-    quantity, that its tail is too low. Refusing to use it left the reference filing
-    quantiles about five percent under the truth on a tail five to fourteen percent wide,
-    which put its sealed exceedance rate at three times nominal and made the tail gate
-    unattainable by the very reference that has to attain it.
-    """
-    mean = np.asarray(mean, dtype=np.float64)
-    q = np.asarray(q, dtype=np.float64)
-    es = np.asarray(es, dtype=np.float64)
-    implied = mean.sum() + (1.0 - gamma) * (q.sum() - mean.sum()) \
-        + gamma * (es.sum() - mean.sum())
-    if mean.sum() >= total:
-        # The public total is under this method's own expected liability, so what is too
-        # high is the level, not the width. Everything scales by the one factor that puts
-        # the implied reserve at R. Shrinking only the tail here would file a 95th
-        # percentile under the mean beside it, which is not a distribution.
-        scale = float(total / max(implied, 1e-9))
-        return mean * scale, q * scale, es * scale, 1.0, scale
-    spread = (1.0 - gamma) * (q.sum() - mean.sum()) + gamma * (es.sum() - mean.sum())
-    if spread <= 0:
-        return mean, q, es, 1.0, 1.0
-    theta = float(np.clip((total - mean.sum()) / spread, 0.0, MAX_TAIL_CALIBRATION))
-    return mean, mean + theta * (q - mean), mean + theta * (es - mean), theta, 1.0
 
 
 def _quantile_at(sorted_liability: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -1810,27 +1757,44 @@ def widen_release_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
+ADDITIVE_RELEASE_ESTIMANDS = (
+    "persons", "households", "children_under_16", "elders_65_plus")
+
+
+def reconcile_additive_release_rows(rows: list[dict], county_state: np.ndarray) -> list[dict]:
+    """Make additive point estimates and interval endpoints agree across geography."""
+    out = [dict(row) for row in rows]
+    indexed = {(str(row["estimand"]), str(row["level"]), int(row["unit"])): row
+               for row in out}
+    county_state = np.asarray(county_state, dtype=np.int64)
+    n_states = int(county_state.max()) + 1
+    for estimand in ADDITIVE_RELEASE_ESTIMANDS:
+        if any((estimand, "county", county) not in indexed
+               for county in range(len(county_state))):
+            continue
+        for field in ("estimate", "lower", "upper"):
+            for state in range(n_states):
+                members = np.flatnonzero(county_state == state)
+                indexed[(estimand, "state", state)][field] = float(sum(
+                    indexed[(estimand, "county", int(county))][field]
+                    for county in members))
+            indexed[(estimand, "nation", 0)][field] = float(sum(
+                indexed[(estimand, "state", state)][field] for state in range(n_states)))
+    return out
+
+
 def write_actuarial_submission(out_dir: Path, release_rows, projection_rows, cube,
                                suppress_below: float, reserve, band_labels,
                                sex_labels) -> None:
-    """The four submitted files of section 4, with the reserve file in place of the
-    hospital allocation."""
+    """Write the exact three-file version-four submission."""
     import pandas as pd
+    del cube, suppress_below, band_labels, sex_labels
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    cube = np.asarray(cube, dtype=np.float64)
-    detail = []
-    for c in range(cube.shape[0]):
-        for b, band in enumerate(band_labels):
-            for s, sex in enumerate(sex_labels):
-                value = float(cube[c, b, s])
-                detail.append({"county": c, "age_band": band, "sex": sex,
-                               "count": "" if 0 < value < suppress_below else round(value, 3)})
-    columns = ["estimand", "level", "unit"] + list(RATE_EXTRA_COLUMNS) + \
-        ["estimate", "lower", "upper"]
-    pd.DataFrame(release_rows)[columns].to_csv(out_dir / "release.csv", index=False)
-    pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
-    pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
+    pd.DataFrame(release_rows)[list(V4_RELEASE_COLUMNS)].to_csv(
+        out_dir / "release.csv", index=False)
+    pd.DataFrame(projection_rows)[list(V4_PROJECTION_COLUMNS)].to_csv(
+        out_dir / "projection.csv", index=False)
     pd.DataFrame(reserve)[list(RESERVE_COLUMNS)].to_csv(out_dir / "reserve.csv", index=False)
 
 
@@ -2634,20 +2598,9 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     else:
         q_hat = summary["q"].copy()
         es_hat = summary["es"].copy()
-    mean_hat, q_hat, es_hat, theta, scale = calibrate_quantiles_to_total(
-        summary["mean"], q_hat, es_hat, ac.reserve_total, ac.gamma)
+    mean_hat = summary["mean"].copy()
     q_hat = np.maximum(q_hat, mean_hat)
     es_hat = np.maximum(es_hat, q_hat)
-    # The public total is a statement about the whole predictive distribution, not about
-    # two summaries of it, so the paths the allocation is decided on move toward or away
-    # from their own means by the same factor the summaries did.
-    # Allocating against an uncalibrated spread while filing calibrated floors would leave
-    # the optimiser believing every region is under-covered, and it would then spend the
-    # slack on the largest weight rather than on the thickest residual tail.
-    if scale != 1.0:
-        liability = liability * scale
-    elif theta != 1.0:
-        liability = liability.mean(axis=0) + theta * (liability - liability.mean(axis=0))
     # The practical baseline splits the reserve above the floors in proportion to
     # projected eligible exposure, which is the size measure a reserving office would
     # reach for and the analogue of the version-three elders-proportional allocation.
@@ -2666,8 +2619,6 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
                                              ac.reserve_weights)
         allocation = allocation_detail["allocation"]
     summary_out = {"mean": mean_hat, "q": q_hat, "es": es_hat}
-    # The uncalibrated tail is kept beside the submitted one: the freeze needs the
-    # method's own q and es before the public total is allowed to move them.
     rows = reserve_rows(summary_out, allocation)
     diagnostics = {
         "inclusion_pooled": float(inclusion["pooled"]),
@@ -2716,7 +2667,7 @@ def actuarial_submission(packet_dir: Path, data: dict, county_state: np.ndarray,
                          cube: np.ndarray, suppress_below: float, out_dir: Path,
                          band_labels, sex_labels,
                          params: LayerParams = LayerParams()) -> dict | None:
-    """Run the layer and write the four version-four files, or return None.
+    """Run the layer and write the three version-four files, or return None.
 
     None means the packet carries no experience file and no reserve block, which is a
     version-three packet; the caller then writes its version-three submission unchanged.
@@ -2732,6 +2683,8 @@ def actuarial_submission(packet_dir: Path, data: dict, county_state: np.ndarray,
         return None
     result = actuarial_layer(data, county_state, age_sex_paths, ac, experience,
                              fertility_rate, params)
+    release_rows = reconcile_additive_release_rows(release_rows, county_state)
+    projection_rows = reconcile_additive_release_rows(projection_rows, county_state)
     rows = widen_release_rows(release_rows) + result["rate_rows"]
     write_actuarial_submission(out_dir, rows, projection_rows, cube, suppress_below,
                                result["reserve"], band_labels, sex_labels)

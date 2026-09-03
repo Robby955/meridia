@@ -133,11 +133,19 @@ DEVELOPMENT_DESIGN: Final = _plackett_burman_12()[:, : len(MECHANISM_AXES)]
 N_DEVELOPMENT_CELLS: Final = int(DEVELOPMENT_DESIGN.shape[0])
 
 # The hidden world draws its level pattern from the sixty-four sign patterns the six axes
-# admit, minus the twelve the development design already spends, and draws which two of
-# its intensities leave the development band. Both draws are keyed on the world's own
-# seed, so two hidden worlds do not share a corner and no configuration can be read off
-# this module. A constant here would make the hidden regime a fact about the repository
-# rather than a quantity a method has to estimate.
+# admit, minus the twelve the development design already spends. Only axes with a measured
+# participant-file trace may leave the development band. The phase-two rebuild measured
+# pooled signed rank correlations +0.067 for administrative completeness and -0.018 for
+# target-dependent missingness, so those two axes remain inside the development band until
+# an anchor clears the predeclared 0.4 threshold. They still vary continuously and enter
+# the joint hidden level pattern; only extrapolation on an unidentified quantity is barred.
+HIDDEN_IN_BAND_AXES: Final = (
+    "administrative_completeness",
+    "missingness_target_dependence",
+)
+HIDDEN_EXTRAPOLATION_AXES: Final = tuple(
+    axis for axis in MECHANISM_AXES if axis not in HIDDEN_IN_BAND_AXES
+)
 N_HIDDEN_OUTSIDE_AXES: Final = 2
 
 
@@ -375,8 +383,9 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     A development world takes a committed design row: ``cell`` when given, otherwise the
     row the seed selects. Every axis lands in the half of the development band its level
     names, at a continuous position inside that half. The hidden world takes a level
-    pattern that appears in no design row and pushes two intensities past the development
-    band, staying inside the public envelope.
+    pattern that appears in no design row and pushes two identifiable intensities past the
+    development band, staying inside the public envelope. Axes in
+    ``HIDDEN_IN_BAND_AXES`` always remain within their development ranges.
     """
     if regime not in ("development", "hidden"):
         raise ValueError(f"unknown mechanism regime {regime!r}")
@@ -397,8 +406,13 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     if (DEVELOPMENT_DESIGN == np.asarray(levels, dtype=np.int8)).all(axis=1).any():
         raise RuntimeError("the hidden level pattern repeats a development design row")
     outside = tuple(sorted(
-        MECHANISM_AXES[k] for k in rng.choice(len(MECHANISM_AXES),
-                                              size=N_HIDDEN_OUTSIDE_AXES, replace=False)))
+        HIDDEN_EXTRAPOLATION_AXES[k]
+        for k in rng.choice(
+            len(HIDDEN_EXTRAPOLATION_AXES),
+            size=N_HIDDEN_OUTSIDE_AXES,
+            replace=False,
+        )
+    ))
     intensity = {}
     for k, axis in enumerate(MECHANISM_AXES):
         band = (
@@ -621,6 +635,12 @@ def contract_block() -> dict:
         "pairwise_axis_interactions": list(PAIRWISE_AXIS_INTERACTIONS),
         "development_design": DEVELOPMENT_DESIGN.tolist(),
         "n_development_cells": N_DEVELOPMENT_CELLS,
+        "hidden_axis_policy": {
+            "outside_axis_count": N_HIDDEN_OUTSIDE_AXES,
+            "eligible_for_outside_development_band": list(HIDDEN_EXTRAPOLATION_AXES),
+            "held_inside_development_band": list(HIDDEN_IN_BAND_AXES),
+            "anchor_correlation_required_for_extrapolation": 0.4,
+        },
         "covariates": dict(COVARIATE_DEFINITIONS),
         "families": {
             "source_inclusion": "logit p_include = logit(base) + a_completeness * (econ_c - 0.5)"

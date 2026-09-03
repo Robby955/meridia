@@ -4,8 +4,9 @@ The derived seed is never accepted on the command line or written to stdout. It 
 only in the retained packet metadata, which does not enter the participant image.
 
 The build is refused unless the world carries the hidden mechanism design: no development
-design cell, the two declared intensities outside the development band, and both of them
-inside the public plausibility envelope.
+design cell, two identifiable intensities outside the development band but inside the
+public plausibility envelope, and every axis without a participant-file trace held inside
+the development band.
 
 The world is ``packet.GRADING_WORLD``, the same size the development and qualification
 worlds are built at, so a bar frozen on those is read on the same object here. ``--workers``
@@ -22,7 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.mechanisms import (DEVELOPMENT_BAND, HIDDEN_LEVEL_PATTERNS,
+from meridia.mechanisms import (DEVELOPMENT_BAND, HIDDEN_EXTRAPOLATION_AXES,
+                                HIDDEN_IN_BAND_AXES, HIDDEN_LEVEL_PATTERNS,
                                 N_HIDDEN_OUTSIDE_AXES, PUBLIC_ENVELOPE)
 from meridia.packet import GRADING_WORLD, PacketParams, build_packet
 from meridia.sealing import (DEFAULT_KEY_PATH, sealed_seed,
@@ -62,6 +64,8 @@ def main() -> int:
         raise RuntimeError("hidden packet carries a development mechanism design")
     if len(design["outside"]) != N_HIDDEN_OUTSIDE_AXES:
         raise RuntimeError("hidden packet does not move the declared number of intensities")
+    if not set(design["outside"]) <= set(HIDDEN_EXTRAPOLATION_AXES):
+        raise RuntimeError("hidden packet extrapolates an axis without a public trace")
     if tuple(int(v) for v in design["levels"]) not in HIDDEN_LEVEL_PATTERNS:
         raise RuntimeError("hidden packet takes a level pattern the development design spends")
     for axis in design["outside"]:
@@ -72,6 +76,13 @@ def main() -> int:
             raise RuntimeError(f"hidden intensity {axis} stayed inside the development band")
         if not envelope_low <= value <= envelope_high:
             raise RuntimeError(f"hidden intensity {axis} left the public envelope")
+    for axis in HIDDEN_IN_BAND_AXES:
+        value = float(design["intensity"][axis])
+        low, high = DEVELOPMENT_BAND[axis]
+        if axis in design["outside"] or not low <= value <= high:
+            raise RuntimeError(
+                f"hidden intensity {axis} left its required development range"
+            )
 
     packet_manifest_path = args.out / "manifest.json"
     digest = hashlib.sha256(packet_manifest_path.read_bytes()).hexdigest()
