@@ -1,6 +1,6 @@
 # Meridia identity and institutional schema v0
 
-Status: implementation contract for `codex/institutions-v0`.
+Status: implementation contract for the institutions layer, version 0.
 
 This document defines identity, table, and history rules for Meridia's social and
 institutional layers. It sits above the existing geography, weather, population,

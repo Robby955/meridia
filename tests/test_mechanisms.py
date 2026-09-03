@@ -95,7 +95,7 @@ def test_hidden_world_is_a_new_joint_configuration_with_two_intensities_outside(
     assert len(HIDDEN_LEVEL_PATTERNS) == 2 ** len(MECHANISM_AXES) - len(design_rows)
     assert not design_rows & set(HIDDEN_LEVEL_PATTERNS)
     seen_levels, seen_outside = set(), set()
-    for seed in (1, 7, 4242, 2101, 2102, 3101, 3102, 3103):
+    for seed in (1, 7, 4242, 2101, 2102, 8101, 8102, 8103):
         design = draw_mechanism_design(seed, "hidden")
         assert design.cell == -1
         assert design.levels in HIDDEN_LEVEL_PATTERNS

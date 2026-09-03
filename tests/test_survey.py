@@ -122,7 +122,7 @@ def test_survey_deterministic():
 def test_the_survey_instrument_is_a_per_world_draw_inside_its_published_bands():
     """A world constant here is estimable once on a world that ships truth."""
     seen = {}
-    for seed in (1101, 1105, 2101, 2103, 3101):
+    for seed in (1101, 1105, 2101, 2103, 8101):
         drawn = draw_survey_params(seed)
         again = draw_survey_params(seed)
         for name, (low, high) in SURVEY_BANDS.items():
