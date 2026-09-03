@@ -17,6 +17,7 @@ Everything is a deterministic function of the seed and the parameters.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -463,20 +464,95 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-ENSEMBLE_CACHE_SCHEMA = "meridia.ensemble.cache.v1"
+ENSEMBLE_CACHE_SCHEMA = "meridia.ensemble.cache.v2"
+
+# The modules a continuation member is priced by. ``projection`` builds the members,
+# ``events`` runs each one forward, ``actuarial`` prices what it produced, and the rest of
+# the list is whatever those three import from inside this package.
+PRICING_ROOT_MODULES = ("projection", "actuarial", "events")
+
+
+def _package_imports(source: str) -> set[str]:
+    """Modules of this package that one source file imports, at any depth."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.level:
+            if node.module:
+                found.add(node.module.split(".")[0])
+            else:
+                found.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                if parts[0] == __package__ and len(parts) > 1:
+                    found.add(parts[1])
+    return found
+
+
+def pricing_modules(package_dir: Path | None = None) -> tuple[str, ...]:
+    """The import closure of the pricing roots inside this package.
+
+    Walked from the source rather than listed by hand, because a hand list is a second
+    place to remember: a module that joins the pricing path joins this closure the moment
+    something on it imports the module, and a module that leaves it drops out. Imports
+    written inside a function count, since a member is priced by whatever runs.
+    """
+    directory = Path(package_dir) if package_dir is not None \
+        else Path(__file__).resolve().parent
+    for root in PRICING_ROOT_MODULES:
+        if not (directory / f"{root}.py").is_file():
+            raise FileNotFoundError(f"pricing module {root}.py is missing from {directory}")
+    seen: set[str] = set()
+    queue = list(PRICING_ROOT_MODULES)
+    while queue:
+        name = queue.pop()
+        if name in seen:
+            continue
+        path = directory / f"{name}.py"
+        if not path.is_file():
+            continue          # a module from outside this package
+        seen.add(name)
+        queue.extend(_package_imports(path.read_text()) - seen)
+    return tuple(sorted(seen))
+
+
+def pricing_source_digest(package_dir: Path | None = None) -> str:
+    """A digest of the source that prices a continuation member.
+
+    The world state a member resumes from is not the whole of what decides its price. The
+    code that runs it forward decides it too, and that code moves without any recorded
+    quantity moving: retag the substream a member draws its own shock years on and every
+    member changes while the ledger, the mechanism record and the obligation stay byte for
+    byte what they were. So the key carries the source of the pricing closure. A change to
+    a verifier, a bar or the scoring layer still misses this digest and still takes the
+    futures off the shelf, which is what the cache is for.
+    """
+    directory = Path(package_dir) if package_dir is not None \
+        else Path(__file__).resolve().parent
+    digest = hashlib.sha256(b"meridia.pricing.source.v1")
+    for name in pricing_modules(directory):
+        digest.update(name.encode())
+        digest.update(hashlib.sha256((directory / f"{name}.py").read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def baseline_ledger_digest(history: dict, obligation: ObligationContract,
                            horizon_months: int, region_of_county: np.ndarray) -> str:
     """The key the continuation ensemble is cached under.
 
-    Every member is a deterministic function of four things: the branch state the ledger
+    Every member is a deterministic function of five things: the branch state the ledger
     kept at the revised snapshot, the shock law it redraws its own future from, the
-    horizon it is priced over, and the obligation that prices it. This digest covers all
-    four, so a cached ensemble is reused exactly when the world that produced it is
-    unchanged and is rebuilt as soon as anything upstream of it moves. A verifier or a
-    bar is downstream of all of it and does not enter, which is the point: refreezing a
-    bar on twenty-one worlds no longer pays for their futures a second time.
+    horizon it is priced over, the obligation that prices it, and the source of the code
+    that runs it forward. This digest covers all five, so a cached ensemble is reused
+    exactly when the world that produced it is unchanged and is rebuilt as soon as
+    anything upstream of it moves. A verifier or a bar is downstream of all of it and does
+    not enter, which is the point: refreezing a bar on twenty-one worlds no longer pays
+    for their futures a second time.
+
+    The fifth is the one a recorded quantity does not stand in for. A generator edit can
+    reprice every member while the ledger, the mechanism record, the horizon and the
+    obligation are unchanged, and the reserve read off a stale ensemble would then be a
+    frozen bar on a world the tree no longer builds.
     """
     digest = hashlib.sha256(ENSEMBLE_CACHE_SCHEMA.encode())
     branch = history["branch"]
@@ -495,6 +571,7 @@ def baseline_ledger_digest(history: dict, obligation: ObligationContract,
         # produced it, but a loading only shows there once a shock year has been run, and
         # a member's own future is where the rest of them go.
         "mechanisms": history["mechanism_record"],
+        "pricing_source": pricing_source_digest(),
     }, sort_keys=True, default=str).encode())
     for table in sorted(branch["state"]):
         for name, values in sorted(branch["state"][table].items()):

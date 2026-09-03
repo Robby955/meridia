@@ -31,6 +31,7 @@ local measurement scale identifiable while its level is unknown.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -573,6 +574,12 @@ def draw_county_effects(seed: int, n_counties: int, coefficients: dict[str, floa
     return effects
 
 
+def _vector_digest(values: np.ndarray) -> str:
+    """A digest of one vector, order included."""
+    return hashlib.sha256(
+        np.ascontiguousarray(values, dtype=np.float64).tobytes()).hexdigest()
+
+
 @dataclass(frozen=True)
 class WorldMechanisms:
     """Everything the ledger and the sources need to evaluate a local mechanism."""
@@ -616,13 +623,26 @@ class WorldMechanisms:
         return values[np.asarray(county, dtype=np.int64)]
 
     def record(self) -> dict:
+        """What one world's mechanism layer is, as a record another pass can read.
+
+        The spreads say how wide each county effect family is. They do not say which
+        county got which effect, and a permutation of one family leaves every spread
+        exactly where it was while every person under it lives a different life. So the
+        record carries a digest of each vector beside its spread, and of the county shock
+        loadings as they are actually applied. Anything reading this record to decide
+        whether two worlds are the same world reads the vectors, not a summary of them.
+        """
         return {
             "design": self.design.record(),
             "coefficients": {k: float(v) for k, v in self.coefficients.items()},
             "county_effect_sd": {
                 family: float(np.std(values)) for family, values in sorted(self.effects.items())
             },
+            "county_effect_digest": {
+                family: _vector_digest(values) for family, values in sorted(self.effects.items())
+            },
             "region_shock_loading": [float(v) for v in self.region_shock_loading],
+            "county_shock_loading_digest": _vector_digest(self.county_shock_loading),
         }
 
 

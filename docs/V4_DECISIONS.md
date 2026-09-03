@@ -1670,12 +1670,30 @@ are independent and either can be one while the other is many.
 
 The ensemble is also cached. A member is a function of the branch state the ledger kept at
 the revised snapshot, the shock law it redraws its own future from, the horizon, the
-obligation that prices it, and the mechanism vector it runs under. A verifier, a bar and a
-scoring change sit downstream of all five. `--cache` points at a directory of ensembles
-keyed on the digest of those five, so a rebuild that moves nothing upstream of the ledger
-takes the futures off the shelf, and one that moves anything upstream misses the key and
-pays. A cached ensemble with more members than the packet asks for is used from the front,
-since a member is a function of its own index.
+obligation that prices it, the mechanism vector it runs under, and the source of the code
+that runs it forward. A verifier, a bar and a scoring change sit downstream of all six.
+`--cache` points at a directory of ensembles keyed on the digest of those six, so a rebuild
+that moves nothing upstream of the ledger takes the futures off the shelf, and one that
+moves anything upstream misses the key and pays. A cached ensemble with more members than
+the packet asks for is used from the front, since a member is a function of its own index.
+
+The sixth is there because the first five are recorded quantities and a generator edit is
+not one of them. Retagging the substream a member draws its own future shock years on
+reprices every member while the ledger, the mechanism record, the horizon and the
+obligation stay byte for byte what they were: measured on one world at 48 by 64 cells, that
+edit moved a regional liability by 0.635 relative and the mean over members and regions by
+7.6 percent, and the key did not move. The key now carries a digest of the source of the
+modules that price a member, walked from the import closure of `projection`, `actuarial`
+and `events` rather than listed by hand, so a module that joins the pricing path joins the
+key. `meridia/scoring.py` and `meridia/verify.py` are outside that closure and stay
+outside the key.
+
+The mechanism record went the same way for the same reason. It carried the standard
+deviation of each county effect family, which a permutation across counties preserves
+exactly, so two worlds that hand different counties different effects shared a key while
+pricing different liabilities: reversing the mortality effect vector moved a regional
+liability by 0.182 relative and left the key alone. The record now carries a digest of each
+vector beside its spread, and of the county shock loadings as applied.
 
 One world at the committed size, seed 1101, 2,048 members, six ensemble processes:
 

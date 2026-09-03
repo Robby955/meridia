@@ -580,3 +580,98 @@ def test_the_cache_key_moves_when_the_priced_world_moves(tmp_path):
     assert key != baseline_ledger_digest(other["history"], obligation,
                                          PARAMS.horizon_months,
                                          regions_from_admin(other["admin"]))
+
+
+def test_the_cache_key_covers_the_code_that_prices_a_member(tmp_path, monkeypatch):
+    """A generator edit reprices every member while every recorded quantity holds still.
+
+    ``events.SHOCK_SUBSTREAM`` is the tag a continuation member draws its own future shock
+    years on. Retag it and every member after the branch is a different future, priced
+    into a different regional liability, with the ledger, the mechanism record, the
+    horizon and the obligation byte for byte what they were. A key built out of recorded
+    quantities alone cannot see that, so it carries a digest of the source that prices a
+    member instead, and a stale ensemble stops being reachable.
+    """
+    import shutil
+
+    import meridia.packet as packet_module
+    from meridia.actuarial import ObligationContract, regions_from_admin
+    from meridia.mechanisms import QUALIFYING_DIAGNOSIS_GROUPS
+    from meridia.packet import (baseline_ledger_digest, pricing_modules,
+                                pricing_source_digest)
+
+    # The closure is what runs a member forward, and it stops there: a bar, a verifier or
+    # a scoring change has to keep hitting the cache or the cache is pointless.
+    closure = pricing_modules()
+    assert {"projection", "events", "actuarial", "mechanisms"} <= set(closure)
+    assert {"scoring", "verify", "packet", "sources", "survey"}.isdisjoint(closure)
+
+    package = Path(packet_module.__file__).resolve().parent
+    copy = tmp_path / "meridia"
+    shutil.copytree(package, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    assert pricing_source_digest(copy) == pricing_source_digest(package)
+
+    events_source = (copy / "events.py").read_text()
+    retagged = events_source.replace("SHOCK_SUBSTREAM: Final = 0x5A0C",
+                                     "SHOCK_SUBSTREAM: Final = 0x5A0D")
+    assert retagged != events_source
+    (copy / "events.py").write_text(retagged)
+    assert pricing_source_digest(copy) != pricing_source_digest(package)
+
+    # A module outside the closure moves the source of the tree and not the price of a
+    # member, so it does not move the digest.
+    (copy / "events.py").write_text(events_source)
+    (copy / "scoring.py").write_text((copy / "scoring.py").read_text() + "\n# edited\n")
+    assert pricing_source_digest(copy) == pricing_source_digest(package)
+
+    built = build_world(SEED, PARAMS)
+    region = regions_from_admin(built["admin"])
+    obligation = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
+    key = baseline_ledger_digest(built["history"], obligation, PARAMS.horizon_months,
+                                 region)
+    monkeypatch.setattr(packet_module, "pricing_source_digest",
+                        lambda *a, **k: "a tree that prices a member differently")
+    assert baseline_ledger_digest(built["history"], obligation, PARAMS.horizon_months,
+                                  region) != key
+
+
+def test_the_cache_key_covers_which_county_took_which_effect():
+    """A spread is not the vector, and two worlds can share every spread.
+
+    Reverse a county effect family across counties and every standard deviation is
+    preserved exactly, while every person in the world lives under a different effect and
+    every member of the ensemble prices a different liability. The mechanism record
+    carries a digest of the vector for that reason, and the key reads it.
+    """
+    from dataclasses import replace
+
+    from meridia.actuarial import ObligationContract, regions_from_admin
+    from meridia.mechanisms import QUALIFYING_DIAGNOSIS_GROUPS
+    from meridia.packet import baseline_ledger_digest
+
+    built = build_world(SEED, PARAMS)
+    mechanisms = built["mechanisms"]
+    region = regions_from_admin(built["admin"])
+    obligation = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
+    key = baseline_ledger_digest(built["history"], obligation, PARAMS.horizon_months,
+                                 region)
+
+    permuted = replace(mechanisms,
+                       effects={family: values[::-1].copy()
+                                for family, values in mechanisms.effects.items()})
+    assert permuted.record()["county_effect_sd"] == mechanisms.record()["county_effect_sd"]
+    assert permuted.record()["county_effect_digest"] != \
+        mechanisms.record()["county_effect_digest"]
+    moved = {**built["history"], "mechanism_record": permuted.record()}
+    assert baseline_ledger_digest(moved, obligation, PARAMS.horizon_months, region) != key
+
+    rolled = replace(mechanisms,
+                     county_shock_loading=np.roll(mechanisms.county_shock_loading, 1))
+    assert rolled.record()["region_shock_loading"] == \
+        mechanisms.record()["region_shock_loading"]
+    turned = {**built["history"], "mechanism_record": rolled.record()}
+    assert baseline_ledger_digest(turned, obligation, PARAMS.horizon_months, region) != key
