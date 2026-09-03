@@ -1,0 +1,28 @@
+{
+ "dispersion_range": [
+  0.6341211656822201,
+  0.9455560907145829
+ ],
+ "dispersion_reference": 0.7327134584934454,
+ "low_income_household_share": {
+  "intercept": -0.00594445524802846,
+  "residual_sd": 0.03992636616041315,
+  "slope": 0.014646519723712484
+ },
+ "mean_income_adults": {
+  "intercept": -0.14003086733444964,
+  "residual_sd": 0.09437341246684683,
+  "slope": 0.391241226999172
+ },
+ "median_household_income": {
+  "intercept": 0.003939586237238146,
+  "residual_sd": 0.132609087575062,
+  "slope": 0.15452634318037595
+ },
+ "n_worlds": 12,
+ "ratio_exponent": {
+  "low_income_household_share": 1.0,
+  "mean_income_adults": 1.0,
+  "median_household_income": 1.0
+ }
+}

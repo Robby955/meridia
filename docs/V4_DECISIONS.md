@@ -1463,3 +1463,35 @@ is closed to the extent the level uncertainty explains it.
   mobility shape and 0.00 on the age-error shape on both worlds inspected, which says the
   age-error mechanism is real but too small at this world size to separate from mobility
   inside the disappearance count.
+
+## Phase two rebuild, 2026-09-03 12:42 (bars/national-v9, worlds-p3, code da01a42)
+
+Twenty-one worlds rebuilt from the phase-two code. Reference and control runs on all six
+qualification worlds; freeze RESULT: NOT FROZEN.
+
+- Witnesses: line A passes qual-2 only; line B passes none. Every remaining failure is in
+  the tail block (q95 error 0.56 to 2.02 tail widths against 0.5; worst-region exceedance
+  deviation 0.95 on qual-1 for both lines, meaning every continuation exceeds the submitted
+  95th percentile in one region; ES95 error 0.67 to 1.48 widths), plus one rate near miss
+  (qualifying_event_rate at state, 1.05 and 1.06 against 1.0, qual-1) and one reserve
+  shortfall (0.383 against 0.35, qual-5, line A). The rate block otherwise clears after the
+  phase-two eligibility change.
+- Controls: on qual-2, the one world the reference passes, six controls also pass under
+  bars set from the witnesses (static_projection, ignore_health_selection, also on qual-4,
+  development_average_regime, normal_tail, padded_tail, proportional_reserve). When the
+  reference's own error is large, bars frozen from it admit shortcuts. Bars must both admit
+  the reference at a stated false-fail rate and reject every control on every world; a gate
+  that cannot do both at this world size is a deletion candidate.
+- Identifiability from participant files (signed rank correlation with the realized
+  intensity, pooled): mortality_improvement +0.50, migration_age_pattern +0.53,
+  age_reporting_error +0.65, linkage_urban_gradient +0.75, administrative_completeness
+  +0.07, missingness_target_dependence -0.02. The last two have no usable trace and cannot
+  be hidden outside the development range under section 10 until they are anchored or
+  held inside the range.
+- Reserve decision value on qualification worlds: the perfect-information allocation cuts
+  expected uncovered obligation by 71 to 98 percent against the proportional baseline;
+  slack of R for the reference 0.003 to 0.010.
+- Reading: the binding error is the regional liability level, set upstream by elder
+  exposure and survival, not the tail model. Next pass: the elder cohort-component line on
+  the experience file with the shock process redrawn in every continuation member, then
+  refreeze with per-gate false-fail calibration and the control-separation requirement.

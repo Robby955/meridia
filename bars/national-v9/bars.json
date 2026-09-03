@@ -1,0 +1,1421 @@
+{
+ "actuarial": {
+  "catastrophic_tail_ceiling": 0.5,
+  "es95_width_error_ceiling": 0.5,
+  "es_error_ceiling": 0.1,
+  "exposure_error_ceiling": 0.342492,
+  "incidence_error_ceiling": 1.0,
+  "mortality_error_ceiling": 0.698499,
+  "q95_width_error_ceiling": 0.5,
+  "quantile_score_ceiling": 0.0129,
+  "rate_coverage_floor": 0.449,
+  "regional_shortfall_ceiling": 0.35,
+  "skill_minimum": 0.05,
+  "tau_mean": 0.15,
+  "tau_worst": 0.3
+ },
+ "coverage_floor": 0.442,
+ "detailed_accuracy_ceiling": 0.116612,
+ "disclosure_utility_floor": 0.889,
+ "frozen": false,
+ "frozen_from": {
+  "attainability_caps": {
+   "catastrophic_tail_ceiling": 0.5,
+   "detailed_accuracy_ceiling": 0.5,
+   "es95_width_error_ceiling": 0.5,
+   "es_error_ceiling": 0.1,
+   "exposure_error_ceiling": 0.5,
+   "incidence_error_ceiling": 1.0,
+   "mortality_error_ceiling": 1.0,
+   "q95_width_error_ceiling": 0.5,
+   "regional_shortfall_ceiling": 0.35,
+   "tau_mean": 0.15,
+   "tau_worst": 0.3
+  },
+  "attainability_floors": {
+   "disclosure_utility_floor": 0.5,
+   "skill_minimum": 0.05
+  },
+  "criterion_ranges": {
+   "disclosure_utility_floor": [
+    0.0,
+    1.0
+   ],
+   "rate_coverage_floor": [
+    0.0,
+    1.0
+   ],
+   "regional_shortfall_ceiling": [
+    0.0,
+    1.0
+   ],
+   "skill_minimum": [
+    null,
+    1.0
+   ],
+   "tau_mean": [
+    0.0,
+    0.95
+   ],
+   "tau_worst": [
+    0.0,
+    0.95
+   ]
+  },
+  "dev": [
+   "dev-00",
+   "dev-01",
+   "dev-02",
+   "dev-03",
+   "dev-04",
+   "dev-05",
+   "dev-06",
+   "dev-07",
+   "dev-08",
+   "dev-09",
+   "dev-10",
+   "dev-11"
+  ],
+  "eligibility_floors": {
+   "mortality_rate": {
+    "0-17": 50000.0,
+    "18-44": 16666.7,
+    "18-64": 5000.0,
+    "45-64": 2500.0,
+    "65+": 600.0,
+    "65-74": 600.0,
+    "75-84": 600.0,
+    "85+": 600.0
+   },
+   "person_years_exposure": {
+    "0-17": 600.0,
+    "18-44": 600.0,
+    "18-64": 600.0,
+    "45-64": 600.0,
+    "65+": 600.0,
+    "65-74": 600.0,
+    "75-84": 600.0,
+    "85+": 600.0
+   },
+   "qualifying_event_rate": {
+    "0-17": 1250.0,
+    "18-44": 833.3,
+    "18-64": 714.3,
+    "45-64": 625.0,
+    "65+": 600.0,
+    "65-74": 600.0,
+    "75-84": 600.0,
+    "85+": 625.0
+   }
+  },
+  "floors": {
+   "accuracy": {
+    "all": {
+     "count": 0.15,
+     "mean": 0.15,
+     "median": 0.15,
+     "proportion": 0.03
+    },
+    "county": {
+     "count": 0.15,
+     "mean": 0.15,
+     "median": 0.15,
+     "proportion": 0.03
+    },
+    "nation": {
+     "count": 0.05,
+     "mean": 0.08,
+     "median": 0.08,
+     "proportion": 0.01
+    },
+    "state": {
+     "count": 0.08,
+     "mean": 0.12,
+     "median": 0.12,
+     "proportion": 0.02
+    }
+   },
+   "catastrophic": 0.5,
+   "es_error": 0.1,
+   "quantile_score": 0.05,
+   "rate": {
+    "mortality_rate": 0.25,
+    "person_years_exposure": 0.1,
+    "qualifying_event_rate": 0.25
+   },
+   "rate_coverage_cap": 0.6,
+   "shortfall": 0.15,
+   "skill_cap": 0.6,
+   "tau_mean": 0.02,
+   "tau_worst": 0.05
+  },
+  "margins": {
+   "accuracy": 1.25,
+   "coverage_slack": 0.1,
+   "rate": 1.5,
+   "score": 1.5,
+   "shortfall": 1.5,
+   "skill_slack": 0.15,
+   "tail": 1.5
+  },
+  "oracle_quantile_score": 0.007372,
+  "qualification": [
+   "qual-0",
+   "qual-1",
+   "qual-2",
+   "qual-3",
+   "qual-4",
+   "qual-5"
+  ],
+  "rate_cells": {
+   "mortality_rate/state": {
+    "bands": [
+     "18-44",
+     "45-64",
+     "65-74",
+     "75-84"
+    ],
+    "cells": [
+     [
+      0,
+      "female",
+      "18-44"
+     ],
+     [
+      0,
+      "female",
+      "45-64"
+     ],
+     [
+      0,
+      "female",
+      "65-74"
+     ],
+     [
+      0,
+      "female",
+      "75-84"
+     ],
+     [
+      0,
+      "male",
+      "18-44"
+     ],
+     [
+      0,
+      "male",
+      "45-64"
+     ],
+     [
+      0,
+      "male",
+      "65-74"
+     ],
+     [
+      0,
+      "male",
+      "75-84"
+     ],
+     [
+      1,
+      "female",
+      "45-64"
+     ],
+     [
+      1,
+      "female",
+      "65-74"
+     ],
+     [
+      1,
+      "female",
+      "75-84"
+     ],
+     [
+      1,
+      "male",
+      "45-64"
+     ],
+     [
+      1,
+      "male",
+      "65-74"
+     ],
+     [
+      1,
+      "male",
+      "75-84"
+     ],
+     [
+      2,
+      "female",
+      "45-64"
+     ],
+     [
+      2,
+      "female",
+      "65-74"
+     ],
+     [
+      2,
+      "female",
+      "75-84"
+     ],
+     [
+      2,
+      "male",
+      "45-64"
+     ],
+     [
+      2,
+      "male",
+      "65-74"
+     ],
+     [
+      2,
+      "male",
+      "75-84"
+     ],
+     [
+      3,
+      "female",
+      "45-64"
+     ],
+     [
+      3,
+      "female",
+      "65-74"
+     ],
+     [
+      3,
+      "male",
+      "45-64"
+     ],
+     [
+      3,
+      "male",
+      "65-74"
+     ],
+     [
+      4,
+      "female",
+      "18-44"
+     ],
+     [
+      4,
+      "female",
+      "45-64"
+     ],
+     [
+      4,
+      "female",
+      "65-74"
+     ],
+     [
+      4,
+      "female",
+      "75-84"
+     ],
+     [
+      4,
+      "male",
+      "18-44"
+     ],
+     [
+      4,
+      "male",
+      "45-64"
+     ],
+     [
+      4,
+      "male",
+      "65-74"
+     ],
+     [
+      4,
+      "male",
+      "75-84"
+     ],
+     [
+      5,
+      "female",
+      "18-44"
+     ],
+     [
+      5,
+      "female",
+      "45-64"
+     ],
+     [
+      5,
+      "female",
+      "65-74"
+     ],
+     [
+      5,
+      "female",
+      "75-84"
+     ],
+     [
+      5,
+      "male",
+      "18-44"
+     ],
+     [
+      5,
+      "male",
+      "45-64"
+     ],
+     [
+      5,
+      "male",
+      "65-74"
+     ],
+     [
+      5,
+      "male",
+      "75-84"
+     ]
+    ],
+    "empty": [],
+    "n_cells": {
+     "qual-0/A": 24,
+     "qual-0/B": 24,
+     "qual-1/A": 32,
+     "qual-1/B": 32,
+     "qual-2/A": 26,
+     "qual-2/B": 26,
+     "qual-3/A": 27,
+     "qual-3/B": 27,
+     "qual-4/A": 29,
+     "qual-4/B": 29,
+     "qual-5/A": 31,
+     "qual-5/B": 31
+    }
+   },
+   "person_years_exposure/county": {
+    "bands": [
+     "0-17",
+     "18-64",
+     "65+"
+    ],
+    "cells": [
+     [
+      0,
+      "female",
+      "0-17"
+     ],
+     [
+      0,
+      "female",
+      "18-64"
+     ],
+     [
+      0,
+      "female",
+      "65+"
+     ],
+     [
+      0,
+      "male",
+      "0-17"
+     ],
+     [
+      0,
+      "male",
+      "18-64"
+     ],
+     [
+      0,
+      "male",
+      "65+"
+     ],
+     [
+      1,
+      "female",
+      "0-17"
+     ],
+     [
+      1,
+      "female",
+      "18-64"
+     ],
+     [
+      1,
+      "female",
+      "65+"
+     ],
+     [
+      1,
+      "male",
+      "0-17"
+     ],
+     [
+      1,
+      "male",
+      "18-64"
+     ],
+     [
+      1,
+      "male",
+      "65+"
+     ],
+     [
+      2,
+      "female",
+      "0-17"
+     ],
+     [
+      2,
+      "female",
+      "18-64"
+     ],
+     [
+      2,
+      "female",
+      "65+"
+     ],
+     [
+      2,
+      "male",
+      "0-17"
+     ],
+     [
+      2,
+      "male",
+      "18-64"
+     ],
+     [
+      2,
+      "male",
+      "65+"
+     ],
+     [
+      3,
+      "female",
+      "0-17"
+     ],
+     [
+      3,
+      "female",
+      "18-64"
+     ],
+     [
+      3,
+      "female",
+      "65+"
+     ],
+     [
+      3,
+      "male",
+      "0-17"
+     ],
+     [
+      3,
+      "male",
+      "18-64"
+     ],
+     [
+      3,
+      "male",
+      "65+"
+     ],
+     [
+      4,
+      "female",
+      "0-17"
+     ],
+     [
+      4,
+      "female",
+      "18-64"
+     ],
+     [
+      4,
+      "female",
+      "65+"
+     ],
+     [
+      4,
+      "male",
+      "0-17"
+     ],
+     [
+      4,
+      "male",
+      "18-64"
+     ],
+     [
+      4,
+      "male",
+      "65+"
+     ],
+     [
+      5,
+      "female",
+      "0-17"
+     ],
+     [
+      5,
+      "female",
+      "18-64"
+     ],
+     [
+      5,
+      "female",
+      "65+"
+     ],
+     [
+      5,
+      "male",
+      "0-17"
+     ],
+     [
+      5,
+      "male",
+      "18-64"
+     ],
+     [
+      5,
+      "male",
+      "65+"
+     ],
+     [
+      6,
+      "female",
+      "0-17"
+     ],
+     [
+      6,
+      "female",
+      "18-64"
+     ],
+     [
+      6,
+      "female",
+      "65+"
+     ],
+     [
+      6,
+      "male",
+      "0-17"
+     ],
+     [
+      6,
+      "male",
+      "18-64"
+     ],
+     [
+      6,
+      "male",
+      "65+"
+     ],
+     [
+      7,
+      "female",
+      "0-17"
+     ],
+     [
+      7,
+      "female",
+      "18-64"
+     ],
+     [
+      7,
+      "female",
+      "65+"
+     ],
+     [
+      7,
+      "male",
+      "0-17"
+     ],
+     [
+      7,
+      "male",
+      "18-64"
+     ],
+     [
+      7,
+      "male",
+      "65+"
+     ],
+     [
+      8,
+      "female",
+      "0-17"
+     ],
+     [
+      8,
+      "female",
+      "18-64"
+     ],
+     [
+      8,
+      "female",
+      "65+"
+     ],
+     [
+      8,
+      "male",
+      "0-17"
+     ],
+     [
+      8,
+      "male",
+      "18-64"
+     ],
+     [
+      8,
+      "male",
+      "65+"
+     ],
+     [
+      9,
+      "female",
+      "0-17"
+     ],
+     [
+      9,
+      "female",
+      "18-64"
+     ],
+     [
+      9,
+      "female",
+      "65+"
+     ],
+     [
+      9,
+      "male",
+      "0-17"
+     ],
+     [
+      9,
+      "male",
+      "18-64"
+     ],
+     [
+      9,
+      "male",
+      "65+"
+     ],
+     [
+      10,
+      "female",
+      "0-17"
+     ],
+     [
+      10,
+      "female",
+      "18-64"
+     ],
+     [
+      10,
+      "female",
+      "65+"
+     ],
+     [
+      10,
+      "male",
+      "0-17"
+     ],
+     [
+      10,
+      "male",
+      "18-64"
+     ],
+     [
+      10,
+      "male",
+      "65+"
+     ],
+     [
+      11,
+      "female",
+      "0-17"
+     ],
+     [
+      11,
+      "female",
+      "18-64"
+     ],
+     [
+      11,
+      "female",
+      "65+"
+     ],
+     [
+      11,
+      "male",
+      "0-17"
+     ],
+     [
+      11,
+      "male",
+      "18-64"
+     ],
+     [
+      11,
+      "male",
+      "65+"
+     ],
+     [
+      12,
+      "female",
+      "0-17"
+     ],
+     [
+      12,
+      "female",
+      "18-64"
+     ],
+     [
+      12,
+      "female",
+      "65+"
+     ],
+     [
+      12,
+      "male",
+      "0-17"
+     ],
+     [
+      12,
+      "male",
+      "18-64"
+     ],
+     [
+      12,
+      "male",
+      "65+"
+     ],
+     [
+      13,
+      "female",
+      "0-17"
+     ],
+     [
+      13,
+      "female",
+      "18-64"
+     ],
+     [
+      13,
+      "female",
+      "65+"
+     ],
+     [
+      13,
+      "male",
+      "0-17"
+     ],
+     [
+      13,
+      "male",
+      "18-64"
+     ],
+     [
+      13,
+      "male",
+      "65+"
+     ],
+     [
+      14,
+      "female",
+      "0-17"
+     ],
+     [
+      14,
+      "female",
+      "18-64"
+     ],
+     [
+      14,
+      "female",
+      "65+"
+     ],
+     [
+      14,
+      "male",
+      "0-17"
+     ],
+     [
+      14,
+      "male",
+      "18-64"
+     ],
+     [
+      14,
+      "male",
+      "65+"
+     ],
+     [
+      15,
+      "female",
+      "0-17"
+     ],
+     [
+      15,
+      "female",
+      "18-64"
+     ],
+     [
+      15,
+      "female",
+      "65+"
+     ],
+     [
+      15,
+      "male",
+      "0-17"
+     ],
+     [
+      15,
+      "male",
+      "18-64"
+     ],
+     [
+      15,
+      "male",
+      "65+"
+     ],
+     [
+      16,
+      "female",
+      "0-17"
+     ],
+     [
+      16,
+      "female",
+      "18-64"
+     ],
+     [
+      16,
+      "female",
+      "65+"
+     ],
+     [
+      16,
+      "male",
+      "0-17"
+     ],
+     [
+      16,
+      "male",
+      "18-64"
+     ],
+     [
+      16,
+      "male",
+      "65+"
+     ],
+     [
+      17,
+      "female",
+      "0-17"
+     ],
+     [
+      17,
+      "female",
+      "18-64"
+     ],
+     [
+      17,
+      "female",
+      "65+"
+     ],
+     [
+      17,
+      "male",
+      "0-17"
+     ],
+     [
+      17,
+      "male",
+      "18-64"
+     ],
+     [
+      17,
+      "male",
+      "65+"
+     ]
+    ],
+    "empty": [],
+    "n_cells": {
+     "qual-0/A": 88,
+     "qual-0/B": 88,
+     "qual-1/A": 100,
+     "qual-1/B": 100,
+     "qual-2/A": 93,
+     "qual-2/B": 93,
+     "qual-3/A": 83,
+     "qual-3/B": 83,
+     "qual-4/A": 92,
+     "qual-4/B": 92,
+     "qual-5/A": 91,
+     "qual-5/B": 91
+    }
+   },
+   "qualifying_event_rate/state": {
+    "bands": [
+     "0-17",
+     "18-44",
+     "45-64",
+     "65-74",
+     "75-84"
+    ],
+    "cells": [
+     [
+      0,
+      "female",
+      "0-17"
+     ],
+     [
+      0,
+      "female",
+      "18-44"
+     ],
+     [
+      0,
+      "female",
+      "45-64"
+     ],
+     [
+      0,
+      "female",
+      "65-74"
+     ],
+     [
+      0,
+      "female",
+      "75-84"
+     ],
+     [
+      0,
+      "male",
+      "0-17"
+     ],
+     [
+      0,
+      "male",
+      "18-44"
+     ],
+     [
+      0,
+      "male",
+      "45-64"
+     ],
+     [
+      0,
+      "male",
+      "65-74"
+     ],
+     [
+      0,
+      "male",
+      "75-84"
+     ],
+     [
+      1,
+      "female",
+      "0-17"
+     ],
+     [
+      1,
+      "female",
+      "18-44"
+     ],
+     [
+      1,
+      "female",
+      "45-64"
+     ],
+     [
+      1,
+      "female",
+      "65-74"
+     ],
+     [
+      1,
+      "female",
+      "75-84"
+     ],
+     [
+      1,
+      "male",
+      "0-17"
+     ],
+     [
+      1,
+      "male",
+      "18-44"
+     ],
+     [
+      1,
+      "male",
+      "45-64"
+     ],
+     [
+      1,
+      "male",
+      "65-74"
+     ],
+     [
+      1,
+      "male",
+      "75-84"
+     ],
+     [
+      2,
+      "female",
+      "0-17"
+     ],
+     [
+      2,
+      "female",
+      "18-44"
+     ],
+     [
+      2,
+      "female",
+      "45-64"
+     ],
+     [
+      2,
+      "female",
+      "65-74"
+     ],
+     [
+      2,
+      "female",
+      "75-84"
+     ],
+     [
+      2,
+      "male",
+      "0-17"
+     ],
+     [
+      2,
+      "male",
+      "18-44"
+     ],
+     [
+      2,
+      "male",
+      "45-64"
+     ],
+     [
+      2,
+      "male",
+      "65-74"
+     ],
+     [
+      2,
+      "male",
+      "75-84"
+     ],
+     [
+      3,
+      "female",
+      "0-17"
+     ],
+     [
+      3,
+      "female",
+      "18-44"
+     ],
+     [
+      3,
+      "female",
+      "45-64"
+     ],
+     [
+      3,
+      "female",
+      "65-74"
+     ],
+     [
+      3,
+      "male",
+      "0-17"
+     ],
+     [
+      3,
+      "male",
+      "18-44"
+     ],
+     [
+      3,
+      "male",
+      "45-64"
+     ],
+     [
+      3,
+      "male",
+      "65-74"
+     ],
+     [
+      4,
+      "female",
+      "0-17"
+     ],
+     [
+      4,
+      "female",
+      "18-44"
+     ],
+     [
+      4,
+      "female",
+      "45-64"
+     ],
+     [
+      4,
+      "female",
+      "65-74"
+     ],
+     [
+      4,
+      "female",
+      "75-84"
+     ],
+     [
+      4,
+      "male",
+      "0-17"
+     ],
+     [
+      4,
+      "male",
+      "18-44"
+     ],
+     [
+      4,
+      "male",
+      "45-64"
+     ],
+     [
+      4,
+      "male",
+      "65-74"
+     ],
+     [
+      4,
+      "male",
+      "75-84"
+     ],
+     [
+      5,
+      "female",
+      "0-17"
+     ],
+     [
+      5,
+      "female",
+      "18-44"
+     ],
+     [
+      5,
+      "female",
+      "45-64"
+     ],
+     [
+      5,
+      "female",
+      "65-74"
+     ],
+     [
+      5,
+      "female",
+      "75-84"
+     ],
+     [
+      5,
+      "male",
+      "0-17"
+     ],
+     [
+      5,
+      "male",
+      "18-44"
+     ],
+     [
+      5,
+      "male",
+      "45-64"
+     ],
+     [
+      5,
+      "male",
+      "65-74"
+     ],
+     [
+      5,
+      "male",
+      "75-84"
+     ]
+    ],
+    "empty": [],
+    "n_cells": {
+     "qual-0/A": 50,
+     "qual-0/B": 50,
+     "qual-1/A": 54,
+     "qual-1/B": 54,
+     "qual-2/A": 50,
+     "qual-2/B": 50,
+     "qual-3/A": 51,
+     "qual-3/B": 51,
+     "qual-4/A": 53,
+     "qual-4/B": 53,
+     "qual-5/A": 53,
+     "qual-5/B": 53
+    }
+   }
+  },
+  "witnesses": [
+   "A",
+   "B"
+  ]
+ },
+ "interval_score_ceiling": {
+  "children_under_16/all": 1.458904,
+  "children_under_16/county": 1.560743,
+  "children_under_16/nation": 0.529757,
+  "children_under_16/state": 1.325216,
+  "elders_65_plus/all": 1.422265,
+  "elders_65_plus/county": 1.522396,
+  "elders_65_plus/nation": 0.533455,
+  "elders_65_plus/state": 1.286696,
+  "households/all": 1.504033,
+  "households/county": 1.624966,
+  "households/nation": 0.555333,
+  "households/state": 1.319505,
+  "low_income_household_share/all": 0.605935,
+  "low_income_household_share/county": 0.625899,
+  "low_income_household_share/nation": 0.275983,
+  "low_income_household_share/state": 0.604363,
+  "mean_income_adults/all": 3.28171,
+  "mean_income_adults/county": 2.481537,
+  "mean_income_adults/nation": 2.526861,
+  "mean_income_adults/state": 5.674674,
+  "median_household_income/all": 1.998249,
+  "median_household_income/county": 2.081578,
+  "median_household_income/nation": 1.298492,
+  "median_household_income/state": 2.089964,
+  "persons/all": 1.428956,
+  "persons/county": 1.539158,
+  "persons/nation": 0.527038,
+  "persons/state": 1.267035,
+  "tertiary_share_25_plus/all": 0.09088,
+  "tertiary_share_25_plus/county": 0.098825,
+  "tertiary_share_25_plus/nation": 0.064563,
+  "tertiary_share_25_plus/state": 0.074749
+ },
+ "projection": {
+  "coverage_floor": 0.108,
+  "interval_score_ceiling": {
+   "children_under_16/all": 1.557108,
+   "children_under_16/county": 1.680437,
+   "children_under_16/nation": 0.623626,
+   "children_under_16/state": 1.363257,
+   "elders_65_plus/all": 4.208752,
+   "elders_65_plus/county": 3.085811,
+   "elders_65_plus/nation": 9.255464,
+   "elders_65_plus/state": 6.549298,
+   "households/all": 1.582668,
+   "households/county": 1.701431,
+   "households/nation": 0.682024,
+   "households/state": 1.396282,
+   "low_income_household_share/all": 0.750132,
+   "low_income_household_share/county": 0.763369,
+   "low_income_household_share/nation": 0.421895,
+   "low_income_household_share/state": 0.767335,
+   "mean_income_adults/all": 4.134109,
+   "mean_income_adults/county": 3.322907,
+   "mean_income_adults/nation": 3.253376,
+   "mean_income_adults/state": 6.579303,
+   "median_household_income/all": 4.626211,
+   "median_household_income/county": 4.914114,
+   "median_household_income/nation": 2.873309,
+   "median_household_income/state": 4.102636,
+   "persons/all": 1.517014,
+   "persons/county": 1.623564,
+   "persons/nation": 0.645665,
+   "persons/state": 1.360345,
+   "tertiary_share_25_plus/all": 0.71333,
+   "tertiary_share_25_plus/county": 0.66864,
+   "tertiary_share_25_plus/nation": 0.873188,
+   "tertiary_share_25_plus/state": 0.813309
+  },
+  "worst_error": {
+   "children_under_16/all": 0.874687,
+   "children_under_16/county": 0.874687,
+   "children_under_16/nation": 0.075,
+   "children_under_16/state": 0.199418,
+   "elders_65_plus/all": 1.026509,
+   "elders_65_plus/county": 1.026509,
+   "elders_65_plus/nation": 0.610334,
+   "elders_65_plus/state": 0.679607,
+   "households/all": 0.863034,
+   "households/county": 0.863034,
+   "households/nation": 0.089006,
+   "households/state": 0.225382,
+   "low_income_household_share/all": 0.236431,
+   "low_income_household_share/county": 0.236431,
+   "low_income_household_share/nation": 0.070534,
+   "low_income_household_share/state": 0.236431,
+   "mean_income_adults/all": 1.882794,
+   "mean_income_adults/county": 1.882794,
+   "mean_income_adults/nation": 0.545166,
+   "mean_income_adults/state": 1.882794,
+   "median_household_income/all": 1.560916,
+   "median_household_income/county": 1.560916,
+   "median_household_income/nation": 0.607417,
+   "median_household_income/state": 1.143933,
+   "persons/all": 0.582029,
+   "persons/county": 0.582029,
+   "persons/nation": 0.075,
+   "persons/state": 0.241383,
+   "tertiary_share_25_plus/all": 0.140683,
+   "tertiary_share_25_plus/county": 0.140683,
+   "tertiary_share_25_plus/nation": 0.077374,
+   "tertiary_share_25_plus/state": 0.106278
+  }
+ },
+ "worst_error": {
+  "children_under_16/all": 0.903381,
+  "children_under_16/county": 0.903381,
+  "children_under_16/nation": 0.061001,
+  "children_under_16/state": 0.185808,
+  "elders_65_plus/all": 0.357472,
+  "elders_65_plus/county": 0.357472,
+  "elders_65_plus/nation": 0.059412,
+  "elders_65_plus/state": 0.246836,
+  "households/all": 0.950786,
+  "households/county": 0.950786,
+  "households/nation": 0.080628,
+  "households/state": 0.138539,
+  "low_income_household_share/all": 0.173453,
+  "low_income_household_share/county": 0.173453,
+  "low_income_household_share/nation": 0.039367,
+  "low_income_household_share/state": 0.173453,
+  "mean_income_adults/all": 1.566854,
+  "mean_income_adults/county": 1.566854,
+  "mean_income_adults/nation": 0.357821,
+  "mean_income_adults/state": 1.566854,
+  "median_household_income/all": 1.098882,
+  "median_household_income/county": 1.098882,
+  "median_household_income/nation": 0.241723,
+  "median_household_income/state": 0.762933,
+  "persons/all": 0.608349,
+  "persons/county": 0.608349,
+  "persons/nation": 0.05,
+  "persons/state": 0.15872,
+  "tertiary_share_25_plus/all": 0.045023,
+  "tertiary_share_25_plus/county": 0.045023,
+  "tertiary_share_25_plus/nation": 0.012122,
+  "tertiary_share_25_plus/state": 0.02
+ }
+}
