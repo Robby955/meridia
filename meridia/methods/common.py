@@ -177,7 +177,7 @@ def write_submission(out_dir: Path, release_rows, projection_rows, cube: np.ndar
             for s, sex in enumerate(SEX_LABELS):
                 value = float(cube[c, b, s])
                 detail.append({"county": c, "age_band": band, "sex": sex,
-                               "count": "" if 0 < value < suppress_below else round(value, 3)})
+                               "count": "" if value < suppress_below else round(value, 3)})
     pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
     pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
     pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
