@@ -10,7 +10,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.methods import bayesian, controls, design_based
+from meridia.methods import (
+    bayesian,
+    controls,
+    design_based,
+    phase_three,
+    third_reference,
+)
 from meridia.packet import PacketParams, build_packet
 from meridia.verify import verify_submission
 
@@ -106,6 +112,31 @@ def test_both_calibrations_carry_the_fitted_ratio_exponents(dev_packet, tmp_path
     stored = json.loads(calibration_b.read_text())
     assert stored["ratio_exponent"] == exponents
     assert "mean_income_adults" in stored and "n_worlds" in stored
+
+
+def test_bayesian_calibration_never_invokes_the_actuarial_layer(monkeypatch, tmp_path):
+    observed = []
+    exponents = {
+        "median_household_income": 1.0,
+        "mean_income_adults": 1.0,
+        "low_income_household_share": 1.0,
+    }
+    monkeypatch.setattr(bayesian.A, "fit_ratio_exponents", lambda _: exponents)
+
+    def fake_run(packet, out, params):
+        del packet, out
+        observed.append(params.actuarial)
+        return {}
+
+    def fake_calibrate_income(runner, packets, calibration_path):
+        del packets, calibration_path
+        runner("packet", "out")
+        return {"n_worlds": 1}
+
+    monkeypatch.setattr(bayesian, "run", fake_run)
+    monkeypatch.setattr(bayesian, "calibrate_income", fake_calibrate_income)
+    bayesian.calibrate([], tmp_path / "calibration.json")
+    assert observed == ["off"]
 
 
 def test_the_state_benchmark_step_moves_the_composition_and_keeps_the_total():
@@ -228,3 +259,207 @@ def test_the_experience_only_control_files_four_files_from_the_aggregate_file(pa
     truth_nation = truth[truth["level"] == "nation"].set_index("estimand")["value"]
     assert report["metrics"]["households/nation"]["worst_error"] > 0.5
     assert abs(nation["persons"] / truth_nation["persons"] - 1.0) > 0.02
+
+
+def test_version_three_recipe_is_fitted_from_its_named_components(dev_packet):
+    fit = controls.fit_version_three_recipe([dev_packet])
+    assert fit["n_worlds"] == 1
+    assert fit["discrete_income_scales"] == [0.55, 0.75, 1.0]
+    assert fit["household_growth"] > 0.0
+    for item in ("persons", "children_under_16", "elders_65_plus"):
+        assert fit[f"current/{item}"] > 0.0
+        assert fit[f"transition/{item}"] > 0.0
+
+    data = controls.load_packet(dev_packet)
+    tick = int(data["contract"]["ticks"]["revised"])
+    horizon = int(data["contract"]["ticks"]["horizon"]) - tick
+    release, projection = controls._version_three_release(
+        data, tick, data["county_state"], horizon, fit
+    )
+    for rows in (release, projection):
+        frame = pd.DataFrame(rows)
+        for item in ("persons", "households", "children_under_16", "elders_65_plus"):
+            item_rows = frame[frame["estimand"] == item]
+            nation = float(
+                item_rows[item_rows["level"] == "nation"]["estimate"].iloc[0]
+            )
+            states = float(item_rows[item_rows["level"] == "state"]["estimate"].sum())
+            counties = float(
+                item_rows[item_rows["level"] == "county"]["estimate"].sum()
+            )
+            assert states == pytest.approx(nation)
+            assert counties == pytest.approx(nation)
+
+
+def test_third_reference_reads_a_blind_packet_and_uses_its_own_linkage(
+    packet, tmp_path
+):
+    blind = tmp_path / "blind-third"
+    blind.mkdir()
+    shutil.copytree(packet / "participant", blind / "participant")
+    out = tmp_path / "third"
+    result = third_reference.run(
+        blind,
+        out,
+        third_reference.ThirdReferenceParams(
+            bootstrap_replicates=10, linkage_bootstraps=3, simulation_paths=64
+        ),
+    )
+    for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
+        assert (out / file).is_file()
+    detail = result["third_reference"]
+    assert detail["tail_calibrated_to_total"] is False
+    assert result["actuarial"]["linkage_strategy"] == "clerical_bootstrap"
+    assert result["actuarial"]["experience_share_strategy"] == "cohort_component"
+    cohort = result["actuarial"]["cohort_component"]
+    assert cohort["elder_after"] == pytest.approx(cohort["elder_target"])
+    assert (
+        result["actuarial"]["mortality_history_strategy"] == "cellwise_weighted_median"
+    )
+    assert result["actuarial"]["linkage_imputations"] == 3
+
+
+def test_decomposition_controls_are_development_only_and_isolate_the_tail(
+    packet, dev_packet, tmp_path
+):
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    with pytest.raises(ValueError, match="development packet"):
+        controls.run_decomposition(
+            "true_population_normal_tail",
+            packet,
+            tmp_path / "refused",
+            bootstrap_replicates=10,
+            simulation_paths=64,
+        )
+
+    true_out = tmp_path / "true-population"
+    controls.run_decomposition(
+        "true_population_normal_tail",
+        dev_packet,
+        true_out,
+        bootstrap_replicates=10,
+        simulation_paths=64,
+    )
+    truth = pd.read_csv(dev_packet / "participant" / "truth" / "truth_revised.csv")
+    release = pd.read_csv(true_out / "release.csv")
+    persons = release[
+        (release["estimand"] == "persons") & (release["level"] == "nation")
+    ].iloc[0]
+    expected = truth[(truth["estimand"] == "persons") & (truth["level"] == "nation")][
+        "value"
+    ].iloc[0]
+    assert persons["estimate"] == pytest.approx(expected)
+
+    oracle_out = tmp_path / "oracle-tail"
+    result = controls.run_decomposition(
+        "design_reconstruction_oracle_tail",
+        dev_packet,
+        oracle_out,
+        bootstrap_replicates=10,
+        simulation_paths=64,
+    )
+    with np.load(dev_packet / "retained" / "continuation_liabilities.npz") as archive:
+        expected_tail = AR.tail_summary(archive["liability"])
+    reserve = pd.read_csv(oracle_out / "reserve.csv").sort_values("region")
+    assert reserve["q95"].to_numpy() - reserve["liability_mean"].to_numpy() \
+        == pytest.approx(expected_tail["q"] - expected_tail["mean"])
+    assert reserve["es95"].to_numpy() - reserve["liability_mean"].to_numpy() \
+        == pytest.approx(expected_tail["es"] - expected_tail["mean"])
+    assert result["decomposition"]["oracle_tail_members"] > 0
+    assert result["decomposition"]["level_component"].startswith("design")
+
+
+def test_decomposition_control_refuses_a_linked_development_truth_file(
+    dev_packet, tmp_path
+):
+    linked_packet = tmp_path / "development"
+    shutil.copytree(dev_packet, linked_packet)
+    truth_file = linked_packet / "participant" / "truth" / "truth_revised.csv"
+    external = tmp_path / "truth_revised.csv"
+    shutil.copy2(truth_file, external)
+    truth_file.unlink()
+    truth_file.symlink_to(external)
+
+    with pytest.raises(ValueError, match="linked participant"):
+        controls._development_control_inputs(linked_packet)
+
+
+def test_decomposition_control_refuses_a_linked_participant_source_directory(
+    dev_packet, tmp_path
+):
+    linked_packet = tmp_path / "development"
+    shutil.copytree(dev_packet, linked_packet)
+    sources = linked_packet / "participant" / "sources"
+    external = tmp_path / "external-sources"
+    sources.rename(external)
+    sources.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="linked participant paths"):
+        controls._development_control_inputs(linked_packet)
+
+
+def test_decomposition_control_refuses_a_linked_manifest(dev_packet, tmp_path):
+    linked_packet = tmp_path / "development"
+    shutil.copytree(dev_packet, linked_packet)
+    manifest = linked_packet / "manifest.json"
+    external = tmp_path / "manifest.json"
+    manifest.rename(external)
+    manifest.symlink_to(external)
+
+    with pytest.raises(ValueError, match="linked packet manifest"):
+        controls._development_control_inputs(linked_packet)
+
+
+def test_deletion_switches_and_five_composite_mapping(packet, tmp_path):
+    assert controls.DECOMPOSITION_CONTROLS[0] == "design_reconstruction_oracle_tail"
+    assert tuple(controls.DELETION_CONTROLS) == (
+        "reconstruction_uncertainty",
+        "informative_selection",
+        "regime_recombination",
+        "predictive_tails",
+        "reserve_allocation",
+    )
+    assert len(controls.QUALIFICATION_CONTROLS) == 22
+    assert set(controls.QUALIFICATION_CONTROLS) == set(
+        controls.CONTROL_TARGET_COMPOSITES
+    )
+    assert set(controls.CONTROL_TARGET_COMPOSITES.values()) == set(
+        phase_three.COMPOSITE_FAMILIES
+    )
+    assert controls.CONTROL_TARGET_COMPOSITES["static_projection"] == (
+        "release_accuracy"
+    )
+    assert controls.CONTROL_TARGET_COMPOSITES["ignore_health_selection"] == (
+        "exposures_and_rates"
+    )
+    out = tmp_path / "mean-deletion"
+    controls.run_deletion(
+        "predictive_tails", packet, out, bootstrap_replicates=10, simulation_paths=64
+    )
+    reserve = pd.read_csv(out / "reserve.csv")
+    assert reserve["q95"].to_numpy() == pytest.approx(
+        reserve["liability_mean"].to_numpy()
+    )
+    assert reserve["es95"].to_numpy() == pytest.approx(
+        reserve["liability_mean"].to_numpy()
+    )
+
+    report = {
+        "reasons": [
+            "exposure: person_years_exposure/state percentile error 0.4 > 0.2",
+            "accuracy: persons/county worst error 0.4 > 0.2",
+            "projection interval score: persons/all 0.4 > 0.2",
+            "tail: pooled exceedance deviation 0.4 > 0.2",
+            "reserve: skill -0.2 < 0.1",
+            "schema: 1 violation(s)",
+            "disclosure utility: 0.400 of the releasable cells published < 0.5",
+        ]
+    }
+    failed, ignored = phase_three.failed_composites(report)
+    assert failed == list(phase_three.COMPOSITE_FAMILIES)
+    assert len(ignored) == 1
+    assert phase_three.hard_check_failures(report) == ["schema: 1 violation(s)"]
+    with pytest.raises(ValueError, match="must be distinct"):
+        phase_three._validate_packet_group([packet] * 6, 6, False)

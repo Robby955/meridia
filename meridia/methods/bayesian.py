@@ -408,7 +408,13 @@ def calibrate(dev_packet_dirs, calibration_path: Path, params: MethodParams = Me
     calibration_path = Path(calibration_path)
     exponents = A.fit_ratio_exponents(dev_packet_dirs)
     calibration_path.write_text(json.dumps({"ratio_exponent": exponents}, indent=1, sort_keys=True) + "\n")
-    quick = MethodParams(sweeps=150, burn_in=50, seed=params.seed, calibration_path=str(calibration_path))
+    quick = MethodParams(
+        sweeps=150,
+        burn_in=50,
+        seed=params.seed,
+        calibration_path=str(calibration_path),
+        actuarial="off",
+    )
     factors = calibrate_income(lambda d, o: run(d, o, quick), dev_packet_dirs, calibration_path)
     factors["ratio_exponent"] = exponents
     calibration_path.write_text(json.dumps(factors, indent=1, sort_keys=True) + "\n")

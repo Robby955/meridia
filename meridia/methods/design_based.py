@@ -1157,7 +1157,11 @@ def calibrate(dev_packet_dirs, calibration_path: Path,
     rows = []
     for k, dev in enumerate(dev_packet_dirs):
         scratch = Path(calibration_path).parent / f"_calibration_run_{k}"
-        result = run(dev, scratch, MethodParams(bootstrap_replicates=10, seed=params.seed))
+        result = run(
+            dev,
+            scratch,
+            MethodParams(bootstrap_replicates=10, seed=params.seed, actuarial="off"),
+        )
         truth = pd.read_csv(dev / "participant" / "truth" / "truth_revised.csv")
         nation = truth[truth["level"] == "nation"].set_index("estimand")["value"]
         estimate = {r["estimand"]: r["estimate"] for r in result["release"] if r["level"] == "nation"}
@@ -1187,8 +1191,10 @@ def calibrate(dev_packet_dirs, calibration_path: Path,
                       "residual_sd": max(residual_sd, 0.01)}
     # The exact-key union control needs the same development worlds; its constants
     # ride along in this receipt so the control battery can run from calibration A.
-    from .controls import fit_development_regime, fit_exact_key_union
+    from .controls import (fit_development_regime, fit_exact_key_union,
+                           fit_version_three_recipe)
     factors["exact_key_union"] = fit_exact_key_union(dev_packet_dirs)
+    factors["version_three_recipe"] = fit_version_three_recipe(dev_packet_dirs)
     # The development-world average regime, which ablation 5 fixes in place of the world
     # in front of it. It is a property of the development set, not of any submission, so
     # it rides in the same receipt as the other development-world constants.

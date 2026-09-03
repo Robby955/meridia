@@ -1463,3 +1463,106 @@ is closed to the extent the level uncertainty explains it.
   mobility shape and 0.00 on the age-error shape on both worlds inspected, which says the
   age-error mechanism is real but too small at this world size to separate from mobility
   inside the disappearance count.
+
+### Phase-three methods interface requests
+
+Under the phase-three contract, the reserve total comes from the published exposure rule. It no longer
+identifies the sealed regional quantiles or expected shortfalls. The methods request is to
+make that semantic change explicit in the public contract and to stop treating
+`calibrate_quantiles_to_total` as a reference default. The third line, the decomposition
+controls, the deletion controls, and their A and B comparators set
+`calibrate_tail_to_total=False`. They use the public total only as the required sum of the
+regional allocations and keep each allocation above its submitted quantile. The old
+calibration function remains in place for replay of the earlier contract and must not be
+called for the new one.
+
+The detailed-table and disclosure stage is not part of the retained phase-three surface.
+The current writer still emits `detailed.csv` because the current verifier requires four
+files. The verifier integration request is to remove that file from the required set and to
+remove disclosure, disclosure utility, and detailed accuracy from the frozen report. The
+methods writer can drop the compatibility file after that interface lands.
+
+Current verifier reasons map to five composites in the phase-three measurement report. The
+mapping request for the integrated verifier is exact:
+
+- `exposures_and_rates`: exposure, mortality, incidence, and coverage for a rate estimand;
+- `release_accuracy`: release accuracy and projection accuracy;
+- `interval_quality`: release and projection coverage and interval score;
+- `tail_calibration`: regional quantile and expected-shortfall calibration;
+- `reserve_skill`: expected uncovered obligation, regional shortfall, and allocation skill.
+
+No disclosure, detailed-table, or structural reason belongs to one of those composites. If
+every registered control passes a composite on every qualification world, that composite
+gate is removed from the phase-three surface.
+
+The qualification battery has twenty-two primary control and gate pairs. Every pair must
+be structurally valid and fail its target composite on all six qualification worlds. A
+target pass on one world makes that pair a deletion candidate with its exact verifier
+metrics. Failure of another composite is diagnostic and does not rescue the target pair.
+The registered targets are:
+
+- `release_accuracy`: `register_only`, `survey_only`, `no_dedup`, `static_projection`,
+  `benchmark_only`, `exact_key_union`, `version_three_recipe`, and
+  `experience_history_only`;
+- `interval_quality`: `inflated_intervals` and `reconstruction_uncertainty`;
+- `exposures_and_rates`: `deterministic_linkage`, `ignore_health_selection`, and
+  `informative_selection`;
+- `tail_calibration`: `development_average_regime`, `mean_only_tail`, `normal_tail`,
+  `padded_tail`, `regime_recombination`, and `predictive_tails`;
+- `reserve_skill`: `uniform_allocation`, `proportional_reserve`, and
+  `reserve_allocation`.
+
+The two oracle decompositions remain development-only diagnostics. They do not contribute
+qualification separation evidence.
+
+File set, schema, additivity, rate consistency, and reserve feasibility remain hard checks.
+Their failures invalidate a submission and do not count as evidence that a scientific
+composite separates. The methods report records them under `hard_check_failures`.
+
+Each method output is first written to a same-directory staging path. A completed output is
+reused only when a run receipt binds the measurement contract, packet manifest, method
+configuration, and every submitted file hash. Linked packet or output paths are rejected
+before their contents are opened. Missing or unexpected flat submission files are still
+bound and passed to the verifier so their structural failure remains visible.
+
+Freeze calibration requires at least one hundred balanced deterministic replicate reports,
+each with a unique `evidence_id` and `replicate_id`. Final qualification reports are a
+separate class. The methods measurement is a final comparison over named worlds and does
+not duplicate a deterministic verifier result to meet that minimum. The integration request
+is for the freeze lane to produce and bind the replicate wrappers, then ingest this report
+only as final control and deletion evidence.
+
+The empirical quantile has one contract definition: sort the M continuation values and take
+observation `ceil(alpha * M)` in one-based indexing. Expected shortfall averages every value
+at or above that observation, including ties. The current verifier uses NumPy `higher`,
+which instead selects `ceil(alpha * (M - 1))` in zero-based indexing. The two differ when
+`alpha * M` is an integer. The verifier integration request is to use the contract order
+statistic and tied-tail rule. `tail_summary` implements that rule and its test includes an
+untied four-member boundary where the two formulas differ.
+
+Packet manifests currently distinguish development from non-development
+only. Qualification and graded packets both carry `development: false`, so that field cannot
+prove that a renamed packet is safe to inspect. The methods runner also requires the exact
+canonical `qualification/qual-0` through `qual-5` paths and refuses any resolved path with a
+graded component. The generator integration request is a signed packet-class field with
+distinct `development`, `qualification`, and `graded` values. The methods runner should bind
+that field after it exists; canonical path checking is only the current fail-closed bridge.
+
+The third line now treats elder exposure as a level rather than only a state share. It
+spreads the last annual state-band-sex exposure over single ages using the reconstructed
+age profile, advances the stock over the annual-exposure midpoint and publication lag with
+the file's deaths and net migration, and carries the independently fitted mortality trend
+over that interval. The resulting 65-plus state levels replace the register level. Within a
+state, linked-register county shares move toward direct survey shares only when their
+disagreement exceeds the survey design variance. Younger national levels remain those of
+the reconstruction.
+
+The scored elder rate cell request is one broad state by sex `65+` cell with a 500
+person-year floor. `65-74`, `75-84`, and `85+` remain report-only. No younger floor changes.
+The final measurement writes `elder_reconstruction_audit.json` and
+`elder_reconstruction_audit.txt`. Each of the six world records binds the before and after
+report evidence IDs, state elder exposures, regional liability means, pooled sealed
+exceedance deviation, and the mortality trend, shock, and publication-lag decomposition.
+The shock record states the public 0.20 annual probability, independent redraws for every
+continuation member, and the mortality and admission ranges read from
+`participant/contract.json:shock_family`.

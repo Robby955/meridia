@@ -532,6 +532,73 @@ def test_the_priced_composition_is_raked_to_the_file_and_the_nation_is_untouched
     assert np.allclose(banded.sum(axis=0), before)
 
 
+def test_the_third_line_advances_lagged_state_elder_shares():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    experience = _experience(n_states=2)
+    experience["deaths"][:, 0, 3:, :] *= 4.0
+    published = AR.experience_state_shares(experience)
+    advanced = AR.advanced_experience_state_shares(experience, 1.5)
+    assert np.allclose(advanced.sum(axis=0), 1.0)
+    assert not np.allclose(advanced[:, 3:, :], published[:, 3:, :])
+
+
+def test_the_third_line_reconciles_absolute_elder_cohorts_at_state_level():
+    import pandas as pd
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    county_state = np.array([0, 0, 1, 1])
+    paths = np.full((3, 4, 101, 2), 5.0)
+    experience = _experience(n_states=2)
+    experience["exposure"][-1, :, 3:, :] *= 1.2
+    profile = np.zeros((2, 101, 2))
+    np.add.at(profile, county_state, paths.mean(axis=0))
+    target = AR.advanced_experience_state_exposure(
+        experience, 1.5, age_profile=profile
+    )
+    survey = pd.DataFrame(
+        {
+            "county": [0, 1, 2, 3] * 4,
+            "age": [70] * 8 + [80] * 4 + [90] * 4,
+            "sex": [0, 1] * 8,
+            "design_weight": [10.0] * 16,
+        }
+    )
+    reconciled, diagnostics = AR.rake_to_cohort_component(
+        paths, county_state, target, survey
+    )
+    collapse = AR.band_matrix(100)
+    banded = np.einsum("ba,cas->cbs", collapse, reconciled.mean(axis=0))
+    state = np.zeros_like(target)
+    np.add.at(state, county_state, banded)
+    assert np.allclose(state[:, 3:, :], target[:, 3:, :])
+    before = np.einsum("ba,cas->cbs", collapse, paths.mean(axis=0)).sum(axis=0)
+    assert np.allclose(banded[:, :3, :].sum(axis=0), before[:3, :])
+    assert diagnostics["elder_after"] == pytest.approx(diagnostics["elder_target"])
+
+    distorted = target.copy()
+    distorted[:, :3, 0] *= 9.0
+    distorted[:, :3, 1] *= 0.1
+    preserved, _ = AR.rake_to_cohort_component(
+        paths, county_state, distorted, survey
+    )
+    preserved_banded = np.einsum(
+        "ba,cas->cbs", collapse, preserved.mean(axis=0)
+    )
+    assert np.allclose(preserved_banded[:, :3, :].sum(axis=0), before[:3, :])
+
+    with pytest.raises(ValueError, match="one value per survey row"):
+        AR.rake_to_cohort_component(
+            paths,
+            county_state,
+            target,
+            survey,
+            survey_weights=np.ones(len(survey) - 1),
+        )
+
+
 def test_a_wider_level_uncertainty_widens_the_tail_without_lifting_the_mean():
     import numpy as np
     from meridia.methods import actuarial_reference as AR
@@ -567,3 +634,128 @@ def test_a_wider_level_uncertainty_widens_the_tail_without_lifting_the_mean():
     # on a level whose own spread is a third, not a loading.
     assert np.abs(wide_mean / narrow_mean - 1.0).max() < 0.02
     assert (wide["liability"].std(axis=0) > 2.0 * narrow["liability"].std(axis=0)).all()
+
+
+def test_tail_summary_uses_the_declared_order_statistic_and_includes_ties():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    liability = np.asarray([[1.0, 9.0], [2.0, 4.0], [2.0, 4.0], [3.0, 1.0]])
+    summary = AR.tail_summary(liability, alpha=0.50)
+    assert np.allclose(summary["q"], [2.0, 4.0])
+    assert np.allclose(summary["es"], [7.0 / 3.0, 17.0 / 3.0])
+    with pytest.raises(ValueError, match="nonempty"):
+        AR.tail_summary(np.zeros((0, 2)))
+    for alpha in (-0.01, 1.01, float("nan")):
+        with pytest.raises(ValueError, match="alpha"):
+            AR.tail_summary(liability, alpha=alpha)
+
+
+def test_tail_summary_boundary_is_not_numpy_higher_interpolation():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    liability = np.asarray([[1.0], [2.0], [3.0], [4.0]])
+    # ceil(0.5 * 4) is observation two in one-based indexing.
+    assert AR.tail_summary(liability, alpha=0.5)["q"].item() == 2.0
+
+
+def test_each_simulated_member_redraws_the_published_shock_process():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+
+    family = {
+        "annual_rate": 0.20,
+        "kinds": [
+            {"mortality": (1.5, 3.0), "incidence": (1.4, 2.6)}
+        ],
+    }
+    first = AR.draw_shock_year(np.random.default_rng(1), 20_000, family, 0.0, (1, 1))
+    second = AR.draw_shock_year(np.random.default_rng(2), 20_000, family, 0.0, (1, 1))
+    first_hit = first["mortality"] > 1.0
+    second_hit = second["mortality"] > 1.0
+    assert 0.19 < first_hit.mean() < 0.21
+    assert not np.array_equal(first_hit, second_hit)
+    assert np.array_equal(first_hit, first["incidence"] > 1.0)
+    common_draw_mortality = (first["mortality"][first_hit] - 1.5) / 1.5
+    common_draw_incidence = (first["incidence"][first_hit] - 1.4) / 1.2
+    assert np.allclose(common_draw_mortality, common_draw_incidence)
+
+
+def test_phase_three_reports_state_elder_exposure_and_survival(packet, submission):
+    from meridia.methods.phase_three import (
+        elder_state_exposure_survival,
+        participant_elder_identifiability,
+        third_elder_comparison,
+    )
+
+    audit = elder_state_exposure_survival(packet, submission)
+    assert audit["thresholds"] == {
+        "aggregate_exposure_relative_error_ceiling_copied_from_bar": None,
+        "aggregate_mortality_relative_error_ceiling_copied_from_bar": None,
+        "criterion": "absolute aggregate relative error, not the verifier cell percentile",
+    }
+    assert len(audit["states"]) == PARAMS.n_states
+    for row in audit["states"]:
+        assert row["estimated_person_years"] > 0.0
+        assert row["sealed_person_years"] > 0.0
+        assert 0.0 < row["estimated_survival"] <= 1.0
+        assert 0.0 < row["sealed_survival"] <= 1.0
+    participant = participant_elder_identifiability(packet)
+    assert len(participant["states"]) == PARAMS.n_states
+    assert all(
+        abs(row["public_experience_state_share_error"]) < 1.0
+        for row in participant["states"]
+    )
+    comparison = third_elder_comparison(participant, audit)
+    assert set(comparison) >= {"public_experience", "third_line"}
+
+    from meridia.methods.phase_three import (
+        elder_eligibility_audit,
+        mortality_gap_decomposition,
+    )
+
+    eligibility = elder_eligibility_audit(packet)
+    assert eligibility["scored"]["age_band"] == "65+"
+    assert eligibility["scored"]["floor_person_years"] == 500.0
+    assert [row["age_band"] for row in eligibility["report_only"]] == [
+        "65-74",
+        "75-84",
+        "85+",
+    ]
+    decomposition = mortality_gap_decomposition(packet)
+    assert decomposition["trend_active_during_public_experience_window"] is True
+    assert decomposition["trend_starts_only_after_public_window"] is False
+    assert decomposition["continuation_shocks_redrawn_per_member"] is True
+
+
+def test_elder_eligibility_rejects_a_missing_final_state(packet, tmp_path):
+    import json
+    import shutil
+
+    import pandas as pd
+
+    from meridia.methods.phase_three import elder_eligibility_audit
+
+    broken = tmp_path / "broken-eligibility"
+    (broken / "participant").mkdir(parents=True)
+    (broken / "retained").mkdir()
+    shutil.copy2(
+        packet / "participant" / "contract.json",
+        broken / "participant" / "contract.json",
+    )
+    contract = json.loads((broken / "participant" / "contract.json").read_text())
+    truth = pd.read_csv(packet / "retained" / "rate_truth_horizon.csv")
+    last_state = int(contract["n_states"]) - 1
+    truth = truth[
+        ~(
+            (truth["level"] == "state")
+            & (truth["unit"] == last_state)
+            & (truth["estimand"] == "person_years_exposure")
+            & (truth["age_band"] == "85+")
+        )
+    ]
+    truth.to_csv(broken / "retained" / "rate_truth_horizon.csv", index=False)
+
+    with pytest.raises(ValueError, match="retained eligibility exposure"):
+        elder_eligibility_audit(broken)
