@@ -1,596 +1,2158 @@
-"""Freeze the version-four bars on qualification worlds, then prove the battery fails.
+"""Freeze the five version-four composite gates from qualification evidence.
 
-    python scripts/freeze_v4_bars.py --dev DEV ... --qualification QUAL ... --out bars/national-v8
+A completed freeze needs three separate kinds of evidence: one deterministic final
+witness report for each reference line and qualification world, independently identified
+deterministic replicate reports for every line-world pair, and reports from registered
+scientific controls that pass the deterministic hard checks.
 
-Steps, in this order and no other: calibrate both strong lines on the development
-worlds; run both on every qualification world; set every bar from the worse of the two
-witnesses with a margin declared in this file before any value was measured; check that
-both witnesses clear the frozen bars on every qualification world; run the whole control
-battery and record the named gate each control fails; and report the reserve decision's
-attainable value, world by world.
-
-The graded worlds are never opened here. Protocol section 12 freezes from generator-only
-calibration worlds, and the external review adds that the graded world is minted
-afterwards and never used to confirm or revise a bar.
+Only replicate reports set the exact empirical p99 ceilings. Final reports are never
+bootstrapped or resampled as fake replication. Final witnesses must then clear the frozen
+bars. The command line consumes JSON evidence and writes ``bars.json``,
+``freeze_report.txt``, and ``PROVENANCE.md``.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import sys
+import math
+import statistics
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
-import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+SCHEMA = "meridia.v4.composite-bars.v1"
+EVIDENCE_SCHEMA = "meridia.v4.composite-freeze-evidence.v1"
+VERIFIER_EVIDENCE_SCHEMA = "meridia.v4.verifier-evidence.v1"
+EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v1"
+PROVENANCE_SCHEMA = "meridia.v4.freeze-provenance.v1"
+ELDER_AUDIT_SCHEMA = "meridia.methods.elder_reconstruction_audit.v1"
+REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v1"
+QUANTILE = 0.99
+TARGET_FALSE_FAIL_RATE = 0.01
+EXPECTED_QUALIFICATION_WORLDS = 6
+GRADED_WORLD_COUNT = 3
+MIN_REPLICATES_PER_LINE_WORLD = 2
+MIN_P99_SAMPLE_COUNT = 100
+MIN_REFERENCE_LINES = 3
+ANCHOR_CORRELATION_THRESHOLD = 0.4
 
-from meridia.methods import bayesian, controls, design_based
-from meridia.methods import actuarial_reference as AR
-from meridia.actuarial import ELIGIBILITY_FLOORS
-from meridia.actuarial import MIN_CELL_PERSONS as AR_MIN_CELL_PERSONS
-from meridia.actuarial import MIN_EXPECTED_EVENTS as AR_MIN_EXPECTED_EVENTS
-from meridia.actuarial import ensemble_truth as AR_ensemble_truth
-from meridia.actuarial import quantile_score
-from meridia.release import ESTIMAND_BY_ID
-from meridia.verify import verify_submission
-
-# ------------------------------------------------------------------ declared margins
-# Fixed before the first qualification world was scored. A bar is the worse witness
-# times its margin, never below its floor; a floor bar is the worse witness minus its
-# slack, never below its own floor. Nothing here is a function of a measured value.
-ACCURACY_MARGIN = 1.25
-COVERAGE_SLACK = 0.10
-SCORE_MARGIN = 1.5
-RATE_MARGIN = 1.5            # exposure, mortality and incidence percentile errors
-TAIL_MARGIN = 1.5            # exceedance deviations, quantile score, shortfall error
-SHORTFALL_MARGIN = 1.5       # worst regional shortfall probability
-SKILL_SLACK = 0.15           # skill minimum sits this far under the worse witness
-
-# Floors. A bar taken only from the in-sample worst miss leaves no room where the two
-# witnesses happened to be accurate, and a fresh world then fails on noise. Each floor
-# states the irreducible between-world variation of its own quantity under the public
-# mechanism ranges, and each is fixed before any world is seen.
-RATE_FLOOR = {"person_years_exposure": 0.10,   # linkage and coverage churn on exposure
-              "mortality_rate": 0.25,          # thin death counts in the oldest bands
-              "qualifying_event_rate": 0.25}   # health inclusion is anchored, not known
-RATE_COVERAGE_CAP = 0.60     # never demand more coverage than this, or than attained
-TAU_MEAN_FLOOR = 0.020
-TAU_WORST_FLOOR = 0.050
-QUANTILE_SCORE_FLOOR = 0.050
-ES_ERROR_FLOOR = 0.100
-SHORTFALL_FLOOR = 0.150
-CATASTROPHIC_FLOOR = 0.500
-SKILL_CAP = 0.60             # never demand more skill than this, or than attained
-
-# Declared attainability targets. A bar is a gate only inside the range its own criterion
-# can take, and only where it is tight enough to refuse a method that ignores the
-# mechanism it scores. Version four's first freeze clamped nothing and emitted three bars
-# that could never fire: a tau_worst of 1.425 against a deviation whose maximum is 0.95, a
-# regional shortfall ceiling of 1.5 against a probability, and a coverage floor of -0.06.
-#
-# Each entry below is the loosest value that still gates, fixed here before any world was
-# scored. When the worse witness needs more room than its cap allows, the bar is written at
-# the cap, the witness fails it, and the run reports NOT FROZEN for that gate. A cap is
-# never widened to admit a witness.
-CEILING_CAP = {
-    "tau_mean": 0.150,                    # mean |p_r - 0.05|; mean-only tails sit near 0.45
-    "tau_worst": 0.300,                   # the 0.90 quantile of the same deviation
-    "es_error_ceiling": 0.100,            # |ES_hat - ES*| on the regional scale
-    "regional_shortfall_ceiling": 0.350,  # a probability, so never above one
-    "catastrophic_tail_ceiling": 0.500,
-    "exposure_error_ceiling": 0.500,
-    "mortality_error_ceiling": 1.000,
-    "incidence_error_ceiling": 1.000,
-    # The two width bars are the ones that separate a tail from a level. A submission out
-    # by half the ensemble's own tail width is the loosest that still refuses a mean-only
-    # tail and a doubled one, both of which are out by a full width.
-    "q95_width_error_ceiling": 0.500,
-    "es95_width_error_ceiling": 0.500,
+REGIME_AXES = (
+    "mortality_improvement",
+    "migration_age_pattern",
+    "age_reporting_error",
+    "linkage_urban_gradient",
+    "administrative_completeness",
+    "missingness_target_dependence",
+)
+REGIME_EXPECTED_SIGNS = {
+    "mortality_improvement": 1,
+    "migration_age_pattern": 1,
+    "age_reporting_error": 1,
+    "linkage_urban_gradient": -1,
+    "administrative_completeness": 1,
+    "missingness_target_dependence": 1,
 }
-# Caps for the bars that sit outside the actuarial block.
-TOP_LEVEL_CEILING_CAP = {"detailed_accuracy_ceiling": 0.500}
-
-# What each criterion can take, for the bars whose range is bounded by construction. A
-# ceiling at or above its own maximum, or a floor at or below its own minimum, cannot
-# refuse anything; the freeze says so and does not complete. Version four's first pass
-# wrote a tau_worst of 1.425 against a deviation whose maximum is 0.95, a regional
-# shortfall ceiling of 1.5 against a probability, and a coverage floor of -0.06.
-CRITERION_RANGE = {
-    "tau_mean": (0.0, 0.95),
-    "tau_worst": (0.0, 0.95),
-    "regional_shortfall_ceiling": (0.0, 1.0),
-    "rate_coverage_floor": (0.0, 1.0),
-    "disclosure_utility_floor": (0.0, 1.0),
-    "skill_minimum": (None, 1.0),
+HIDDEN_IN_BAND_AXES = (
+    "administrative_completeness",
+    "missingness_target_dependence",
+)
+HIDDEN_EXTRAPOLATION_AXES = tuple(
+    axis for axis in REGIME_AXES if axis not in HIDDEN_IN_BAND_AXES
+)
+DEVELOPMENT_AXIS_RANGES: dict[str, tuple[float, float]] = {
+    "mortality_improvement": (-0.010, 0.048),
+    "migration_age_pattern": (0.25, 1.55),
+    "age_reporting_error": (0.70, 2.05),
+    "linkage_urban_gradient": (0.30, 1.55),
+    "administrative_completeness": (0.30, 1.70),
+    "missingness_target_dependence": (0.20, 1.30),
 }
-FLOOR_BARS = ("rate_coverage_floor", "disclosure_utility_floor", "skill_minimum")
-# The quantile score has no natural scale, so its cap is a declared multiple of the score
-# the sealed truth itself attains on the same ensemble: a submission may pay this much more
-# than perfect information does, and no more.
-QUANTILE_SCORE_ORACLE_MULTIPLE = 1.75
-# Floor bars: a bar below its minimum is not a gate, it is a formality.
-# The rate coverage bar is deliberately absent: the protocol's own review says the coverage
-# gate is an empirical tolerance frozen on generator-only worlds, not a nominal level, so it
-# takes the witnesses' own attainment minus the declared slack and is only clamped to the
-# range a coverage can take.
-FLOOR_MINIMUM = {
-    "skill_minimum": 0.050,          # never accept an allocation worse than the public baseline
-    "disclosure_utility_floor": 0.500,
+PUBLIC_AXIS_RANGES: dict[str, tuple[float, float]] = {
+    "mortality_improvement": (-0.030, 0.075),
+    "migration_age_pattern": (0.00, 2.40),
+    "age_reporting_error": (0.35, 3.40),
+    "linkage_urban_gradient": (0.00, 2.60),
+    "administrative_completeness": (0.00, 2.80),
+    "missingness_target_dependence": (0.00, 2.20),
 }
-DISCLOSURE_UTILITY_CAP = 0.90
-DISCLOSURE_UTILITY_SLACK = 0.10
-DETAILED_ACCURACY_FLOOR = 0.050  # the released detailed cells carry at least this much room
-Q95_WIDTH_FLOOR = 0.200          # in units of the ensemble's own regional tail width
-ES95_WIDTH_FLOOR = 0.200
 
-ACCURACY_FLOOR = {
-    "nation": {"count": 0.05, "mean": 0.08, "median": 0.08, "proportion": 0.010},
-    "state": {"count": 0.08, "mean": 0.12, "median": 0.12, "proportion": 0.020},
-    "county": {"count": 0.15, "mean": 0.15, "median": 0.15, "proportion": 0.030},
+GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
+    "exposures_and_rates": ("p95_relative_error",),
+    "release_accuracy": ("p95_relative_error",),
+    "interval_quality": ("coverage_deviation", "mean_interval_score"),
+    "tail_calibration": (
+        "pooled_exceedance_deviation",
+        "q95_width_relative_error",
+        "es95_width_relative_error",
+    ),
+    "reserve_skill": ("skill_loss",),
 }
-ACCURACY_FLOOR["all"] = ACCURACY_FLOOR["county"]
 
-RATE_KEY_ESTIMANDS = tuple(RATE_FLOOR)
+# Criterion ranges, not tunable attainability caps. An unbounded endpoint is null in JSON.
+COMPONENT_RANGES: dict[tuple[str, str], tuple[float, float | None]] = {
+    ("exposures_and_rates", "p95_relative_error"): (0.0, None),
+    ("release_accuracy", "p95_relative_error"): (0.0, None),
+    ("interval_quality", "coverage_deviation"): (0.0, 1.0),
+    ("interval_quality", "mean_interval_score"): (0.0, None),
+    ("tail_calibration", "pooled_exceedance_deviation"): (0.0, 0.95),
+    ("tail_calibration", "q95_width_relative_error"): (0.0, None),
+    ("tail_calibration", "es95_width_relative_error"): (0.0, None),
+    ("reserve_skill", "skill_loss"): (0.0, None),
+}
+
+# A name here denotes an omitted scientific layer or a deliberately wrong scientific
+# method. An arbitrary submission cannot support a gate merely by calling itself a control.
+# Every registered control must be run once on every qualification world and must fail
+# every one of those runs at its single primary gate.  The registry includes the complete
+# runnable V4 qualification battery.  Operator-only oracle decompositions remain
+# diagnostics: using sealed truth makes them unsuitable as wrong participant methods.
+SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
+    "exposures_and_rates": (
+        "deterministic_linkage",
+        "ignore_health_selection",
+        "informative_selection",
+    ),
+    "release_accuracy": (
+        "register_only",
+        "survey_only",
+        "no_dedup",
+        "static_projection",
+        "benchmark_only",
+        "exact_key_union",
+        "version_three_recipe",
+        "experience_history_only",
+    ),
+    "interval_quality": (
+        "inflated_intervals",
+        "reconstruction_uncertainty",
+    ),
+    "tail_calibration": (
+        "development_average_regime",
+        "mean_only_tail",
+        "normal_tail",
+        "padded_tail",
+        "regime_recombination",
+        "predictive_tails",
+    ),
+    "reserve_skill": (
+        "uniform_allocation",
+        "reserve_allocation",
+        "proportional_reserve",
+    ),
+}
+
+REQUIRED_SCIENTIFIC_CONTROLS = tuple(sorted({
+    control
+    for controls in SCIENTIFIC_CONTROLS_BY_GATE.values()
+    for control in controls
+}))
+
+CORRELATION_CAVEAT = (
+    "The marginal products assume independent gate and world failures. They are "
+    "arithmetic summaries, not empirical pass probabilities; failures can be correlated."
+)
+FINITE_WORLD_CAVEAT = (
+    "Only six qualification worlds support this freeze. Replicate false-fail rates are "
+    "conditional on those worlds and do not establish a one-percent rate on new worlds."
+)
+TAIL_DEFINITION_LINES = (
+    "q95 is order statistic ceil(0.95 * M) of the M continuations.",
+    "ES95 is the mean of all continuations tied at or above q95.",
+)
+ELIGIBILITY_BANDS = (
+    "0-17", "18-44", "45-64", "65-74", "75-84", "85+", "18-64", "65+"
+)
+ELDER_EXPOSURE_ERROR_DEFINITION = (
+    "100 * sum_state abs(submitted_state_65plus_person_years - "
+    "sealed_state_65plus_person_years) / sum_state sealed_state_65plus_person_years"
+)
+POOLED_EXCEEDANCE_DEFINITION = (
+    "mean_region abs(sealed Pr(L > submitted_q95) - 0.05)"
+)
+EXPECTED_MORTALITY_SHOCK_RANGES = [
+    {"kind": "mortality_spike", "range": [1.5, 3.0]},
+]
+EXPECTED_ADMISSION_SHOCK_RANGES = [
+    {"kind": "mortality_spike", "range": [1.4, 2.6]},
+]
+MORTALITY_IDENTIFICATION_BASE: dict[str, Any] = {
+    "schema": "meridia.v4.mortality-identification.v1",
+    "supports_gate": "tail_calibration",
+    "trend": {
+        "active_during_public_experience_window": True,
+        "public_experience_years": [4, 5, 6, 7, 8],
+        "starts_only_after_publication": False,
+    },
+    "publication_lag": {
+        "months": 12,
+        "trend_effect_percent_range": [-7.24, 1.60],
+    },
+    "shock_process": {
+        "annual_probability": 0.20,
+        "expected_all_shock_years_per_five_year_horizon": 1.0,
+        "probability_any_shock_in_five_year_horizon": 0.6723,
+        "expected_mortality_spike_years_per_five_year_horizon": 0.333,
+        "probability_any_mortality_spike_in_five_year_horizon": 0.2918,
+        "redrawn_independently_in_every_continuation": True,
+    },
+    "per_world": {
+        "qual-0": {"horizon_history_ratio": 1.057, "trend_only_ratio": 0.935,
+                   "residual_ratio": 1.130, "lag_trend_factor": 0.9889,
+                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 1},
+                   "all_shock_years_in_horizon": 2},
+        "qual-1": {"horizon_history_ratio": 0.698, "trend_only_ratio": 0.752,
+                   "residual_ratio": 0.928, "lag_trend_factor": 0.9536,
+                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
+                   "all_shock_years_in_horizon": 1},
+        "qual-2": {"horizon_history_ratio": 0.916, "trend_only_ratio": 1.100,
+                   "residual_ratio": 0.833, "lag_trend_factor": 1.0160,
+                   "mortality_spike_years": {"history": 1, "lag": 0, "horizon": 0},
+                   "all_shock_years_in_horizon": 0},
+        "qual-3": {"horizon_history_ratio": 0.672, "trend_only_ratio": 0.792,
+                   "residual_ratio": 0.848, "lag_trend_factor": 0.9619,
+                   "mortality_spike_years": {"history": 1, "lag": 0, "horizon": 1},
+                   "all_shock_years_in_horizon": 1},
+        "qual-4": {"horizon_history_ratio": 0.595, "trend_only_ratio": 0.637,
+                   "residual_ratio": 0.935, "lag_trend_factor": 0.9276,
+                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
+                   "all_shock_years_in_horizon": 0},
+        "qual-5": {"horizon_history_ratio": 0.695, "trend_only_ratio": 0.766,
+                   "residual_ratio": 0.908, "lag_trend_factor": 0.9565,
+                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
+                   "all_shock_years_in_horizon": 1},
+    },
+}
 
 
-def _floor_for(key: str) -> float:
-    estimand, level = key.split("/")
-    return ACCURACY_FLOOR[level][ESTIMAND_BY_ID[estimand].kind]
+class EvidenceError(ValueError):
+    """Evidence is absent, ambiguous, duplicated, or non-finite."""
 
 
-def _gated_blocks(reports: dict, estimand: str) -> list:
-    """Every gated block of one estimand that had a cell to read."""
-    return [m for r in reports.values() for k, m in r["rate_metrics"].items()
-            if m["gated"] and k.split("/")[0] == estimand and int(m.get("n_cells", 0))]
+def _canonical_digest(value: Any) -> str:
+    try:
+        payload = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("evidence binding must be finite JSON") from exc
+    return hashlib.sha256(payload).hexdigest()
 
 
-def _rate_cell_record(reports: dict) -> dict:
-    """Which cells each rate bar was frozen from, world by world.
+def _source_digest(relative_paths: Sequence[str]) -> str:
+    root = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256()
+    for relative in sorted(relative_paths):
+        path = root / relative
+        if path.is_symlink() or not path.is_file():
+            raise EvidenceError(f"identification source {relative} is unavailable")
+        name = relative.encode("utf-8")
+        payload = path.read_bytes()
+        digest.update(len(name).to_bytes(8, "big"))
+        digest.update(name)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()
 
-    A rate ceiling is only as strong as the cells its eligibility rule admits, and version
-    four's first pass froze three of them on a cell set that held no band at 65 and over
-    without saying so anywhere. The freeze report and the provenance now carry the count
-    per world and the cells themselves.
-    """
-    record: dict[str, dict] = {}
-    for (name, world), report in sorted(reports.items()):
-        for key, m in sorted(report["rate_metrics"].items()):
-            if not m["gated"]:
-                continue
-            block = record.setdefault(key, {"n_cells": {}, "cells": [], "empty": []})
-            block["n_cells"][f"{world}/{name}"] = int(m.get("n_cells", 0))
-            if not int(m.get("n_cells", 0)):
-                block["empty"].append(f"{world}/{name}")
-                continue
-            for cell in m.get("cells", []):
-                entry = [int(cell[0]), str(cell[1]), str(cell[2])]
-                if entry not in block["cells"]:
-                    block["cells"].append(entry)
-    for block in record.values():
-        block["cells"].sort()
-        block["bands"] = sorted({cell[2] for cell in block["cells"]})
+
+def mortality_identification_evidence() -> dict[str, Any]:
+    evidence = json.loads(json.dumps(MORTALITY_IDENTIFICATION_BASE))
+    evidence["generator_source_digest_sha256"] = _source_digest((
+        "meridia/events.py", "meridia/mechanisms.py", "meridia/packet.py"
+    ))
+    evidence["diagnostic_digest_sha256"] = _canonical_digest(evidence)
+    return evidence
+
+
+def _sha256(value: Any, label: str) -> str:
+    text = _identifier(value, label).lower()
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise EvidenceError(f"{label} must be a lowercase SHA-256 digest")
+    return text
+
+
+def _report_binding(report: Mapping[str, Any]) -> dict[str, str]:
+    evidence = report.get("evidence")
+    if not isinstance(evidence, Mapping) \
+            or evidence.get("schema") != VERIFIER_EVIDENCE_SCHEMA:
+        raise EvidenceError(
+            f"verifier report must carry {VERIFIER_EVIDENCE_SCHEMA} evidence"
+        )
+    return {
+        name: _sha256(evidence.get(name), name)
+        for name in (
+            "packet_digest_sha256",
+            "contract_digest_sha256",
+            "submission_digest_sha256",
+            "verifier_digest_sha256",
+        )
+    }
+
+
+def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
+    """Return the exact replay binding whose digest is the evidence identifier."""
+
+    if kind not in {"reference", "replicate", "control"}:
+        raise EvidenceError(f"unknown evidence kind {kind!r}")
+    report = _report(entry)
+    metadata = _metadata(entry)
+    binding: dict[str, Any] = {
+        "schema": EVIDENCE_BINDING_SCHEMA,
+        "kind": kind,
+        "world": _identifier(_first(metadata, "world", "world_id"), "world"),
+        "method_digest_sha256": _sha256(
+            _first(metadata, "method_digest_sha256"), "method_digest_sha256"
+        ),
+        "runner_digest_sha256": _sha256(
+            _first(metadata, "runner_digest_sha256"), "runner_digest_sha256"
+        ),
+        **_report_binding(report),
+        "verifier_report_digest_sha256": _canonical_digest(report),
+    }
+    if kind == "control":
+        binding["control"] = _identifier(
+            _first(metadata, "control", "control_name"), "control"
+        )
+    else:
+        binding["reference_line"] = _identifier(
+            _first(metadata, "reference_line", "witness", "line"),
+            "reference_line",
+        )
+    if kind == "replicate":
+        binding["replicate_id"] = _identifier(
+            _first(metadata, "replicate_id", "replicate"), "replicate_id"
+        )
+        binding["resample_digest_sha256"] = _sha256(
+            _first(metadata, "resample_digest_sha256"),
+            "resample_digest_sha256",
+        )
+        design = _first(metadata, "resampling_design")
+        if not isinstance(design, Mapping) or not design:
+            raise EvidenceError("resampling_design must be a nonempty object")
+        # A canonical round trip strips custom mapping behavior and rejects NaN.
+        try:
+            binding["resampling_design"] = json.loads(json.dumps(
+                design, sort_keys=True, allow_nan=False
+            ))
+        except (TypeError, ValueError) as exc:
+            raise EvidenceError("resampling_design must be finite JSON") from exc
+    return binding
+
+
+def evidence_id_for(entry: Mapping[str, Any], *, kind: str) -> str:
+    """Compute the registered evidence identifier for a report wrapper."""
+
+    return _canonical_digest(evidence_binding(entry, kind=kind))
+
+
+def empirical_order_statistic(values: Sequence[float], quantile: float = QUANTILE) -> float:
+    """Return order statistic ``ceil(quantile * N)`` with no interpolation."""
+
+    if isinstance(values, (str, bytes)) or not values:
+        raise EvidenceError("an empirical quantile needs at least one value")
+    if not math.isfinite(float(quantile)) or not 0.0 < float(quantile) <= 1.0:
+        raise EvidenceError("quantile must be finite and in (0, 1]")
+    clean: list[float] = []
+    for value in values:
+        if isinstance(value, bool):
+            raise EvidenceError("boolean values are not metric observations")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise EvidenceError(f"metric observation is not numeric: {value!r}") from exc
+        if not math.isfinite(number):
+            raise EvidenceError("metric observations must all be finite")
+        clean.append(number)
+    rank = math.ceil(float(quantile) * len(clean))
+    return sorted(clean)[rank - 1]
+
+
+def empirical_p99(values: Sequence[float]) -> float:
+    """Return the registered freeze statistic."""
+
+    return empirical_order_statistic(values, QUANTILE)
+
+
+def _metadata(entry: Mapping[str, Any]) -> dict[str, Any]:
+    report = entry.get("report")
+    nested = report.get("evidence") if isinstance(report, Mapping) else None
+    outer = entry.get("evidence")
+    merged: dict[str, Any] = {}
+    if isinstance(nested, Mapping):
+        merged.update(nested)
+    if isinstance(outer, Mapping):
+        merged.update(outer)
+    merged.update({key: value for key, value in entry.items()
+                   if key not in ("report", "evidence")})
+    return merged
+
+
+def _report(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    report = entry.get("report", entry)
+    if not isinstance(report, Mapping):
+        raise EvidenceError("each evidence entry must contain a verifier report object")
+    return report
+
+
+def _first(metadata: Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in metadata:
+            return metadata[name]
+    return None
+
+
+def _identifier(value: Any, label: str) -> str:
+    if isinstance(value, bool) or value is None:
+        raise EvidenceError(f"{label} is missing")
+    text = str(value).strip()
+    if not text:
+        raise EvidenceError(f"{label} is missing")
+    return text
+
+
+def _hard_pass(report: Mapping[str, Any]) -> bool:
+    """Read an explicit deterministic hard-check result; absence is failure."""
+
+    for key in ("hard_pass", "hard_checks_passed", "hard_structure_pass"):
+        if key in report:
+            return report[key] is True
+    checks = report.get("hard_checks")
+    if isinstance(checks, bool):
+        return checks
+    if isinstance(checks, Mapping) and checks:
+        return all(value is True for value in checks.values())
+    return False
+
+
+def _number(value: Any, gate: str, component: str) -> float:
+    if isinstance(value, Mapping):
+        value = value.get("value")
+    if isinstance(value, bool):
+        raise EvidenceError(f"{gate}/{component} is boolean, not numeric")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError(f"{gate}/{component} is missing or non-numeric") from exc
+    if not math.isfinite(number):
+        raise EvidenceError(f"{gate}/{component} is non-finite")
+    low, high = COMPONENT_RANGES[(gate, component)]
+    if number < low or (high is not None and number > high):
+        raise EvidenceError(
+            f"{gate}/{component}={number} is outside its range [{low}, {high}]"
+        )
+    return number
+
+
+def extract_composite_metrics(report: Mapping[str, Any]) -> dict[str, dict[str, float]]:
+    """Validate and extract the exact five-gate metric surface from one report."""
+
+    metrics = report.get("composite_metrics")
+    if not isinstance(metrics, Mapping):
+        raise EvidenceError("verifier report has no composite_metrics object")
+    if set(metrics) != set(GATE_COMPONENTS):
+        missing = sorted(set(GATE_COMPONENTS) - set(metrics))
+        unexpected = sorted(set(metrics) - set(GATE_COMPONENTS))
+        raise EvidenceError(
+            f"composite gate names differ from the freeze schema; missing {missing}, "
+            f"unexpected {unexpected}"
+        )
+    extracted: dict[str, dict[str, float]] = {}
+    for gate, components in GATE_COMPONENTS.items():
+        block = metrics.get(gate)
+        if not isinstance(block, Mapping):
+            raise EvidenceError(f"{gate} metrics must be an object")
+        extracted[gate] = {
+            component: _number(block.get(component), gate, component)
+            for component in components
+        }
+    return extracted
+
+
+def _evidence_identity(entry: Mapping[str, Any], *, replicate: bool,
+                       control: bool = False) -> dict[str, Any]:
+    metadata = _metadata(entry)
+    kind = "control" if control else ("replicate" if replicate else "reference")
+    binding = evidence_binding(entry, kind=kind)
+    evidence_id = _identifier(
+        _first(metadata, "evidence_id", "evidence_digest", "report_id"),
+        "evidence_id",
+    )
+    expected_id = _canonical_digest(binding)
+    if evidence_id != expected_id:
+        raise EvidenceError(
+            f"{evidence_id}: evidence_id does not match its replay binding; "
+            f"expected {expected_id}"
+        )
+    identity = {
+        "world": binding["world"],
+        "evidence_id": evidence_id,
+        "binding": binding,
+    }
+    if metadata.get("deterministic") is not True:
+        raise EvidenceError(
+            f"{identity['evidence_id']}: deterministic must be explicitly true"
+        )
+    if control:
+        identity["control"] = binding["control"]
+    else:
+        identity["reference_line"] = binding["reference_line"]
+    if replicate:
+        identity["replicate_id"] = binding["replicate_id"]
+    return identity
+
+
+def _normalized_reference(entry: Mapping[str, Any], *, replicate: bool) -> dict[str, Any]:
+    if not isinstance(entry, Mapping):
+        raise EvidenceError("reference evidence entries must be objects")
+    report = _report(entry)
+    identity = _evidence_identity(entry, replicate=replicate)
+    return identity | {
+        "hard_pass": _hard_pass(report),
+        "metrics": extract_composite_metrics(report),
+        "report": report,
+    }
+
+
+def _normalized_control(entry: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(entry, Mapping):
+        raise EvidenceError("control evidence entries must be objects")
+    report = _report(entry)
+    identity = _evidence_identity(entry, replicate=False, control=True)
+    return identity | {
+        "hard_pass": _hard_pass(report),
+        "metrics": extract_composite_metrics(report),
+        "report": report,
+    }
+
+
+def _normalize_entries(entries: Iterable[Mapping[str, Any]], *, kind: str) -> list[dict[str, Any]]:
+    normalizer = {
+        "reference": lambda entry: _normalized_reference(entry, replicate=False),
+        "replicate": lambda entry: _normalized_reference(entry, replicate=True),
+        "control": _normalized_control,
+    }[kind]
+    normalized = [normalizer(entry) for entry in entries]
+    evidence_ids = [entry["evidence_id"] for entry in normalized]
+    counts: defaultdict[str, int] = defaultdict(int)
+    for evidence_id in evidence_ids:
+        counts[evidence_id] += 1
+    duplicates = sorted(item for item, count in counts.items() if count > 1)
+    if duplicates:
+        raise EvidenceError(f"duplicate {kind} evidence_id values: {duplicates}")
+    return normalized
+
+
+def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
+                               replicates: Sequence[Mapping[str, Any]],
+                               controls: Sequence[Mapping[str, Any]],
+                               lines: Sequence[str], worlds: Sequence[str]) -> None:
+    all_entries = [*references, *replicates, *controls]
+    if any(entry["world"] not in worlds for entry in controls):
+        raise EvidenceError("control evidence names an unregistered qualification world")
+    for field in ("verifier_digest_sha256", "runner_digest_sha256"):
+        values = {entry["binding"][field] for entry in all_entries}
+        if len(values) != 1:
+            raise EvidenceError(f"evidence was produced by more than one {field[:-7]}")
+    for world in worlds:
+        rows = [entry for entry in all_entries if entry["world"] == world]
+        for field in ("packet_digest_sha256", "contract_digest_sha256"):
+            values = {entry["binding"][field] for entry in rows}
+            if len(values) != 1:
+                raise EvidenceError(f"{world}: evidence disagrees on {field}")
+    method_by_line: dict[str, str] = {}
+    for line in lines:
+        values = {
+            entry["binding"]["method_digest_sha256"]
+            for entry in (*references, *replicates)
+            if entry["reference_line"] == line
+        }
+        if len(values) != 1:
+            raise EvidenceError(f"{line}: final and replicate method digests differ")
+        method_by_line[line] = next(iter(values))
+    if len(set(method_by_line.values())) != len(method_by_line):
+        raise EvidenceError("reference lines must have distinct method digests")
+    by_pair: defaultdict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    designs: set[str] = set()
+    for entry in replicates:
+        by_pair[(entry["reference_line"], entry["world"])].append(entry)
+        designs.add(_canonical_digest(entry["binding"]["resampling_design"]))
+    if len(designs) != 1:
+        raise EvidenceError("replicate reports use more than one resampling design")
+    for pair, rows in by_pair.items():
+        digests = [row["binding"]["resample_digest_sha256"] for row in rows]
+        if len(digests) != len(set(digests)):
+            raise EvidenceError(f"duplicate resample digest within {pair}")
+
+
+def _freeze_provenance(references: Sequence[Mapping[str, Any]],
+                       replicates: Sequence[Mapping[str, Any]],
+                       controls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    def records(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            [dict(row["binding"], evidence_id=row["evidence_id"]) for row in rows],
+            key=lambda row: (
+                row["kind"], row.get("reference_line", row.get("control", "")),
+                row["world"], row.get("replicate_id", ""), row["evidence_id"],
+            ),
+        )
+
+    record = {
+        "schema": PROVENANCE_SCHEMA,
+        "reference_reports": records(references),
+        "replicate_reports": records(replicates),
+        "control_reports": records(controls),
+    }
+    record["digest_sha256"] = _canonical_digest(record)
     return record
 
 
-def _rate_bars(reports: dict) -> dict:
-    """One ceiling per rate estimand, from the worse witness over every gated cell."""
-    bars = {}
-    for estimand in RATE_KEY_ESTIMANDS:
-        worst = [m["percentile_error"] for m in _gated_blocks(reports, estimand)]
-        value = max(worst) if worst else 0.0
-        name = {"person_years_exposure": "exposure_error_ceiling",
-                "mortality_rate": "mortality_error_ceiling",
-                "qualifying_event_rate": "incidence_error_ceiling"}[estimand]
-        bars[name] = round(max(RATE_MARGIN * value, RATE_FLOOR[estimand]), 6)
-    coverage = [m["coverage"] for estimand in RATE_KEY_ESTIMANDS
-                for m in _gated_blocks(reports, estimand)]
-    # A coverage bar is a floor on the submission, so its constant is a cap on the bar,
-    # never a floor under it. A constant that sits above what both witnesses attain is
-    # not a bar, it is a world neither of them can pass.
-    bars["rate_coverage_floor"] = round(
-        max(min(min(coverage) - COVERAGE_SLACK, RATE_COVERAGE_CAP), 0.0), 3) if coverage \
-        else RATE_COVERAGE_CAP
-    return bars
+def _audit_number(value: Any, label: str, *, low: float = 0.0,
+                  high: float | None = None) -> float:
+    if isinstance(value, bool):
+        raise EvidenceError(f"{label} must be numeric")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError(f"{label} must be numeric") from exc
+    if not math.isfinite(number) or number < low or (high is not None and number > high):
+        raise EvidenceError(f"{label} is outside its registered range")
+    return number
 
 
-def _oracle_quantile_score(packets: list) -> float:
-    """The quantile score perfect information itself pays, worst over the worlds.
+def _valid_shock_ranges(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(record, Mapping) and isinstance(record.get("kind"), str)
+        and bool(record["kind"])
+        and isinstance(record.get("range"), list) and len(record["range"]) == 2
+        and all(not isinstance(item, bool) and isinstance(item, (int, float))
+                and math.isfinite(float(item)) for item in record["range"])
+        and 0.0 < float(record["range"][0]) <= float(record["range"][1])
+        for record in value
+    )
 
-    Read from the sealed ensemble alone, with no submission in it, which is the oracle
-    distribution protocol section 12 says a bar is preregistered against.
+
+def _validate_elder_audit(audit: Mapping[str, Any] | None,
+                          references: Sequence[Mapping[str, Any]],
+                          lines: Sequence[str], worlds: Sequence[str]) -> dict[str, Any]:
+    if not isinstance(audit, Mapping) or audit.get("schema") != ELDER_AUDIT_SCHEMA:
+        raise EvidenceError(f"a complete {ELDER_AUDIT_SCHEMA} report is required")
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("elder reconstruction audit must be finite JSON") from exc
+    recorded_digest = normalized.pop("digest_sha256", None)
+    if recorded_digest is not None and (
+        not isinstance(recorded_digest, str)
+        or recorded_digest != _canonical_digest(normalized)
+    ):
+        raise EvidenceError("elder reconstruction audit digest differs from its content")
+    method = normalized.get("method_digest")
+    if not isinstance(method, Mapping):
+        raise EvidenceError("elder audit method digest is missing")
+    before_line = _identifier(method.get("before_line"), "elder audit before_line")
+    after_line = _identifier(method.get("after_line"), "elder audit after_line")
+    source_digest = _sha256(method.get("source_sha256"), "elder audit source_sha256")
+    commit = _identifier(method.get("git_commit"), "elder audit git_commit").lower()
+    if len(commit) < 7 or len(commit) > 40 \
+            or any(character not in "0123456789abcdef" for character in commit):
+        raise EvidenceError("elder audit git_commit must be a hexadecimal commit id")
+    if before_line not in lines or after_line not in lines or before_line == after_line:
+        raise EvidenceError("elder audit lines are absent from the reference design")
+    after_digests = {
+        row["binding"]["method_digest_sha256"] for row in references
+        if row["reference_line"] == after_line
+    }
+    if after_digests != {source_digest}:
+        raise EvidenceError("elder audit source digest differs from the third reference line")
+
+    shock = normalized.get("shock_redraw")
+    if not isinstance(shock, Mapping) or shock.get("annual_probability") != 0.20 \
+            or shock.get("independent_per_member") is not True \
+            or shock.get("magnitude_source") != "participant/contract.json:shock_family" \
+            or not _valid_shock_ranges(shock.get("mortality_ranges")) \
+            or not _valid_shock_ranges(shock.get("admission_ranges")) \
+            or shock.get("mortality_ranges") != EXPECTED_MORTALITY_SHOCK_RANGES \
+            or shock.get("admission_ranges") != EXPECTED_ADMISSION_SHOCK_RANGES:
+        raise EvidenceError("elder audit shock redraw does not match the public family")
+    eligibility = normalized.get("eligibility_audit")
+    scored = eligibility.get("scored") if isinstance(eligibility, Mapping) else None
+    if not isinstance(scored, Mapping) or scored.get("age_band") != "65+" \
+            or scored.get("floor_person_years") != 500 \
+            or eligibility.get("report_only") != ["65-74", "75-84", "85+"] \
+            or eligibility.get("younger_floors_changed") is not False:
+        raise EvidenceError("elder audit eligibility rule differs from the frozen decision")
+
+    rows = normalized.get("worlds")
+    if not isinstance(rows, list) or len(rows) != len(worlds) \
+            or [row.get("world") for row in rows if isinstance(row, Mapping)] != list(worlds):
+        raise EvidenceError("elder audit must contain qual-0 through qual-5 in order")
+    reference_by_key = {
+        (row["reference_line"], row["world"]): row for row in references
+    }
+    before_errors: list[float] = []
+    after_errors: list[float] = []
+    for row in rows:
+        world = row["world"]
+        before_reference = reference_by_key[(before_line, world)]
+        after_reference = reference_by_key[(after_line, world)]
+        if row.get("before_report_evidence_id") != before_reference["evidence_id"] \
+                or row.get("after_report_evidence_id") != after_reference["evidence_id"]:
+            raise EvidenceError(f"{world}: elder audit is not bound to its verifier reports")
+        exposure = row.get("exposure_65_plus_absolute_error_percent")
+        if not isinstance(exposure, Mapping) \
+                or exposure.get("definition") != ELDER_EXPOSURE_ERROR_DEFINITION:
+            raise EvidenceError(f"{world}: elder exposure error definition differs")
+        before_error = _audit_number(exposure.get("before"), f"{world}: before exposure error")
+        after_error = _audit_number(exposure.get("after"), f"{world}: after exposure error")
+        state_rows = row.get("state_65_plus_person_years")
+        if not isinstance(state_rows, list) or len(state_rows) != 6 \
+                or {item.get("state") for item in state_rows
+                    if isinstance(item, Mapping)} != set(range(6)):
+            raise EvidenceError(f"{world}: state elder exposure rows are incomplete")
+        denominator = 0.0
+        before_numerator = 0.0
+        after_numerator = 0.0
+        for item in state_rows:
+            sealed = _audit_number(item.get("sealed"), f"{world}: sealed exposure")
+            submitted_before = _audit_number(
+                item.get("submitted_before"), f"{world}: before exposure")
+            submitted_after = _audit_number(
+                item.get("submitted_after"), f"{world}: after exposure")
+            denominator += sealed
+            before_numerator += abs(submitted_before - sealed)
+            after_numerator += abs(submitted_after - sealed)
+        if denominator <= 0.0 \
+                or not math.isclose(before_error, 100.0 * before_numerator / denominator,
+                                    rel_tol=1e-9, abs_tol=1e-9) \
+                or not math.isclose(after_error, 100.0 * after_numerator / denominator,
+                                    rel_tol=1e-9, abs_tol=1e-9):
+            raise EvidenceError(f"{world}: elder exposure error does not recompute")
+        liability = row.get("liability_mean_by_region")
+        if not isinstance(liability, list) or len(liability) != 6 \
+                or {item.get("region") for item in liability
+                    if isinstance(item, Mapping)} != set(range(6)):
+            raise EvidenceError(f"{world}: liability mean rows are incomplete")
+        for item in liability:
+            for field in ("submitted_before", "submitted_after", "sealed"):
+                _audit_number(item.get(field), f"{world}: liability {field}")
+        exceedance = row.get("pooled_exceedance_deviation")
+        if not isinstance(exceedance, Mapping) \
+                or exceedance.get("definition") != POOLED_EXCEEDANCE_DEFINITION:
+            raise EvidenceError(f"{world}: pooled exceedance definition differs")
+        before_exceedance = _audit_number(
+            exceedance.get("before"), f"{world}: before pooled exceedance", high=0.95)
+        after_exceedance = _audit_number(
+            exceedance.get("after"), f"{world}: after pooled exceedance", high=0.95)
+        if not math.isclose(
+            before_exceedance,
+            before_reference["metrics"]["tail_calibration"]["pooled_exceedance_deviation"],
+            rel_tol=1e-12, abs_tol=1e-12,
+        ) or not math.isclose(
+            after_exceedance,
+            after_reference["metrics"]["tail_calibration"]["pooled_exceedance_deviation"],
+            rel_tol=1e-12, abs_tol=1e-12,
+        ):
+            raise EvidenceError(f"{world}: pooled exceedance differs from the verifier")
+        decomposition = row.get("mortality_gap_decomposition")
+        if not isinstance(decomposition, Mapping):
+            raise EvidenceError(f"{world}: mortality decomposition is missing")
+        for field in ("history_mortality_rate", "horizon_mortality_rate"):
+            _audit_number(decomposition.get(field), f"{world}: {field}", low=0.0)
+        expected_decomposition = MORTALITY_IDENTIFICATION_BASE["per_world"][world]
+        rounded_checks = (
+            ("observed_horizon_to_history_ratio", "horizon_history_ratio", 3),
+            ("trend_only_horizon_to_history_ratio", "trend_only_ratio", 3),
+            ("residual_observed_to_trend_ratio", "residual_ratio", 3),
+            ("publication_lag_trend_factor", "lag_trend_factor", 4),
+        )
+        for actual_field, expected_field, digits in rounded_checks:
+            actual = _audit_number(
+                decomposition.get(actual_field), f"{world}: {actual_field}", low=0.0)
+            if round(actual, digits) != round(
+                float(expected_decomposition[expected_field]), digits
+            ):
+                raise EvidenceError(f"{world}: mortality decomposition differs")
+        if decomposition.get("trend_active_during_public_experience_window") is not True \
+                or decomposition.get("trend_starts_only_after_public_window") is not False \
+                or decomposition.get("publication_lag_months") != 12 \
+                or decomposition.get("last_exposure_midpoint_to_snapshot_months") != 18 \
+                or decomposition.get("continuation_shocks_redrawn_per_member") is not True:
+            raise EvidenceError(f"{world}: mortality timing evidence differs")
+        shock_fields = (
+            ("history_mortality_shock_years", "history"),
+            ("lag_mortality_shock_years", "lag"),
+            ("designated_horizon_mortality_shock_years", "horizon"),
+        )
+        for field, expected_field in shock_fields:
+            years = decomposition.get(field)
+            if not isinstance(years, list) or len(years) \
+                    != expected_decomposition["mortality_spike_years"][expected_field] \
+                    or len(years) != len(set(years)) \
+                    or any(isinstance(year, bool) or not isinstance(year, int)
+                           for year in years):
+                raise EvidenceError(f"{world}: mortality shock years are invalid")
+        before_errors.append(before_error)
+        after_errors.append(after_error)
+    if statistics.median(after_errors) >= 10.0:
+        raise EvidenceError("third-line median elder exposure error is not single digit")
+    if statistics.median(after_errors) >= statistics.median(before_errors):
+        raise EvidenceError("third line does not improve median elder exposure error")
+    normalized["digest_sha256"] = _canonical_digest(normalized)
+    return normalized
+
+
+def _validate_regime_identifiability_audit(
+    audit: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Validate the observable-anchor or in-band disposition for every regime axis."""
+
+    def correlation(value: Any, label: str) -> float:
+        if isinstance(value, bool):
+            raise EvidenceError(f"{label} must be numeric")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise EvidenceError(f"{label} must be numeric") from exc
+        if not math.isfinite(number) or not -1.0 <= number <= 1.0:
+            raise EvidenceError(f"{label} must be in [-1, 1]")
+        return number
+
+    if not isinstance(audit, Mapping) \
+            or audit.get("schema") != REGIME_IDENTIFIABILITY_SCHEMA:
+        raise EvidenceError(f"a complete {REGIME_IDENTIFIABILITY_SCHEMA} report is required")
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("regime identifiability audit must be finite JSON") from exc
+    recorded_digest = normalized.pop("digest_sha256", None)
+    if not isinstance(recorded_digest, str) \
+            or recorded_digest != _canonical_digest(normalized):
+        raise EvidenceError("regime identifiability audit digest differs from its content")
+    if normalized.get("anchor_correlation_threshold") != ANCHOR_CORRELATION_THRESHOLD \
+            or normalized.get("world_count") != 18 \
+            or not _sha256(normalized.get("measurement_rows_digest_sha256"),
+                           "measurement_rows_digest_sha256") \
+            or not _sha256(normalized.get("generator_source_digest_sha256"),
+                           "generator_source_digest_sha256"):
+        raise EvidenceError("regime identifiability audit design differs from the freeze")
+    bindings = normalized.get("world_bindings")
+    expected_worlds = {
+        **{f"dev-{index:02d}": "development" for index in range(12)},
+        **{f"qual-{index}": "hidden" for index in range(6)},
+    }
+    if not isinstance(bindings, list) or len(bindings) != len(expected_worlds):
+        raise EvidenceError("regime identifiability audit needs twelve development and six qualification worlds")
+    seen: dict[str, str] = {}
+    for binding in bindings:
+        if not isinstance(binding, Mapping):
+            raise EvidenceError("regime identifiability world bindings must be objects")
+        world = _identifier(binding.get("world"), "identifiability world")
+        regime = _identifier(binding.get("regime"), f"{world} regime")
+        _sha256(binding.get("participant_digest_sha256"), f"{world} participant digest")
+        _sha256(binding.get("packet_manifest_digest_sha256"), f"{world} manifest digest")
+        if world in seen:
+            raise EvidenceError(f"{world}: duplicate identifiability world binding")
+        seen[world] = regime
+    if seen != expected_worlds:
+        raise EvidenceError("regime identifiability world names or regimes differ")
+    policy = normalized.get("generator_policy")
+    expected_policy = {
+        "outside_axis_count": 2,
+        "eligible_for_outside_development_band": list(HIDDEN_EXTRAPOLATION_AXES),
+        "held_inside_development_band": list(HIDDEN_IN_BAND_AXES),
+    }
+    if policy != expected_policy:
+        raise EvidenceError("hidden-axis generator policy differs from the registered constraint")
+    axes = normalized.get("axes")
+    if not isinstance(axes, Mapping) or set(axes) != set(REGIME_AXES):
+        raise EvidenceError("regime identifiability audit must contain all six axes")
+    for axis in REGIME_AXES:
+        record = axes[axis]
+        if not isinstance(record, Mapping):
+            raise EvidenceError(f"{axis}: identifiability record must be an object")
+        signed = correlation(
+            record.get("signed_rank_correlation"),
+            f"{axis}: signed rank correlation",
+        )
+        qualified = signed > ANCHOR_CORRELATION_THRESHOLD
+        within = record.get("within_regime_signed_rank_correlation")
+        observed = record.get("intensity_range_observed")
+        _identifier(record.get("statistic"), f"{axis}: statistic")
+        if record.get("expected_sign") != REGIME_EXPECTED_SIGNS[axis] \
+                or not isinstance(within, Mapping) or set(within) != {"development", "hidden"} \
+                or not isinstance(observed, list) or len(observed) != 2 \
+                or record.get("anchor_correlation_qualified") is not qualified \
+                or record.get("development_range") != list(DEVELOPMENT_AXIS_RANGES[axis]):
+            raise EvidenceError(f"{axis}: identifiability measurement is invalid")
+        for regime, value in within.items():
+            correlation(value, f"{axis}: {regime} signed rank correlation")
+        observed_low = _audit_number(
+            observed[0], f"{axis}: observed intensity minimum",
+            low=PUBLIC_AXIS_RANGES[axis][0], high=PUBLIC_AXIS_RANGES[axis][1],
+        )
+        observed_high = _audit_number(
+            observed[1], f"{axis}: observed intensity maximum",
+            low=PUBLIC_AXIS_RANGES[axis][0], high=PUBLIC_AXIS_RANGES[axis][1],
+        )
+        if observed_low > observed_high:
+            raise EvidenceError(f"{axis}: observed intensity range is reversed")
+        if axis in HIDDEN_IN_BAND_AXES:
+            low, high = DEVELOPMENT_AXIS_RANGES[axis]
+            if record.get("disposition") != "constrained_to_development_range" \
+                    or record.get("hidden_out_of_band_allowed") is not False \
+                    or record.get("hidden_generation_range") != [low, high] \
+                    or not low <= observed_low <= observed_high <= high:
+                raise EvidenceError(f"{axis}: unanchored axis is not held in range")
+        else:
+            if not qualified \
+                    or record.get("disposition") != "participant_anchor" \
+                    or record.get("hidden_out_of_band_allowed") is not True \
+                    or record.get("hidden_generation_range") \
+                    != list(PUBLIC_AXIS_RANGES[axis]):
+                raise EvidenceError(f"{axis}: extrapolated axis lacks a 0.4 participant trace")
+    normalized["digest_sha256"] = recorded_digest
+    return normalized
+
+
+def _eligible_cells(report: Mapping[str, Any]) -> list[Any]:
+    candidates: list[Any] = []
+    metrics = report.get("composite_metrics")
+    if isinstance(metrics, Mapping):
+        block = metrics.get("exposures_and_rates")
+        if isinstance(block, Mapping):
+            cells = block.get("eligible_cells")
+            if isinstance(cells, list):
+                candidates.extend(cells)
+            component = block.get("p95_relative_error")
+            if isinstance(component, Mapping) and isinstance(component.get("eligible_cells"), list):
+                candidates.extend(component["eligible_cells"])
+    rates = report.get("rate_metrics")
+    if isinstance(rates, Mapping) and isinstance(rates.get("composite"), Mapping):
+        cells = rates["composite"].get("eligible_cells", rates["composite"].get("cells"))
+        if isinstance(cells, list):
+            candidates.extend(cells)
+    return candidates
+
+
+def _unique_json_values(values: Iterable[Any]) -> list[Any]:
+    unique: dict[str, Any] = {}
+    for value in values:
+        try:
+            key = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise EvidenceError("eligible-cell records must be JSON serializable") from exc
+        unique[key] = value
+    return [unique[key] for key in sorted(unique)]
+
+
+def _eligibility_evidence(report: Mapping[str, Any]) -> dict[str, Any]:
+    evidence = report.get("eligibility_evidence")
+    bands = evidence.get("bands") if isinstance(evidence, Mapping) else None
+    expected = {"0-17", "18-44", "45-64", "65-74", "75-84", "85+",
+                "18-64", "65+"}
+    if not isinstance(evidence, Mapping) \
+            or evidence.get("truth_quantity") \
+            != "retained state-by-sex person-years exposure" \
+            or not isinstance(bands, Mapping) or set(bands) != expected:
+        raise EvidenceError("state-by-sex eligibility evidence is incomplete")
+    for band, record in bands.items():
+        if not isinstance(record, Mapping):
+            raise EvidenceError(f"eligibility evidence for {band} is not an object")
+        floor = record.get("floor_person_years")
+        count = record.get("cell_count")
+        eligible = record.get("eligible_count")
+        minimum = record.get("minimum_exposure_person_years")
+        cells = record.get("cells")
+        if isinstance(floor, bool) or not isinstance(floor, (int, float)) \
+                or not math.isfinite(float(floor)) or float(floor) <= 0.0 \
+                or isinstance(count, bool) or not isinstance(count, int) or count <= 0 \
+                or isinstance(eligible, bool) or not isinstance(eligible, int) \
+                or not 0 <= eligible <= count \
+                or isinstance(minimum, bool) or not isinstance(minimum, (int, float)) \
+                or not math.isfinite(float(minimum)) or float(minimum) < 0.0 \
+                or not isinstance(cells, list) or len(cells) != count:
+            raise EvidenceError(f"eligibility evidence for {band} is invalid")
+        expected_pairs: set[tuple[int, str]] = set()
+        values: list[float] = []
+        observed_eligible = 0
+        for cell in cells:
+            if not isinstance(cell, Mapping):
+                raise EvidenceError(f"eligibility cell for {band} is not an object")
+            state = cell.get("state")
+            sex = cell.get("sex")
+            exposure = cell.get("exposure_person_years")
+            decision = cell.get("eligible")
+            if isinstance(state, bool) or not isinstance(state, int) or state < 0 \
+                    or not isinstance(sex, str) or not sex \
+                    or isinstance(exposure, bool) \
+                    or not isinstance(exposure, (int, float)) \
+                    or not math.isfinite(float(exposure)) or float(exposure) < 0.0 \
+                    or not isinstance(decision, bool) \
+                    or decision != (float(exposure) >= float(floor)):
+                raise EvidenceError(f"eligibility cell for {band} is invalid")
+            pair = (state, sex)
+            if pair in expected_pairs:
+                raise EvidenceError(f"eligibility cell for {band} is duplicated")
+            expected_pairs.add(pair)
+            values.append(float(exposure))
+            observed_eligible += int(decision)
+        if observed_eligible != eligible \
+                or not math.isclose(min(values), float(minimum), rel_tol=0.0, abs_tol=0.0):
+            raise EvidenceError(f"eligibility summary for {band} differs from its cells")
+    if bands["65+"].get("status") != "scored" \
+            or float(bands["65+"].get("floor_person_years")) != 500.0 \
+            or bands["65+"].get("eligible_count") != bands["65+"].get("cell_count"):
+        raise EvidenceError("the broad 65+ eligibility rule does not include every cell")
+    for band in ("65-74", "75-84", "85+"):
+        if bands[band].get("status") != "report-only":
+            raise EvidenceError(f"{band} must remain report-only")
+    return json.loads(json.dumps(evidence, sort_keys=True, allow_nan=False))
+
+
+def _validated_eligible_cells(
+    references: Sequence[Mapping[str, Any]], lines: Sequence[str], worlds: Sequence[str]
+) -> tuple[dict[str, list[Any]], dict[str, dict[str, Any]]]:
+    """Require truth-defined eligible-cell provenance to agree across reference lines."""
+
+    by_pair: dict[tuple[str, str], list[Any]] = {}
+    audit_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in references:
+        cells = _unique_json_values(_eligible_cells(entry["report"]))
+        if not cells:
+            raise EvidenceError(
+                f"eligible-cell evidence missing for "
+                f"{entry['reference_line']}/{entry['world']}"
+            )
+        by_pair[(entry["reference_line"], entry["world"])] = cells
+        audit_by_pair[(entry["reference_line"], entry["world"])] = \
+            _eligibility_evidence(entry["report"])
+    by_world: dict[str, list[Any]] = {}
+    audit_by_world: dict[str, dict[str, Any]] = {}
+    for world in worlds:
+        expected = by_pair[(lines[0], world)]
+        disagree = [line for line in lines[1:]
+                    if by_pair[(line, world)] != expected]
+        if disagree:
+            raise EvidenceError(
+                f"eligible-cell evidence for {world} differs across reference lines"
+            )
+        by_world[world] = expected
+        expected_audit = audit_by_pair[(lines[0], world)]
+        audit_disagree = [
+            line for line in lines[1:]
+            if audit_by_pair[(line, world)] != expected_audit
+        ]
+        if audit_disagree:
+            raise EvidenceError(
+                f"eligibility audit for {world} differs across reference lines"
+            )
+        audit_by_world[world] = expected_audit
+    return by_world, audit_by_world
+
+
+def _check_reference_design(references: list[dict[str, Any]],
+                            replicates: list[dict[str, Any]],
+                            expected_world_count: int) -> tuple[list[str], list[str], int]:
+    if not references:
+        raise EvidenceError("final reference reports are missing")
+    if not replicates:
+        raise EvidenceError(
+            "replicate evidence missing; final verifier reports cannot be bootstrapped "
+            "or resampled as replacement evidence"
+        )
+    reused = sorted(
+        {entry["evidence_id"] for entry in references}
+        & {entry["evidence_id"] for entry in replicates}
+    )
+    if reused:
+        raise EvidenceError(
+            f"final reports were reused as replicate evidence: {reused}"
+        )
+    lines = sorted({entry["reference_line"] for entry in references})
+    worlds = sorted({entry["world"] for entry in references})
+    if len(lines) < MIN_REFERENCE_LINES:
+        raise EvidenceError(
+            f"at least {MIN_REFERENCE_LINES} reference lines are required"
+        )
+    if len(worlds) != expected_world_count:
+        raise EvidenceError(
+            f"expected {expected_world_count} qualification worlds, found {len(worlds)}"
+        )
+    expected = {(line, world) for line in lines for world in worlds}
+    final_groups: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for entry in references:
+        final_groups[(entry["reference_line"], entry["world"])].append(entry)
+    if set(final_groups) != expected or any(len(rows) != 1 for rows in final_groups.values()):
+        raise EvidenceError(
+            "final reference evidence must contain exactly one report for every "
+            "reference-line and qualification-world pair"
+        )
+    replicate_groups: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for entry in replicates:
+        replicate_groups[(entry["reference_line"], entry["world"])].append(entry)
+    if set(replicate_groups) != expected:
+        missing = sorted(expected - set(replicate_groups))
+        unexpected = sorted(set(replicate_groups) - expected)
+        raise EvidenceError(
+            f"replicate groups do not match final reference groups; missing {missing}, "
+            f"unexpected {unexpected}"
+        )
+    counts = {pair: len(rows) for pair, rows in replicate_groups.items()}
+    if len(set(counts.values())) != 1:
+        raise EvidenceError(
+            "replicate counts must be equal for every reference-line and world pair "
+            "so each pair has equal weight"
+        )
+    per_pair = next(iter(counts.values()))
+    if per_pair < MIN_REPLICATES_PER_LINE_WORLD:
+        raise EvidenceError(
+            f"each reference-line and world pair needs at least "
+            f"{MIN_REPLICATES_PER_LINE_WORLD} deterministic replicates"
+        )
+    if len(replicates) < MIN_P99_SAMPLE_COUNT:
+        raise EvidenceError(
+            f"at least {MIN_P99_SAMPLE_COUNT} balanced replicate reports are needed "
+            "to resolve an empirical one-percent tail"
+        )
+    loo_training_count = per_pair * len(lines) * (len(worlds) - 1)
+    if loo_training_count < MIN_P99_SAMPLE_COUNT:
+        raise EvidenceError(
+            f"each leave-one-world-out training fold needs at least "
+            f"{MIN_P99_SAMPLE_COUNT} balanced replicate reports; found "
+            f"{loo_training_count}"
+        )
+    for pair, rows in replicate_groups.items():
+        ids = [row["replicate_id"] for row in rows]
+        if len(ids) != len(set(ids)):
+            raise EvidenceError(f"duplicate replicate_id within {pair}")
+    if any(not entry["hard_pass"] for entry in references):
+        failed = sorted(
+            f"{entry['reference_line']}/{entry['world']}"
+            for entry in references if not entry["hard_pass"]
+        )
+        raise EvidenceError(f"final reference reports failed hard checks: {failed}")
+    if any(not entry["hard_pass"] for entry in replicates):
+        failed = sorted(
+            f"{entry['reference_line']}/{entry['world']}/{entry['replicate_id']}"
+            for entry in replicates if not entry["hard_pass"]
+        )
+        raise EvidenceError(f"replicate reports failed hard checks: {failed[:10]}")
+    return lines, worlds, per_pair
+
+
+def _calibrate_components(references: list[dict[str, Any]],
+                          replicates: list[dict[str, Any]],
+                          lines: list[str], worlds: list[str],
+                          eligible_cells_by_world: Mapping[str, list[Any]],
+                          eligibility_audit_by_world: Mapping[str, dict[str, Any]]) \
+        -> dict[str, Any]:
+    gates: dict[str, Any] = {}
+    for gate, components in GATE_COMPONENTS.items():
+        component_records: dict[str, Any] = {}
+        for component in components:
+            values = [entry["metrics"][gate][component] for entry in replicates]
+            value = empirical_p99(values)
+            in_sample_exceedances = sum(observation > value for observation in values)
+            achieved_rate, achieved_count, held_out = _leave_one_world_out_component_rate(
+                replicates, gate, component, worlds
+            )
+            quantile_witnesses = [
+                {
+                    "reference_line": entry["reference_line"],
+                    "world": entry["world"],
+                    "replicate_id": entry["replicate_id"],
+                    "evidence_id": entry["evidence_id"],
+                    "value": entry["metrics"][gate][component],
+                }
+                for entry in replicates
+                if entry["metrics"][gate][component] == value
+            ]
+            reference_witnesses = [
+                {
+                    "reference_line": entry["reference_line"],
+                    "world": entry["world"],
+                    "evidence_id": entry["evidence_id"],
+                    "value": entry["metrics"][gate][component],
+                    "pass": entry["metrics"][gate][component] <= value,
+                }
+                for entry in sorted(
+                    references, key=lambda row: (row["reference_line"], row["world"])
+                )
+            ]
+            evidence_ids = sorted(entry["evidence_id"] for entry in replicates)
+            evidence_digest = hashlib.sha256(
+                "\n".join(evidence_ids).encode("utf-8")
+            ).hexdigest()
+            record: dict[str, Any] = {
+                "value": value,
+                "direction": "ceiling",
+                "range": list(COMPONENT_RANGES[(gate, component)]),
+                "quantile": QUANTILE,
+                "order_statistic_rank": math.ceil(QUANTILE * len(values)),
+                "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
+                "achieved_false_fail_rate": achieved_rate,
+                "achieved_false_fail_count": achieved_count,
+                "achieved_rate_method": "leave-one-qualification-world-out",
+                "leave_one_world_out": held_out,
+                "in_sample_false_fail_rate": in_sample_exceedances / len(values),
+                "in_sample_false_fail_count": in_sample_exceedances,
+                "sample_count": len(values),
+                "worlds": worlds,
+                "witnesses": lines,
+                "reference_witnesses": reference_witnesses,
+                "quantile_witnesses": quantile_witnesses,
+                "supporting_controls": [],
+                "component_exceedance_controls": [],
+                "replicate_evidence_ids": evidence_ids,
+                "replicate_evidence_digest_sha256": evidence_digest,
+            }
+            if gate == "exposures_and_rates":
+                counts: dict[str, int] = {}
+                cells: list[Any] = []
+                for entry in references:
+                    found = _eligible_cells(entry["report"])
+                    counts[f"{entry['world']}/{entry['reference_line']}"] = len(found)
+                    cells.extend(found)
+                record["eligible_cells"] = {
+                    "distinct": _unique_json_values(cells),
+                    "counts_by_world_and_witness": dict(sorted(counts.items())),
+                    "by_world": dict(eligible_cells_by_world),
+                    "band_audit_by_world": dict(eligibility_audit_by_world),
+                }
+            component_records[component] = record
+        gates[gate] = {"components": component_records, "supporting_controls": []}
+    return gates
+
+
+def _leave_one_world_out_component_rate(
+    replicates: list[dict[str, Any]], gate: str, component: str, worlds: Sequence[str]
+) -> tuple[float, int, dict[str, Any]]:
+    """Evaluate each world's reports under a p99 learned without that world."""
+
+    failed = 0
+    tested = 0
+    records: dict[str, Any] = {}
+    for held_world in worlds:
+        training = [
+            row["metrics"][gate][component]
+            for row in replicates if row["world"] != held_world
+        ]
+        testing = [
+            row["metrics"][gate][component]
+            for row in replicates if row["world"] == held_world
+        ]
+        ceiling = empirical_p99(training)
+        misses = sum(value > ceiling for value in testing)
+        failed += misses
+        tested += len(testing)
+        records[held_world] = {
+            "training_sample_count": len(training),
+            "test_sample_count": len(testing),
+            "ceiling": ceiling,
+            "false_fail_count": misses,
+            "false_fail_rate": misses / len(testing),
+        }
+    return failed / tested, failed, records
+
+
+def _validated_control_registry(
+    registry: Mapping[str, Sequence[str]],
+) -> dict[str, str]:
+    """Return the single primary gate for every registered control."""
+
+    if set(registry) != set(GATE_COMPONENTS):
+        raise EvidenceError("the scientific-control registry must name the five gates")
+    primary_gate: dict[str, str] = {}
+    for gate in GATE_COMPONENTS:
+        names = registry[gate]
+        if isinstance(names, (str, bytes)) or not names:
+            raise EvidenceError(f"{gate}: registered control list must be nonempty")
+        if len(names) != len(set(names)):
+            raise EvidenceError(f"{gate}: registered control names must be unique")
+        for raw_name in names:
+            name = _identifier(raw_name, f"{gate} control")
+            if name in primary_gate:
+                raise EvidenceError(
+                    f"{name}: a control may have only one registered primary gate"
+                )
+            primary_gate[name] = gate
+    return primary_gate
+
+
+def _control_matrix(
+    controls: list[dict[str, Any]],
+    gates: Mapping[str, Any],
+    registry: Mapping[str, Sequence[str]],
+    worlds: Sequence[str],
+) -> dict[str, Any]:
+    """Record exact per-world comparisons for the full qualification battery."""
+
+    primary_gate = _validated_control_registry(registry)
+    by_name: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in controls:
+        by_name[entry["control"]].append(entry)
+    matrix: dict[str, Any] = {}
+    for name in sorted(set(primary_gate) | set(by_name)):
+        rows = sorted(
+            by_name.get(name, []), key=lambda row: (row["world"], row["evidence_id"])
+        )
+        reported_worlds = [row["world"] for row in rows]
+        world_counts = {world: reported_worlds.count(world) for world in worlds}
+        complete = len(rows) == len(worlds) and all(
+            world_counts[world] == 1 for world in worlds
+        )
+        missing_worlds = [world for world in worlds if world_counts[world] == 0]
+        duplicate_worlds = [world for world in worlds if world_counts[world] > 1]
+        unexpected_worlds = sorted(set(reported_worlds) - set(worlds))
+        gate_rows: dict[str, Any] = {}
+        for gate, components in GATE_COMPONENTS.items():
+            per_world: dict[str, Any] = {}
+            for row in rows:
+                if row["world"] not in worlds or row["world"] in per_world:
+                    continue
+                comparisons = {
+                    component: {
+                        "value": row["metrics"][gate][component],
+                        "ceiling": gates[gate]["components"][component]["value"],
+                        "exceeds": row["metrics"][gate][component]
+                        > gates[gate]["components"][component]["value"],
+                    }
+                    for component in components
+                }
+                hard_pass = row["hard_pass"] is True
+                failed = hard_pass and any(
+                    comparison["exceeds"] for comparison in comparisons.values()
+                )
+                per_world[row["world"]] = {
+                    "hard_structure_pass": hard_pass,
+                    "outcome": "fail" if failed else (
+                        "pass" if hard_pass else "hard-invalid"
+                    ),
+                    "failed": failed,
+                    "components": comparisons,
+                    "evidence_id": row["evidence_id"],
+                }
+            failed_worlds = [
+                world for world in worlds
+                if per_world.get(world, {}).get("failed") is True
+            ]
+            hard_invalid_worlds = [
+                world for world in worlds
+                if per_world.get(world, {}).get("hard_structure_pass") is False
+            ]
+            passed_worlds = [
+                world for world in worlds
+                if per_world.get(world, {}).get("outcome") == "pass"
+            ]
+            gate_rows[gate] = {
+                "scientifically_registered": primary_gate.get(name) == gate,
+                "separates_all_worlds": complete
+                and not hard_invalid_worlds
+                and failed_worlds == list(worlds),
+                "failed_worlds": failed_worlds,
+                "passed_worlds": passed_worlds,
+                "hard_invalid_worlds": hard_invalid_worlds,
+                "per_world": per_world,
+            }
+        matrix[name] = {
+            "registered": name in primary_gate,
+            "primary_gate": primary_gate.get(name),
+            "coverage_complete": complete,
+            "worlds": reported_worlds,
+            "missing_worlds": missing_worlds,
+            "duplicate_worlds": duplicate_worlds,
+            "unexpected_worlds": unexpected_worlds,
+            "hard_structure_pass": complete and all(row["hard_pass"] for row in rows),
+            "evidence_ids": [row["evidence_id"] for row in rows],
+            "gates": gate_rows,
+        }
+    return matrix
+
+
+def _attach_control_separation(
+    gates: dict[str, Any],
+    controls: list[dict[str, Any]],
+    registry: Mapping[str, Sequence[str]],
+    worlds: Sequence[str],
+) -> dict[str, Any]:
+    """Attach the all-controls-by-all-worlds separation requirement."""
+
+    primary_gate = _validated_control_registry(registry)
+    matrix = _control_matrix(controls, gates, registry, worlds)
+    registered_by_gate = {
+        gate: list(registry[gate]) for gate in GATE_COMPONENTS
+    }
+    separated_by_gate: dict[str, list[str]] = {}
+    deletion_candidates: list[dict[str, Any]] = []
+    for gate, names in registered_by_gate.items():
+        separated = [
+            name for name in names
+            if matrix[name]["gates"][gate]["separates_all_worlds"] is True
+        ]
+        separated_by_gate[gate] = separated
+        nonseparating = []
+        for name in names:
+            result = matrix[name]["gates"][gate]
+            if result["separates_all_worlds"]:
+                continue
+            nonseparating.append({
+                "control": name,
+                "failed_worlds": result["failed_worlds"],
+                "passed_worlds": result["passed_worlds"],
+                "hard_invalid_worlds": result["hard_invalid_worlds"],
+                "missing_worlds": matrix[name]["missing_worlds"],
+                "duplicate_worlds": matrix[name]["duplicate_worlds"],
+                "unexpected_worlds": matrix[name]["unexpected_worlds"],
+                "per_world": result["per_world"],
+            })
+        if nonseparating:
+            deletion_candidates.append({
+                "gate": gate,
+                "reason": (
+                    "at least one registered wrong method does not fail this gate "
+                    "on every qualification world"
+                ),
+                "registered_controls": names,
+                "nonseparating_controls": nonseparating,
+            })
+        gates[gate]["supporting_controls"] = separated
+        for component in GATE_COMPONENTS[gate]:
+            record = gates[gate]["components"][component]
+            record["supporting_controls"] = separated
+            record["component_exceedance_controls"] = [
+                name for name in separated
+                if all(
+                    matrix[name]["gates"][gate]["per_world"][world]
+                    ["components"][component]["exceeds"]
+                    for world in worlds
+                )
+            ]
+    unexpected_controls = sorted(
+        name for name, record in matrix.items() if record["registered"] is False
+    )
+    return {
+        "requirement": (
+            "every registered control hard-passes structure and fails its primary "
+            "composite gate on every qualification world"
+        ),
+        "registered_controls": sorted(matrix_name for matrix_name in matrix
+                                       if matrix[matrix_name]["registered"]),
+        "registered_controls_by_gate": registered_by_gate,
+        "separated_controls_by_gate": separated_by_gate,
+        "required_control_count": len(primary_gate),
+        "required_report_count": len(primary_gate) * len(worlds),
+        "complete_gate_count": sum(
+            separated_by_gate[gate] == registered_by_gate[gate]
+            for gate in GATE_COMPONENTS
+        ),
+        "full_separation": not deletion_candidates and not unexpected_controls,
+        "unexpected_controls": unexpected_controls,
+        "deletion_candidates": deletion_candidates,
+        "matrix": matrix,
+    }
+
+
+def _gate_false_fail_rates(replicates: list[dict[str, Any]],
+                           gates: Mapping[str, Any],
+                           worlds: Sequence[str]) -> tuple[dict[str, float], dict[str, Any]]:
+    """Leave one world out and fail a composite when any component exceeds."""
+
+    rates: dict[str, float] = {}
+    detail: dict[str, Any] = {}
+    for gate, components in GATE_COMPONENTS.items():
+        failed = 0
+        tested = 0
+        held_out: dict[str, Any] = {}
+        for held_world in worlds:
+            training = [row for row in replicates if row["world"] != held_world]
+            testing = [row for row in replicates if row["world"] == held_world]
+            ceilings = {
+                component: empirical_p99([
+                    row["metrics"][gate][component] for row in training
+                ])
+                for component in components
+            }
+            misses = sum(
+                any(row["metrics"][gate][component] > ceilings[component]
+                    for component in components)
+                for row in testing
+            )
+            failed += misses
+            tested += len(testing)
+            held_out[held_world] = {
+                "training_sample_count": len(training),
+                "test_sample_count": len(testing),
+                "component_ceilings": ceilings,
+                "false_fail_count": misses,
+                "false_fail_rate": misses / len(testing),
+            }
+        rates[gate] = failed / tested
+        detail[gate] = held_out
+    return rates, detail
+
+
+def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
+                  graded_world_count: int) -> dict[str, Any]:
+    target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
+        len(GATE_COMPONENTS) * graded_world_count
+    )
+    return {
+        "schema": SCHEMA,
+        "frozen": False,
+        "gates": {},
+        "blockers": list(blockers),
+        "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
+        "quantile": QUANTILE,
+        "qualification_world_count": expected_world_count,
+        "graded_world_count": graded_world_count,
+        "target_marginal_product": target_product,
+        "achieved_marginal_rate_product": None,
+        "achieved_false_fail_rates": {},
+        "mortality_identification_evidence": mortality_identification_evidence(),
+        "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
+    }
+
+
+def calibrate_composite_bars(
+    reference_reports: Sequence[Mapping[str, Any]],
+    replicate_reports: Sequence[Mapping[str, Any]] | None,
+    control_reports: Sequence[Mapping[str, Any]],
+    *,
+    elder_reconstruction_audit: Mapping[str, Any] | None = None,
+    regime_identifiability_audit: Mapping[str, Any] | None = None,
+    expected_qualification_worlds: int = EXPECTED_QUALIFICATION_WORLDS,
+    graded_world_count: int = GRADED_WORLD_COUNT,
+    control_registry: Mapping[str, Sequence[str]] = SCIENTIFIC_CONTROLS_BY_GATE,
+) -> dict[str, Any]:
+    """Build a complete or explicitly blocked composite bar document.
+
+    ``reference_reports`` are final line-by-world witnesses. ``replicate_reports`` are
+    mandatory, uniquely identified observations used for the order statistics. The elder
+    reconstruction audit binds the third participant-only line to its before-and-after
+    level and tail measurements.
     """
-    worst = 0.0
-    for packet in packets:
-        ensemble = np.load(Path(packet) / "retained" / "continuation_liabilities.npz")
-        liability = np.asarray(ensemble["liability"], dtype=np.float64)
-        truth = AR_ensemble_truth(liability)
-        scale = np.maximum(truth["q"], 1.0)
-        worst = max(worst, float(quantile_score(truth["q"], liability, scale).mean()))
-    return worst
 
+    if expected_qualification_worlds <= 0 or graded_world_count <= 0:
+        return _empty_result(
+            ["world counts must be positive"],
+            expected_world_count=expected_qualification_worlds,
+            graded_world_count=graded_world_count,
+        )
+    try:
+        _validated_control_registry(control_registry)
+        references = _normalize_entries(reference_reports, kind="reference")
+        if replicate_reports is None:
+            raise EvidenceError(
+                "replicate evidence missing; final verifier reports cannot be bootstrapped "
+                "or resampled as replacement evidence"
+            )
+        replicates = _normalize_entries(replicate_reports, kind="replicate")
+        controls = _normalize_entries(control_reports, kind="control")
+        lines, worlds, replicates_per_pair = _check_reference_design(
+            references, replicates, expected_qualification_worlds
+        )
+        _check_binding_consistency(references, replicates, controls, lines, worlds)
+        evidence_provenance = _freeze_provenance(references, replicates, controls)
+        elder_audit = _validate_elder_audit(
+            elder_reconstruction_audit, references, lines, worlds
+        )
+        regime_audit = _validate_regime_identifiability_audit(
+            regime_identifiability_audit
+        )
+        eligible_cells_by_world, eligibility_audit_by_world = _validated_eligible_cells(
+            references, lines, worlds
+        )
+        gates = _calibrate_components(
+            references, replicates, lines, worlds, eligible_cells_by_world,
+            eligibility_audit_by_world,
+        )
+    except EvidenceError as exc:
+        return _empty_result(
+            [str(exc)],
+            expected_world_count=expected_qualification_worlds,
+            graded_world_count=graded_world_count,
+        )
 
-def _tail_bars(reports: dict, oracle_quantile_score: float) -> dict:
-    feasible = [r["reserve"] for r in reports.values() if r["reserve"].get("feasible")]
-    if not feasible:
-        raise SystemExit("no witness filed a feasible reserve; nothing can be frozen")
-    pooled = max(float(r["calibration"]["pooled"]) for r in feasible)
-    worst = max(float(r["calibration"]["worst"]) for r in feasible)
-    score = max(float(r["mean_quantile_score"]) for r in feasible)
-    es = max(float(r["mean_shortfall_error"]) for r in feasible)
-    shortfall = max(float(np.max(r["regional_shortfall_probability"])) for r in feasible)
-    tail = max(float(np.max(r["regional_tail"])) for r in feasible)
-    skill = min(float(r["skill"]) for r in feasible if np.isfinite(r["skill"]))
-    q_width = max(float(r["mean_q95_width_error"]) for r in feasible)
-    es_width = max(float(r["mean_es95_width_error"]) for r in feasible)
-    utility = min(float(r["disclosure"].get("utility", 1.0)) for r in reports.values())
-    detailed = [float(r["disclosure"].get("detailed_error", float("nan")))
-                for r in reports.values()]
-    detailed = [value for value in detailed if np.isfinite(value)]
-    score_cap = QUANTILE_SCORE_ORACLE_MULTIPLE * max(oracle_quantile_score, 1e-12)
-    bars = {
-        "tau_mean": round(max(TAIL_MARGIN * pooled, TAU_MEAN_FLOOR), 4),
-        "tau_worst": round(max(TAIL_MARGIN * worst, TAU_WORST_FLOOR), 4),
-        "quantile_score_ceiling": round(
-            min(max(TAIL_MARGIN * score, QUANTILE_SCORE_FLOOR), score_cap), 6),
-        "es_error_ceiling": round(max(TAIL_MARGIN * es, ES_ERROR_FLOOR), 4),
-        "regional_shortfall_ceiling": round(
-            max(SHORTFALL_MARGIN * shortfall, SHORTFALL_FLOOR), 4),
-        "catastrophic_tail_ceiling": round(max(TAIL_MARGIN * tail, CATASTROPHIC_FLOOR), 4),
-        "skill_minimum": round(float(min(skill - SKILL_SLACK, SKILL_CAP)), 4),
-        "q95_width_error_ceiling": round(max(TAIL_MARGIN * q_width, Q95_WIDTH_FLOOR), 4),
-        "es95_width_error_ceiling": round(max(TAIL_MARGIN * es_width, ES95_WIDTH_FLOOR), 4),
-    }
-    bars["disclosure_utility_floor"] = round(
-        float(min(utility - DISCLOSURE_UTILITY_SLACK, DISCLOSURE_UTILITY_CAP)), 3)
-    # The share alone is met by publishing every releasable cell as any number at all, so
-    # the released cells carry an accuracy ceiling of their own.
-    bars["detailed_accuracy_ceiling"] = round(
-        max(ACCURACY_MARGIN * max(detailed), DETAILED_ACCURACY_FLOOR), 6) if detailed \
-        else DETAILED_ACCURACY_FLOOR
-    return bars
+    blockers: list[str] = []
+    reference_failures: list[dict[str, Any]] = []
+    for entry in references:
+        for gate, components in GATE_COMPONENTS.items():
+            failures = [
+                component for component in components
+                if entry["metrics"][gate][component]
+                > gates[gate]["components"][component]["value"]
+            ]
+            if failures:
+                reference_failures.append({
+                    "reference_line": entry["reference_line"],
+                    "world": entry["world"],
+                    "gate": gate,
+                    "components": failures,
+                    "evidence_id": entry["evidence_id"],
+                })
+    if reference_failures:
+        blockers.append(
+            f"{len(reference_failures)} final reference gate results exceed the p99 bars"
+        )
 
+    control_support = _attach_control_separation(
+        gates, controls, control_registry, worlds
+    )
+    if control_support["unexpected_controls"]:
+        blockers.append(
+            "unregistered control reports were supplied: "
+            + ", ".join(control_support["unexpected_controls"])
+        )
+    if control_support["deletion_candidates"]:
+        blockers.append(
+            "control separation is incomplete; deletion candidates: "
+            + ", ".join(
+                record["gate"] for record in control_support["deletion_candidates"]
+            )
+        )
 
-def _bar_holder(bars: dict, name: str) -> dict:
-    """Where one named bar lives: the actuarial block, or the top level."""
-    if name in TOP_LEVEL_CEILING_CAP or name in ("disclosure_utility_floor",):
-        return bars
-    return bars["actuarial"]
-
-
-def _unattainable_bars(bars: dict) -> list[str]:
-    """Bars that cannot fire, and gated bars with no declared range at all.
-
-    A ceiling at or above the largest value its criterion can take, and a floor at or
-    below the smallest, refuses nothing: the gate is a formality and the run has to say so
-    rather than write the number and finish. A bar the freeze writes with no declared
-    attainability range is the same failure one step earlier, because nothing checked it.
-    """
-    hard: list[str] = []
-    for name, (low, high) in CRITERION_RANGE.items():
-        holder = _bar_holder(bars, name)
-        value = holder.get(name)
-        if value is None:
-            continue
-        if name in FLOOR_BARS:
-            if low is not None and float(value) <= low:
-                hard.append(f"{name}: a floor at {value} is at or under the smallest value "
-                            f"its criterion can take ({low}), so it refuses nothing")
-            if high is not None and float(value) > high:
-                hard.append(f"{name}: a floor at {value} is above the largest value its "
-                            f"criterion can take ({high}), so nothing can clear it")
-        elif high is not None and float(value) >= high:
-            hard.append(f"{name}: a ceiling at {value} is at or above the largest value "
-                        f"its criterion can take ({high}), so it refuses nothing")
-    declared = set(CEILING_CAP) | set(TOP_LEVEL_CEILING_CAP) | set(FLOOR_MINIMUM) \
-        | set(CRITERION_RANGE) | {"quantile_score_ceiling"}
-    for name in sorted(bars["actuarial"]):
-        if name not in declared:
-            hard.append(f"{name}: written with no declared attainability range, so no "
-                        "check knows what this criterion can take")
-    return hard
-
-
-def _clamp_to_attainability(bars: dict, oracle_quantile_score: float) -> list[str]:
-    """Hold every bar inside its declared range and say which ones the witnesses miss."""
-    notes: list[str] = []
-    caps = dict(CEILING_CAP) | dict(TOP_LEVEL_CEILING_CAP)
-    caps["quantile_score_ceiling"] = round(
-        QUANTILE_SCORE_ORACLE_MULTIPLE * oracle_quantile_score, 6)
-    for name, cap in caps.items():
-        holder = _bar_holder(bars, name)
-        value = holder.get(name)
-        if value is None:
-            continue
-        if value > cap:
-            holder[name] = cap
-            notes.append(f"{name}: the worse witness needed {value:.4f}, the declared "
-                         f"attainability cap is {cap:.4f}; written at the cap, so the "
-                         "witness does not clear it")
-    for name, minimum in FLOOR_MINIMUM.items():
-        holder = bars if name == "disclosure_utility_floor" else bars["actuarial"]
-        value = holder.get(name)
-        if value is None:
-            continue
-        if value < minimum:
-            holder[name] = minimum
-            notes.append(f"{name}: the worse witness reached only {value:.4f}, the declared "
-                         f"minimum for a gate is {minimum:.4f}; written at the minimum, so "
-                         "the witness does not clear it")
-    return notes
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dev", nargs="+", required=True)
-    ap.add_argument("--qualification", nargs="+", required=True)
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--bootstrap", type=int, default=100)
-    ap.add_argument("--sweeps", type=int, default=400)
-    ap.add_argument("--controls", default="all")
-    args = ap.parse_args()
-    out = Path(args.out)
-    for packet in args.qualification:
-        world = json.loads((Path(packet) / "retained" / "world.json").read_text())
-        if world.get("regime") != "hidden":
-            raise SystemExit(f"{packet} is not a hidden-regime qualification world")
-    for packet in args.dev:
-        world = json.loads((Path(packet) / "retained" / "world.json").read_text())
-        if world.get("regime") != "development":
-            raise SystemExit(f"{packet} is not a development world")
-    out.mkdir(parents=True, exist_ok=True)
-
-    cal_a, cal_b = out / "calibration_A.json", out / "calibration_B.json"
-    design_based.calibrate(args.dev, cal_a)
-    bayesian.calibrate(args.dev, cal_b)
-    layer = AR.LayerParams()
-    witnesses = {
-        "A": lambda p, o: design_based.run(p, o, design_based.MethodParams(
-            bootstrap_replicates=args.bootstrap, calibration_path=str(cal_a),
-            actuarial="on", actuarial_params=layer)),
-        "B": lambda p, o: bayesian.run(p, o, bayesian.MethodParams(
-            sweeps=args.sweeps, burn_in=args.sweeps // 4, calibration_path=str(cal_b),
-            actuarial="on", actuarial_params=layer)),
-    }
-    reports = {}
-    for name, run in witnesses.items():
-        for packet in args.qualification:
-            packet = Path(packet)
-            sub = out / "runs" / packet.name / name
-            if not sub.exists():
-                run(packet, sub)
-            reports[(name, packet.name)] = verify_submission(packet, sub)
-            print(f"witness {name} on {packet.name}: scored", flush=True)
-
-    bars = {"worst_error": {}, "interval_score_ceiling": {},
-            "projection": {"worst_error": {}, "interval_score_ceiling": {}}}
-    coverages, pcoverages = [], []
-    for key in sorted({k for r in reports.values() for k in r["metrics"]}):
-        worst = max(r["metrics"][key]["worst_error"] for r in reports.values())
-        score = max(r["metrics"][key]["mean_interval_score"] for r in reports.values())
-        bars["worst_error"][key] = round(max(ACCURACY_MARGIN * worst, _floor_for(key)), 6)
-        bars["interval_score_ceiling"][key] = round(
-            max(SCORE_MARGIN * score, 3.0 * _floor_for(key)), 6)
-        if key.endswith("/all"):
-            coverages += [r["metrics"][key]["coverage"] for r in reports.values()]
-    for key in sorted({k for r in reports.values() for k in r["projection_metrics"]}):
-        worst = max(r["projection_metrics"][key]["worst_error"] for r in reports.values())
-        score = max(r["projection_metrics"][key]["mean_interval_score"]
-                    for r in reports.values())
-        bars["projection"]["worst_error"][key] = round(
-            max(ACCURACY_MARGIN * worst, 1.5 * _floor_for(key)), 6)
-        bars["projection"]["interval_score_ceiling"][key] = round(
-            max(SCORE_MARGIN * score, 4.5 * _floor_for(key)), 6)
-        if key.endswith("/all"):
-            pcoverages += [r["projection_metrics"][key]["coverage"] for r in reports.values()]
-    bars["coverage_floor"] = round(min(min(coverages) - COVERAGE_SLACK, 0.70), 3)
-    bars["projection"]["coverage_floor"] = round(
-        min(min(pcoverages) - COVERAGE_SLACK, 0.70), 3)
-    oracle_quantile_score = _oracle_quantile_score(args.qualification)
-    tail = _tail_bars(reports, oracle_quantile_score)
-    bars["disclosure_utility_floor"] = tail.pop("disclosure_utility_floor")
-    # The two release bars sit at the top level of the file because that is where
-    # evaluate_gates reads them from. A detailed accuracy ceiling written inside the
-    # actuarial block is never read, so the bar the freeze prints would gate nothing.
-    bars["detailed_accuracy_ceiling"] = tail.pop("detailed_accuracy_ceiling")
-    bars["actuarial"] = _rate_bars(reports) | tail
-    attainability = _clamp_to_attainability(bars, oracle_quantile_score)
-    unattainable = _unattainable_bars(bars)
-    rate_cells = _rate_cell_record(reports)
-    bars["frozen_from"] = {
-        "rate_cells": rate_cells,
-        "eligibility_floors": {estimand: {band: round(value, 1)
-                                          for band, value in sorted(table.items())}
-                               for estimand, table in sorted(ELIGIBILITY_FLOORS.items())},
-        "dev": [Path(p).name for p in args.dev],
-        "qualification": [Path(p).name for p in args.qualification],
-        "witnesses": sorted(witnesses),
-        "margins": {"accuracy": ACCURACY_MARGIN, "coverage_slack": COVERAGE_SLACK,
-                    "score": SCORE_MARGIN, "rate": RATE_MARGIN, "tail": TAIL_MARGIN,
-                    "shortfall": SHORTFALL_MARGIN, "skill_slack": SKILL_SLACK},
-        "floors": {"accuracy": ACCURACY_FLOOR, "rate": RATE_FLOOR,
-                   "rate_coverage_cap": RATE_COVERAGE_CAP, "tau_mean": TAU_MEAN_FLOOR,
-                   "tau_worst": TAU_WORST_FLOOR, "quantile_score": QUANTILE_SCORE_FLOOR,
-                   "es_error": ES_ERROR_FLOOR, "shortfall": SHORTFALL_FLOOR,
-                   "catastrophic": CATASTROPHIC_FLOOR,
-                   "skill_cap": SKILL_CAP},
-        "attainability_caps": CEILING_CAP | TOP_LEVEL_CEILING_CAP,
-        "attainability_floors": FLOOR_MINIMUM,
-        "criterion_ranges": {k: list(v) for k, v in CRITERION_RANGE.items()},
-        "oracle_quantile_score": round(oracle_quantile_score, 6),
-    }
-
-    lines = ["# Version-four bar freeze report", ""]
-    ok = True
+    gate_rates, gate_rate_detail = _gate_false_fail_rates(replicates, gates, worlds)
+    unattainable = [
+        gate for gate, rate in gate_rates.items()
+        if rate > TARGET_FALSE_FAIL_RATE + 1e-15
+    ]
     if unattainable:
-        # A bar that cannot fire is a hole in the surface, not a footnote. The run says so
-        # and does not complete, whatever the witnesses and the battery then do.
-        ok = False
-        lines.append("## Bars that cannot fire, so this set does not freeze")
-        lines.append("")
-        lines += [f"- {note}" for note in unattainable]
-        lines.append("")
-    lines.append("## Cells each rate bar was frozen from")
-    lines.append("")
-    for key, block in sorted(rate_cells.items()):
-        counts = ", ".join(f"{world} {n}" for world, n in sorted(block["n_cells"].items()))
-        lines.append(f"- {key}: bands {', '.join(block['bands']) or 'none'}; "
-                     f"{len(block['cells'])} distinct cells; per world and witness {counts}")
-        if block["empty"]:
-            lines.append(f"  - no eligible cell on {', '.join(block['empty'])}")
-    lines.append("")
-    if attainability:
-        lines.append("## Bars written at their declared attainability limit")
-        lines.append("")
-        lines += [f"- {note}" for note in attainability]
-        lines.append("")
-    lines.append("## Witnesses under the frozen bars")
-    for (name, world), _ in sorted(reports.items()):
-        packet = Path(next(p for p in args.qualification if Path(p).name == world))
-        gated = verify_submission(packet, out / "runs" / world / name, bars,
-                                  allow_unfrozen=True)
-        verdict = "PASS" if gated["pass"] else "FAIL " + "; ".join(gated["reasons"])
-        lines.append(f"- witness {name} on {world}: {verdict}")
-        ok &= gated["pass"]
+        blockers.append(
+            "leave-one-world-out false-fail rate exceeds one percent for: "
+            + ", ".join(unattainable)
+        )
+    target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
+        len(GATE_COMPONENTS) * graded_world_count
+    )
+    achieved_product = math.prod(
+        (1.0 - gate_rates[gate]) ** graded_world_count for gate in GATE_COMPONENTS
+    )
+    return {
+        "schema": SCHEMA,
+        "frozen": not blockers,
+        "gates": gates,
+        "blockers": blockers,
+        "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
+        "quantile": QUANTILE,
+        "reference_lines": lines,
+        "qualification_worlds": worlds,
+        "qualification_world_count": len(worlds),
+        "graded_world_count": graded_world_count,
+        "replicates_per_reference_line_and_world": replicates_per_pair,
+        "equal_weighting": "equal replicate count for every reference-line and world pair",
+        "reference_report_count": len(references),
+        "replicate_report_count": len(replicates),
+        "control_report_count": len(controls),
+        "evidence_provenance": evidence_provenance,
+        "elder_reconstruction_audit": elder_audit,
+        "regime_identifiability_audit": regime_audit,
+        "reference_failures": reference_failures,
+        "control_support": control_support,
+        "achieved_false_fail_rates": gate_rates,
+        "achieved_false_fail_rate_method": "leave-one-qualification-world-out",
+        "leave_one_world_out_gate_results": gate_rate_detail,
+        "target_marginal_product": target_product,
+        "achieved_marginal_rate_product": achieved_product,
+        "mortality_identification_evidence": mortality_identification_evidence(),
+        "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
+    }
 
-    lines.append("")
-    lines.append("## Reserve decision value (proof obligation 4)")
-    for (name, world), report in sorted(reports.items()):
-        reserve = report["reserve"]
-        if not reserve.get("feasible"):
-            lines.append(f"- {name} on {world}: infeasible reserve")
-            continue
-        gain = (reserve["J_baseline"] - reserve["J_oracle"]) / max(reserve["J_baseline"], 1e-12)
-        lines.append(f"- {name} on {world}: J(A_B) {reserve['J_baseline']:,.1f}  "
-                     f"J(A*) {reserve['J_oracle']:,.1f}  oracle gain {gain:.2%}  "
-                     f"submitted skill {reserve['skill']:.4f}")
 
+freeze_composite_bars = calibrate_composite_bars
+
+
+def _load_entries(paths: Sequence[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        payload = json.loads(path.read_text())
+        if isinstance(payload, Mapping) and "reports" in payload:
+            payload = payload["reports"]
+        if isinstance(payload, Mapping):
+            entries.append(dict(payload))
+        elif isinstance(payload, list) and all(isinstance(row, Mapping) for row in payload):
+            entries.extend(dict(row) for row in payload)
+        else:
+            raise EvidenceError(f"{path}: expected an evidence object or list of objects")
+    return entries
+
+
+def _append_eligibility_audit(lines: list[str], eligible: Mapping[str, Any],
+                              indent: str) -> None:
+    audit = eligible.get("band_audit_by_world")
+    if not isinstance(audit, Mapping):
+        return
+    lines.append(f"{indent}state-by-sex cell counts per band and world:")
+    for world, world_record in audit.items():
+        bands = world_record.get("bands", {}) if isinstance(world_record, Mapping) else {}
+        for band in ELIGIBILITY_BANDS:
+            record = bands.get(band, {}) if isinstance(bands, Mapping) else {}
+            lines.append(
+                f"{indent}  {world} {band}: {record.get('eligible_count', 'missing')} of "
+                f"{record.get('cell_count', 'missing')} at floor "
+                f"{record.get('floor_person_years', 'missing')}; "
+                f"{record.get('status', 'missing')}; minimum exposure "
+                f"{record.get('minimum_exposure_person_years', 'missing')}"
+            )
+            cells = record.get("cells")
+            if isinstance(cells, list):
+                for cell in cells:
+                    lines.append(
+                        f"{indent}    state {cell.get('state', 'missing')} "
+                        f"{cell.get('sex', 'missing')}: "
+                        f"{cell.get('exposure_person_years', 'missing')} person-years; "
+                        f"eligible {cell.get('eligible', 'missing')}"
+                    )
+
+
+def _append_mortality_identification(lines: list[str], bars: Mapping[str, Any]) -> None:
+    evidence = bars.get("mortality_identification_evidence")
+    if not isinstance(evidence, Mapping):
+        return
+    trend = evidence.get("trend", {})
+    lag = evidence.get("publication_lag", {})
+    shock = evidence.get("shock_process", {})
+    lines.extend([
+        "## Mortality identification evidence for the tail gate",
+        "",
+        "- mortality improvement is active throughout public experience years "
+        + ", ".join(str(value) for value in trend.get("public_experience_years", []))
+        + "; it does not start only after publication",
+        f"- the {lag.get('months')}-month lag trend effect ranges from "
+        f"{lag.get('trend_effect_percent_range', ['missing'])[0]}% to "
+        f"{lag.get('trend_effect_percent_range', ['missing', 'missing'])[-1]}%",
+        f"- the public shock process has annual probability "
+        f"{shock.get('annual_probability')}; expected mortality-spike years per "
+        f"five-year horizon are {shock.get('expected_mortality_spike_years_per_five_year_horizon')}",
+        "- every continuation redraws the public shock process independently: "
+        + str(bool(shock.get("redrawn_independently_in_every_continuation"))).lower(),
+        f"- generator source digest: `{evidence.get('generator_source_digest_sha256')}`",
+        f"- diagnostic digest: `{evidence.get('diagnostic_digest_sha256')}`",
+    ])
+    for world, record in evidence.get("per_world", {}).items():
+        lines.append(
+            f"- {world}: horizon/history {record.get('horizon_history_ratio')}, "
+            f"trend-only {record.get('trend_only_ratio')}, residual "
+            f"{record.get('residual_ratio')}, lag factor {record.get('lag_trend_factor')}, "
+            f"horizon shock years {record.get('all_shock_years_in_horizon')}"
+        )
     lines.append("")
-    lines.append("## Control battery")
-    battery = controls.ALL_CONTROLS if args.controls == "all" else tuple(args.controls.split(","))
-    for control in battery:
-        for packet in args.qualification:
-            packet = Path(packet)
-            sub = out / "runs" / packet.name / f"control_{control}"
-            if not sub.exists():
-                controls.run(control, packet, sub, calibration_path=str(cal_a))
-            gated = verify_submission(packet, sub, bars, allow_unfrozen=True)
-            if gated["pass"]:
-                status = "PASSES (bar too loose)"
-            else:
-                families = sorted({r.split(":")[0] for r in gated["reasons"]})
-                status = ("FAILS " + ", ".join(families) + "; "
-                          + "; ".join(gated["reasons"][:2]))
-            lines.append(f"- {control} on {packet.name}: {status}")
-            ok &= not gated["pass"]
-            print(f"control {control} on {packet.name}: {'PASS' if gated['pass'] else 'fails'}",
-                  flush=True)
-    lines.append("")
-    if ok:
-        verdict = "bars frozen; every control fails a named gate"
-    elif unattainable:
-        verdict = (f"NOT FROZEN; {len(unattainable)} bar(s) cannot fire, named at the top "
-                   "of this report")
+
+
+def _append_elder_audit(lines: list[str], bars: Mapping[str, Any]) -> None:
+    audit = bars.get("elder_reconstruction_audit")
+    if not isinstance(audit, Mapping):
+        return
+    method = audit.get("method_digest", {})
+    shock = audit.get("shock_redraw", {})
+    lines.extend([
+        "## Elder cohort-component qualification",
+        "",
+        f"- before line: {method.get('before_line')}",
+        f"- after line: {method.get('after_line')}",
+        f"- method source digest: `{method.get('source_sha256')}`",
+        f"- method commit: `{method.get('git_commit')}`",
+        f"- shock redraw: annual probability {shock.get('annual_probability')}, "
+        f"independent per member {str(bool(shock.get('independent_per_member'))).lower()}",
+        f"- shock magnitude source: {shock.get('magnitude_source')}",
+    ])
+    for record in audit.get("worlds", []):
+        exposure = record.get("exposure_65_plus_absolute_error_percent", {})
+        exceedance = record.get("pooled_exceedance_deviation", {})
+        lines.append(
+            f"- {record.get('world')}: absolute 65+ exposure error "
+            f"{exposure.get('before')}% before, {exposure.get('after')}% after; "
+            f"pooled exceedance deviation {exceedance.get('before')} before, "
+            f"{exceedance.get('after')} after"
+        )
+        for region in record.get("liability_mean_by_region", []):
+            lines.append(
+                f"  - region {region.get('region')} liability mean: "
+                f"{region.get('submitted_before')} before, "
+                f"{region.get('submitted_after')} after, {region.get('sealed')} sealed"
+            )
+    lines.extend([
+        f"- audit digest: `{audit.get('digest_sha256')}`",
+        "",
+    ])
+
+
+def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> None:
+    support = bars.get("control_support")
+    if not isinstance(support, Mapping):
+        return
+    registry = support.get("registered_controls_by_gate")
+    matrix = support.get("matrix")
+    if not isinstance(registry, Mapping) or not isinstance(matrix, Mapping):
+        return
+    lines.extend([
+        "## Control separation",
+        "",
+        "A gate is retained only when every control registered to that gate is a",
+        "hard-valid submission and fails the gate on every qualification world.",
+        "The component value and frozen ceiling below are the deletion-test numbers.",
+        "",
+    ])
+    for gate in GATE_COMPONENTS:
+        lines.append(f"- {gate}")
+        names = registry.get(gate, [])
+        for name in names if isinstance(names, list) else []:
+            record = matrix.get(name, {})
+            result = record.get("gates", {}).get(gate, {}) \
+                if isinstance(record, Mapping) else {}
+            lines.append(
+                f"  - {name}: failed worlds "
+                f"{', '.join(result.get('failed_worlds', [])) or 'none'}; "
+                f"passed worlds {', '.join(result.get('passed_worlds', [])) or 'none'}; "
+                "hard-invalid worlds "
+                f"{', '.join(result.get('hard_invalid_worlds', [])) or 'none'}; "
+                "missing worlds "
+                f"{', '.join(record.get('missing_worlds', [])) or 'none'}"
+            )
+            per_world = result.get("per_world", {})
+            if not isinstance(per_world, Mapping):
+                continue
+            for world in bars.get("qualification_worlds", []):
+                comparison = per_world.get(world)
+                if not isinstance(comparison, Mapping):
+                    continue
+                values = []
+                components = comparison.get("components", {})
+                if isinstance(components, Mapping):
+                    for component in GATE_COMPONENTS[gate]:
+                        item = components.get(component, {})
+                        if isinstance(item, Mapping):
+                            values.append(
+                                f"{component}={item.get('value')} vs "
+                                f"{item.get('ceiling')}"
+                            )
+                lines.append(
+                    f"    - {world}: {comparison.get('outcome', 'missing')}; "
+                    + "; ".join(values)
+                )
+    candidates = support.get("deletion_candidates", [])
+    lines.extend(["", "Deletion candidates:"])
+    if isinstance(candidates, list) and candidates:
+        for candidate in candidates:
+            controls = candidate.get("nonseparating_controls", []) \
+                if isinstance(candidate, Mapping) else []
+            names = [
+                item.get("control", "missing") for item in controls
+                if isinstance(item, Mapping)
+            ]
+            lines.append(
+                f"- {candidate.get('gate', 'missing')}: "
+                + ", ".join(names)
+            )
     else:
-        verdict = "NOT FROZEN"
-    lines.append("RESULT: " + verdict)
-    # A bar file says whether its own run reached a verdict. verify_submission refuses to
-    # gate on a set that did not, so an unfinished freeze cannot be read later as a frozen
-    # one. Version four's first freeze wrote its bars before the control battery ran and
-    # ended NOT FROZEN, and the file it left behind carried no trace of that.
-    bars["frozen"] = bool(ok)
-    (out / "bars.json").write_text(json.dumps(bars, indent=1, sort_keys=True) + "\n")
-    (out / "freeze_report.txt").write_text("\n".join(lines) + "\n")
-    (out / "PROVENANCE.md").write_text(_provenance(args, bars, witnesses))
-    print("\n".join(lines))
-    return 0 if ok else 1
+        lines.append("- none")
+    lines.append("")
 
 
-def _provenance(args, bars: dict, witnesses: dict) -> str:
-    """Where every number in bars.json came from, in the order the freeze produced it."""
-    frozen = bars["frozen_from"]
-    return "\n".join([
-        "# Provenance of the version-four bars", "",
-        "Every threshold here was set by `scripts/freeze_v4_bars.py` from the worse of",
-        "two methodologically different witnesses on the qualification worlds named",
-        "below, times a margin declared in that script before any world was scored. No",
-        "graded world was opened, and no submission was looked at.", "",
-        "## Worlds", "",
-        "- development, used only to calibrate the two witnesses: "
-        + ", ".join(frozen["dev"]),
-        "- qualification, hidden source regime, the only worlds any bar reads: "
-        + ", ".join(frozen["qualification"]),
-        "- graded: not opened by this script.", "",
-        "## Witnesses", "",
-        f"- A, the design-based line, {args.bootstrap} bootstrap replicates, "
-        "with the shared actuarial layer at its reference settings.",
-        f"- B, the Bayesian line, {args.sweeps} sweeps with a quarter burned in, "
-        "through the same actuarial layer on its own posterior draws.",
+def _append_regime_identifiability(lines: list[str], bars: Mapping[str, Any]) -> None:
+    audit = bars.get("regime_identifiability_audit")
+    if not isinstance(audit, Mapping):
+        return
+    policy = audit.get("generator_policy", {})
+    lines.extend([
+        "## Regime-axis identifiability",
         "",
-        "The two share the actuarial chain and differ in their reconstruction, which is",
-        "recorded in docs/INDEPENDENCE.md. A bar set from the worse of two lines that",
-        "agree on the chain is a weaker guarantee than one set from two independent",
-        "chains, and is read as such.", "",
-        "## Rule", "",
-        "- a ceiling is the worst witness value times its margin, never under its own",
-        "  floor, which only ever loosens it;",
-        "- a coverage or skill bar is the worst witness value minus its slack, and its",
-        "  constant is a cap on the bar rather than a floor under it: a constant above",
-        "  what both witnesses attain would not be a bar but a world neither can pass;",
-        "- margins: " + json.dumps(frozen["margins"], sort_keys=True) + ";",
-        "- floors: " + json.dumps(frozen["floors"], sort_keys=True) + ";",
-        "- a bar is then held inside the range its own criterion can take, at the",
-        "  declared attainability caps "
-        + json.dumps(frozen["attainability_caps"], sort_keys=True) + " and the declared",
-        "  floor minima " + json.dumps(frozen["attainability_floors"], sort_keys=True)
-        + ". A bar that would be written outside that range is written at the limit",
-        "  and the witness then fails it, rather than inheriting a number that can never",
-        "  fire. A bar that still cannot fire once clamped, or that carries no declared",
-        "  range at all, stops the freeze: the report names it and the run does not",
-        "  complete. The quantile score cap is "
-        + str(QUANTILE_SCORE_ORACLE_MULTIPLE) + " times the score the sealed truth itself",
-        "  pays on the same ensemble, which is "
-        + str(frozen["oracle_quantile_score"]) + " here.", "",
-        "## Frozen actuarial bars", "",
-        *[f"- {name}: {value}" for name, value in sorted(bars["actuarial"].items())],
-        f"- disclosure_utility_floor: {bars.get('disclosure_utility_floor')}",
-        f"- detailed_accuracy_ceiling: {bars.get('detailed_accuracy_ceiling')}",
+        f"- participant-anchor threshold: signed rank correlation greater than "
+        f"{audit.get('anchor_correlation_threshold')}",
+        "- axes eligible to leave the development band: "
+        + ", ".join(policy.get("eligible_for_outside_development_band", [])),
+        "- axes held inside the development band: "
+        + ", ".join(policy.get("held_inside_development_band", [])),
+        f"- measurement rows digest: `{audit.get('measurement_rows_digest_sha256')}`",
+        f"- generator source digest: `{audit.get('generator_source_digest_sha256')}`",
+    ])
+    axes = audit.get("axes", {})
+    if isinstance(axes, Mapping):
+        for axis in REGIME_AXES:
+            record = axes.get(axis, {})
+            if not isinstance(record, Mapping):
+                continue
+            lines.append(
+                f"- {axis}: signed rank correlation "
+                f"{record.get('signed_rank_correlation')}; disposition "
+                f"{record.get('disposition')}; development range "
+                f"{record.get('development_range')}; hidden generation range "
+                f"{record.get('hidden_generation_range')}"
+            )
+    lines.extend([
+        f"- audit digest: `{audit.get('digest_sha256')}`",
         "",
-        "The two width bars score a submitted q95 and ES95 against the sealed ones in",
-        "units of the ensemble's own regional tail width. A tail that is out by its whole",
-        "width reads 1.0 there and a fraction of a percent on the level, which is how a",
-        "mean-only tail and a doubled one both cleared the first pass's tail bars.", "",
-        "## Which cells the rate bars read", "",
-        "A rate ceiling is only as strong as the cells its eligibility rule admits. The",
-        "floors are derived from a published rule rather than set per band: every cell",
-        f"stands on at least {AR_MIN_CELL_PERSONS:.0f} expected persons over the scored",
-        f"window, and a rate cell also carries at least {AR_MIN_EXPECTED_EVENTS:.0f} "
-        "expected events of its",
-        "own kind at the published reference rate for its band. The derived floors, in",
-        "person-years:", "",
-        *[f"- {estimand}: " + ", ".join(f"{band} {value:,.0f}"
-                                        for band, value in sorted(table.items()))
-          for estimand, table in sorted(frozen["eligibility_floors"].items())],
+    ])
+
+
+def render_freeze_report(bars: Mapping[str, Any]) -> str:
+    lines = ["# Version-four composite bar freeze report", ""]
+    lines.append("RESULT: " + ("FROZEN" if bars.get("frozen") else "NOT FROZEN"))
+    lines.append("")
+    blockers = bars.get("blockers", [])
+    if blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in blockers)
+        lines.append("")
+    gates = bars.get("gates", {})
+    if gates:
+        lines.extend(["## Composite gates", ""])
+        for gate, components in GATE_COMPONENTS.items():
+            record = gates[gate]
+            lines.append(f"- {gate}")
+            lines.append(
+                "  gate-union leave-one-world-out false-fail rate: "
+                f"{float(bars['achieved_false_fail_rates'][gate]):.6%}"
+            )
+            lines.append(
+                "  supporting controls: "
+                f"{', '.join(record.get('supporting_controls', [])) or 'none'}"
+            )
+            for component in components:
+                bar = record["components"][component]
+                lines.extend([
+                    f"  - {component}",
+                    f"    value: {bar['value']:.12g}",
+                    "    attainable range: "
+                    + json.dumps(bar["range"], separators=(",", ":")),
+                    f"    worlds: {', '.join(bar['worlds'])}",
+                    f"    witnesses: {', '.join(bar['witnesses'])}",
+                    f"    p99 rank: {bar['order_statistic_rank']} of "
+                    f"{bar['sample_count']}",
+                    "    component leave-one-world-out false-fail rate: "
+                    f"{bar['achieved_false_fail_rate']:.6%}",
+                ])
+                eligible = bar.get("eligible_cells")
+                if isinstance(eligible, Mapping):
+                    lines.append("    eligible cells by qualification world:")
+                    for world, cells in eligible.get("by_world", {}).items():
+                        lines.append(
+                            f"      {world}: "
+                            + json.dumps(cells, separators=(",", ":"))
+                        )
+                    _append_eligibility_audit(lines, eligible, "    ")
+        lines.append("")
+    _append_control_separation(lines, bars)
+    lines.extend(["## Empirical tail definition", "", *TAIL_DEFINITION_LINES, ""])
+    _append_mortality_identification(lines, bars)
+    _append_elder_audit(lines, bars)
+    _append_regime_identifiability(lines, bars)
+    lines.extend(["## False-fail accounting", ""])
+    lines.append(f"- target per gate: {float(bars['target_false_fail_rate']):.2%}")
+    lines.append(
+        "- target marginal product over five gates and three graded worlds: "
+        f"{float(bars['target_marginal_product']):.6f}"
+    )
+    achieved = bars.get("achieved_marginal_rate_product")
+    lines.append(
+        "- achieved conditional marginal-rate product: "
+        + ("unavailable" if achieved is None else f"{float(achieved):.6f}")
+    )
+    for caveat in bars.get("caveats", []):
+        lines.append(f"- {caveat}")
+    return "\n".join(lines) + "\n"
+
+
+def render_provenance(bars: Mapping[str, Any]) -> str:
+    lines = [
+        "# Provenance of the version-four composite bars",
         "",
-        "The cells each gated block actually read, per world and witness:", "",
-        *[f"- {key}: bands {', '.join(block['bands']) or 'none'}, "
-          f"{len(block['cells'])} distinct cells, counts "
-          + json.dumps(block["n_cells"], sort_keys=True)
-          + ("; no eligible cell on " + ", ".join(block["empty"]) if block["empty"] else "")
-          for key, block in sorted(frozen["rate_cells"].items())],
+        "Every component ceiling is the exact empirical p99 order statistic of the",
+        "deterministic replicate reports identified inside that component record.",
+        "Final witness reports are checked against the bars but are not resampled.",
+        "Scientific controls must pass the deterministic hard checks before a failure",
+        "can support a gate.",
         "",
-        "## Whether this set froze", "",
-        f"`bars.json` records `frozen`: {json.dumps(bars.get('frozen'))}. It is written",
-        "after the control battery, not before it, and `verify_submission` refuses to",
-        "gate a version-four submission with a set that does not record a completed",
-        "freeze. A freeze completes when both witnesses clear every bar on every",
-        "qualification world and every control fails at least one named gate. The freeze",
-        "report names what blocked it when it does not.", "",
-        "## Reading them", "",
-        "`verify_submission(packet, submission, bars)` reads `bars[\"actuarial\"]` for the",
-        "version-four gates and falls back to the placeholders in `ActuarialThresholds`",
-        "for any key that is absent. A metric with no threshold is reported and never",
-        "gates.", ""])
+        f"Schema: `{bars.get('schema')}`.",
+        f"Frozen: `{json.dumps(bool(bars.get('frozen')))}`.",
+        "",
+    ]
+    if bars.get("reference_lines"):
+        lines.append("Reference lines: " + ", ".join(bars["reference_lines"]) + ".")
+    if bars.get("qualification_worlds"):
+        lines.append(
+            "Qualification worlds: " + ", ".join(bars["qualification_worlds"]) + "."
+        )
+    provenance = bars.get("evidence_provenance")
+    if isinstance(provenance, Mapping):
+        lines.append(
+            "Evidence provenance digest: `"
+            + str(provenance.get("digest_sha256", "missing")) + "`."
+        )
+    gates = bars.get("gates", {})
+    if gates:
+        lines.extend(["", "## Per-bar provenance", ""])
+        for gate, components in GATE_COMPONENTS.items():
+            record = gates[gate]
+            lines.append(f"- {gate}")
+            lines.append(
+                "  gate-union leave-one-world-out false-fail rate: "
+                f"{float(bars['achieved_false_fail_rates'][gate]):.6%}"
+            )
+            lines.append(
+                "  supporting controls: "
+                f"{', '.join(record.get('supporting_controls', [])) or 'none'}"
+            )
+            for component in components:
+                bar = record["components"][component]
+                lines.extend([
+                    f"  - {component}",
+                    f"    value: {bar['value']:.12g}",
+                    "    attainable range: "
+                    + json.dumps(bar["range"], separators=(",", ":")),
+                    f"    worlds: {', '.join(bar['worlds'])}",
+                    f"    witnesses: {', '.join(bar['witnesses'])}",
+                    f"    p99 rank: {bar['order_statistic_rank']} of "
+                    f"{bar['sample_count']}",
+                    "    component leave-one-world-out false-fail rate: "
+                    f"{bar['achieved_false_fail_rate']:.6%}",
+                    "    replicate evidence digest: `"
+                    f"{bar['replicate_evidence_digest_sha256']}`",
+                ])
+                eligible = bar.get("eligible_cells")
+                if isinstance(eligible, Mapping):
+                    lines.append("    eligible cells by qualification world:")
+                    for world, cells in eligible.get("by_world", {}).items():
+                        lines.append(
+                            f"      {world}: "
+                            + json.dumps(cells, separators=(",", ":"))
+                        )
+                    _append_eligibility_audit(lines, eligible, "    ")
+    _append_control_separation(lines, bars)
+    lines.extend(["", "## Empirical tail definition", "", *TAIL_DEFINITION_LINES, ""])
+    _append_mortality_identification(lines, bars)
+    _append_elder_audit(lines, bars)
+    _append_regime_identifiability(lines, bars)
+    lines.extend(["## False-fail accounting", ""])
+    lines.append(
+        "- target marginal product over five gates and three graded worlds: "
+        f"{float(bars['target_marginal_product']):.6f}"
+    )
+    achieved = bars.get("achieved_marginal_rate_product")
+    lines.append(
+        "- achieved conditional marginal-rate product: "
+        + ("unavailable" if achieved is None else f"{float(achieved):.6f}")
+    )
+    lines.extend(["", CORRELATION_CAVEAT, "", FINITE_WORLD_CAVEAT, ""])
+    return "\n".join(lines)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--evidence", action="append", default=[],
+                        help="JSON manifest containing all three report lists")
+    parser.add_argument("--reference-report", action="append", default=[])
+    parser.add_argument("--replicate-report", action="append", default=[])
+    parser.add_argument("--control-report", action="append", default=[])
+    parser.add_argument("--elder-audit",
+                        help="machine-readable elder reconstruction qualification report")
+    parser.add_argument(
+        "--regime-identifiability-audit",
+        help="machine-readable participant-trace and hidden-axis policy report",
+    )
+    parser.add_argument("--qualification-world-count", type=int,
+                        default=EXPECTED_QUALIFICATION_WORLDS)
+    parser.add_argument("--graded-world-count", type=int, default=GRADED_WORLD_COUNT)
+    # Accepted only to turn an old invocation into a recorded fail-closed result.
+    parser.add_argument("--dev", nargs="*", default=[])
+    parser.add_argument("--qualification", nargs="*", default=[])
+    parser.add_argument("--bootstrap", type=int)
+    parser.add_argument("--sweeps", type=int)
+    parser.add_argument("--controls")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    references: list[dict[str, Any]] = []
+    replicates: list[dict[str, Any]] = []
+    controls: list[dict[str, Any]] = []
+    elder_audit: dict[str, Any] | None = None
+    regime_audit: dict[str, Any] | None = None
+    try:
+        for path in args.evidence:
+            payload = json.loads(Path(path).read_text())
+            if not isinstance(payload, Mapping):
+                raise EvidenceError(f"{path}: evidence manifest must be an object")
+            if payload.get("schema") not in (None, EVIDENCE_SCHEMA):
+                raise EvidenceError(f"{path}: unsupported evidence schema")
+            embedded_audit = payload.get("elder_reconstruction_audit")
+            if embedded_audit is not None:
+                if elder_audit is not None or not isinstance(embedded_audit, Mapping):
+                    raise EvidenceError(
+                        "exactly one elder_reconstruction_audit object may be supplied"
+                    )
+                elder_audit = dict(embedded_audit)
+            embedded_regime_audit = payload.get("regime_identifiability_audit")
+            if embedded_regime_audit is not None:
+                if regime_audit is not None \
+                        or not isinstance(embedded_regime_audit, Mapping):
+                    raise EvidenceError(
+                        "exactly one regime_identifiability_audit object may be supplied"
+                    )
+                regime_audit = dict(embedded_regime_audit)
+            for key, target in (
+                ("reference_reports", references),
+                ("replicate_reports", replicates),
+                ("control_reports", controls),
+            ):
+                rows = payload.get(key, [])
+                if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
+                    raise EvidenceError(f"{path}: {key} must be a list of objects")
+                target.extend(dict(row) for row in rows)
+        references.extend(_load_entries(args.reference_report))
+        replicates.extend(_load_entries(args.replicate_report))
+        controls.extend(_load_entries(args.control_report))
+        if args.elder_audit:
+            if elder_audit is not None:
+                raise EvidenceError("elder audit was supplied more than once")
+            payload = json.loads(Path(args.elder_audit).read_text())
+            if not isinstance(payload, Mapping):
+                raise EvidenceError("elder audit must be a JSON object")
+            elder_audit = dict(payload)
+        if args.regime_identifiability_audit:
+            if regime_audit is not None:
+                raise EvidenceError("regime identifiability audit was supplied more than once")
+            payload = json.loads(Path(args.regime_identifiability_audit).read_text())
+            if not isinstance(payload, Mapping):
+                raise EvidenceError("regime identifiability audit must be a JSON object")
+            regime_audit = dict(payload)
+        bars = calibrate_composite_bars(
+            references,
+            replicates if replicates else None,
+            controls,
+            elder_reconstruction_audit=elder_audit,
+            regime_identifiability_audit=regime_audit,
+            expected_qualification_worlds=args.qualification_world_count,
+            graded_world_count=args.graded_world_count,
+        )
+    except (EvidenceError, OSError, json.JSONDecodeError) as exc:
+        bars = _empty_result(
+            [str(exc)],
+            expected_world_count=args.qualification_world_count,
+            graded_world_count=args.graded_world_count,
+        )
+
+    if (args.dev or args.qualification) and not replicates:
+        note = (
+            "replicate evidence missing; packet paths cannot substitute for deterministic "
+            "replicate-level verifier reports"
+        )
+        if note not in bars["blockers"]:
+            bars["blockers"].append(note)
+        bars["frozen"] = False
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "bars.json").write_text(json.dumps(bars, indent=2, sort_keys=True) + "\n")
+    (out / "freeze_report.txt").write_text(render_freeze_report(bars))
+    (out / "PROVENANCE.md").write_text(render_provenance(bars))
+    print(render_freeze_report(bars), end="")
+    return 0 if bars["frozen"] else 1
 
 
 if __name__ == "__main__":

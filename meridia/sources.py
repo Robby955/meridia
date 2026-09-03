@@ -38,11 +38,6 @@ from meridia.mechanisms import (WorldMechanisms, build_world_mechanisms, expit,
 
 OBSERVED_SOURCES: Final = ("population", "business", "income", "health")
 
-# How far the target-dependence axis moves the health source's inclusion logit per log
-# unit of latent burden, and the largest shift any one record's burden may produce.
-HEALTH_FRAILTY_LOGIT_SCALE: Final = 2.0
-HEALTH_FRAILTY_LOGIT_CAP: Final = 2.0
-
 # Observed-token namespaces.  Each source draws a record, a primary entity, and a
 # secondary entity pool per vintage: the second entry of each pair is the replacement
 # pool an identifier moves into when it does not persist across vintages.
@@ -1070,20 +1065,7 @@ def _record_mechanism_rates(
             + float(coefficients["health_inclusion_completeness_by_target"])
             * (float(coefficients["administrative_completeness"]) - 1.0)
         )
-        # The slope is scaled and then capped. Latent burden's own mean moves by about
-        # half a log unit between a child and a person of eighty, so at the raw slope an
-        # axis at the middle of its band moved the inclusion share by six points across
-        # the whole age range, under a survey anchor whose false positives are of the
-        # same order. The axis had a mechanism and no readable trace. The cap keeps the
-        # far tail of the burden distribution from driving an inclusion probability to
-        # zero or one, which protocol section 10 refuses as underidentified.
-        coverage_shift = coverage_shift + np.clip(
-            HEALTH_FRAILTY_LOGIT_SCALE
-            * frailty_slope
-            * np.log(np.clip(frailty, 0.15, 6.0)),
-            -HEALTH_FRAILTY_LOGIT_CAP,
-            HEALTH_FRAILTY_LOGIT_CAP,
-        )
+        coverage_shift = coverage_shift + frailty_slope * np.log(np.clip(frailty, 0.15, 6.0))
     # Item missingness on the money value has its own money-band slope. In version four's
     # first pass this was the target-dependence axis again, which loaded one coefficient
     # onto two mechanisms with different targets and left neither identified. Its county

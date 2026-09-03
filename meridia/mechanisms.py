@@ -133,35 +133,20 @@ DEVELOPMENT_DESIGN: Final = _plackett_burman_12()[:, : len(MECHANISM_AXES)]
 N_DEVELOPMENT_CELLS: Final = int(DEVELOPMENT_DESIGN.shape[0])
 
 # The hidden world draws its level pattern from the sixty-four sign patterns the six axes
-# admit, minus the twelve the development design already spends, and draws which two of
-# its intensities leave the development band. Both draws are keyed on the world's own
-# seed, so two hidden worlds do not share a corner and no configuration can be read off
-# this module. A constant here would make the hidden regime a fact about the repository
-# rather than a quantity a method has to estimate.
+# admit, minus the twelve the development design already spends. Only axes with a measured
+# participant-file trace may leave the development band. The administrative benchmark
+# anchor measured +0.715, while two health/survey preflights measured only +0.020 and
+# +0.139. The freeze policy nevertheless keeps both axes in band: anchor availability and
+# hidden-axis scope are separate fail-closed decisions. They still vary continuously and
+# enter the joint hidden level pattern.
+HIDDEN_IN_BAND_AXES: Final = (
+    "administrative_completeness",
+    "missingness_target_dependence",
+)
+HIDDEN_EXTRAPOLATION_AXES: Final = tuple(
+    axis for axis in MECHANISM_AXES if axis not in HIDDEN_IN_BAND_AXES
+)
 N_HIDDEN_OUTSIDE_AXES: Final = 2
-
-# Which axes an evaluation world may push past the development band. Protocol section 10
-# refuses a regime whose difficulty comes from something no supplied anchor reaches, so an
-# axis is eligible only once a statistic on the participant files tracks its realized
-# intensity. Five of the six do. ``missingness_target_dependence`` does not, and it is
-# held inside the development band until it does.
-#
-# What was tried for it, all against the survey admission item and the health archive,
-# which is the anchor protocol section 3 gives that mechanism. The national gap between
-# the archive's admission rate and the anchor's reads how much the source retains overall
-# rather than the gradient, at -0.02 over twenty-one worlds. Comparing the two rates band
-# by band removes the level, and the realized inclusion gradient it targets does track the
-# axis: measured against the retained truth on eighteen worlds it reads +0.66 once the
-# frailty term carries the scale the source layer now gives it. The anchor cannot resolve
-# it. At four thousand respondents the sampling error of one age group's admission rate is
-# about seven percent and the whole gradient is about ten, so the statistic reads +0.14. A
-# two-year anchor window was tried for the same reason and made it worse, because nearly
-# everyone frail enough to be admitted at all is admitted inside two years. This is the
-# world size talking, the same wall the mortality trend hit, and it is recorded rather
-# than papered over with an axis a method is asked to read off nothing.
-OUTSIDE_ELIGIBLE_AXES: Final = tuple(
-    axis for axis in MECHANISM_AXES if axis != "missingness_target_dependence")
-
 
 def _absent_level_patterns() -> tuple[tuple[int, ...], ...]:
     """Every sign pattern over the six axes that no development design row takes."""
@@ -397,11 +382,9 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     A development world takes a committed design row: ``cell`` when given, otherwise the
     row the seed selects. Every axis lands in the half of the development band its level
     names, at a continuous position inside that half. The hidden world takes a level
-    pattern that appears in no design row and pushes two intensities past the development
-    band, staying inside the public envelope. The two come from the axes an anchor
-    reaches, which is ``OUTSIDE_ELIGIBLE_AXES``; every other axis still recombines into a
-    joint configuration the design never spends, but inside the band the open worlds
-    cover.
+    pattern that appears in no design row and pushes two identifiable intensities past the
+    development band, staying inside the public envelope. Axes in
+    ``HIDDEN_IN_BAND_AXES`` always remain within their development ranges.
     """
     if regime not in ("development", "hidden"):
         raise ValueError(f"unknown mechanism regime {regime!r}")
@@ -422,9 +405,13 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     if (DEVELOPMENT_DESIGN == np.asarray(levels, dtype=np.int8)).all(axis=1).any():
         raise RuntimeError("the hidden level pattern repeats a development design row")
     outside = tuple(sorted(
-        OUTSIDE_ELIGIBLE_AXES[k] for k in rng.choice(len(OUTSIDE_ELIGIBLE_AXES),
-                                                     size=N_HIDDEN_OUTSIDE_AXES,
-                                                     replace=False)))
+        HIDDEN_EXTRAPOLATION_AXES[k]
+        for k in rng.choice(
+            len(HIDDEN_EXTRAPOLATION_AXES),
+            size=N_HIDDEN_OUTSIDE_AXES,
+            replace=False,
+        )
+    ))
     intensity = {}
     for k, axis in enumerate(MECHANISM_AXES):
         band = (
@@ -669,19 +656,17 @@ def contract_block() -> dict:
     return {
         "axes": list(MECHANISM_AXES),
         "public_envelope": {k: list(v) for k, v in PUBLIC_ENVELOPE.items()},
-        "outside_eligible_axes": list(OUTSIDE_ELIGIBLE_AXES),
-        "n_outside_axes": N_HIDDEN_OUTSIDE_AXES,
-        "outside_rule": "an evaluation world places n_outside_axes intensities between "
-                        "the development band and the envelope edge, drawn from "
-                        "outside_eligible_axes. An axis is listed there once a statistic "
-                        "on the participant files tracks its realized intensity across "
-                        "worlds; the rest recombine into a configuration the design does "
-                        "not spend, inside the band",
         "development_band": {k: list(v) for k, v in DEVELOPMENT_BAND.items()},
         "declared_interactions": dict(DECLARED_INTERACTIONS),
         "pairwise_axis_interactions": list(PAIRWISE_AXIS_INTERACTIONS),
         "development_design": DEVELOPMENT_DESIGN.tolist(),
         "n_development_cells": N_DEVELOPMENT_CELLS,
+        "hidden_axis_policy": {
+            "outside_axis_count": N_HIDDEN_OUTSIDE_AXES,
+            "eligible_for_outside_development_band": list(HIDDEN_EXTRAPOLATION_AXES),
+            "held_inside_development_band": list(HIDDEN_IN_BAND_AXES),
+            "anchor_correlation_required_for_extrapolation": 0.4,
+        },
         "covariates": dict(COVARIATE_DEFINITIONS),
         "families": {
             "source_inclusion": "logit p_include = logit(base) + a_completeness * (econ_c - 0.5)"

@@ -131,6 +131,14 @@ def _interval_score(kind: str, lower: float, upper: float, truth: float, alpha: 
     return score / max(abs(truth), 1.0)
 
 
+def _empirical_quantile(values: list[float], level: float) -> float:
+    """Order statistic ``ceil(level * n)`` with no interpolation."""
+    if not values or not 0.0 < float(level) <= 1.0:
+        raise ValueError("an empirical quantile needs values and a level in (0, 1]")
+    ordered = np.sort(np.asarray(values, dtype=np.float64))
+    return float(ordered[int(math.ceil(float(level) * len(ordered))) - 1])
+
+
 def score_release(rows: list[dict], truth: dict, admin: dict,
                   alpha: float = NOMINAL_ALPHA) -> dict:
     """Metrics per (estimand, level): worst and mean error, coverage, mean interval score.
@@ -163,6 +171,7 @@ def score_release(rows: list[dict], truth: dict, admin: dict,
             metrics[f"{e}/{level}"] = {
                 "n_units": len(errors),
                 "worst_error": float(max(errors)),
+                "p95_error": _empirical_quantile(errors, 0.95),
                 "worst_unit": int(worst_unit),
                 "mean_error": float(np.mean(errors)),
                 "coverage": float(np.mean(covered)),
@@ -174,6 +183,7 @@ def score_release(rows: list[dict], truth: dict, admin: dict,
             metrics[f"{e}/all"] = {
                 "n_units": len(pooled_errors),
                 "worst_error": float(max(pooled_errors)),
+                "p95_error": _empirical_quantile(pooled_errors, 0.95),
                 "worst_unit": -1,
                 "mean_error": float(np.mean(pooled_errors)),
                 "coverage": float(np.mean(pooled_covered)),

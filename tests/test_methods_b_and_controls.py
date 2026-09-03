@@ -45,17 +45,7 @@ def test_method_b_clears_hard_gates_from_participant_files(packet, tmp_path):
     assert report["metrics"]["persons/nation"]["worst_error"] < 0.06
     assert report["metrics"]["persons/all"]["coverage"] > 0.5
     assert report["reserve"]["feasible"]
-    families = {reason.split(":")[0] for reason in report["reasons"]}
-    assert families <= {"tail", "reserve", "exposure", "rate", "coverage",
-                        "disclosure"}, report["reasons"]
-    # What the method controls is asserted directly. No published cell is recoverable
-    # from the published totals, and the table it releases is most of the releasable one.
-    # Whether a cell whose true count sits under the threshold was published is not a
-    # rule a method can keep: suppression reads the estimate, and on a cell this thin an
-    # estimate can sit at twice the threshold while the truth sits under it. The
-    # attainability of that gate belongs to the lane that owns the audit.
-    assert report["disclosure"]["recoverable"] == []
-    assert report["disclosure"]["utility"] > 0.85
+    assert report["hard_pass"]
 
 
 @pytest.mark.parametrize("name", controls.CONTROLS)
@@ -66,8 +56,8 @@ def test_every_control_writes_a_complete_submission(packet, dev_packet, tmp_path
         calibration = str(tmp_path / "calibration_A.json")
         design_based.calibrate([dev_packet], calibration)
     controls.run(name, packet, out, calibration_path=calibration)
-    for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
-        assert (out / file).exists(), (name, file)
+    assert {path.name for path in out.iterdir()} == {
+        "release.csv", "projection.csv", "reserve.csv"}, name
     report = verify_submission(packet, out)
     assert report["schema_errors"] == [], (name, report["schema_errors"][:3])
 
@@ -206,7 +196,7 @@ def test_the_development_average_regime_overrides_the_world_it_is_given(packet, 
     assert abs(own["drift"] - override["mortality_drift"]) > 1e-6
 
 
-def test_the_experience_only_control_files_four_files_from_the_aggregate_file(packet, tmp_path):
+def test_the_experience_only_control_files_three_files_from_the_aggregate_file(packet, tmp_path):
     """The control that says the microdata is not needed, so the freeze can price that."""
     import pandas as pd
 
@@ -214,8 +204,8 @@ def test_the_experience_only_control_files_four_files_from_the_aggregate_file(pa
     out = tmp_path / "experience_history_only"
     controls._experience_history_only(
         packet, out, LayerParams(simulation=SimulationParams(n_paths=128)))
-    for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
-        assert (out / file).exists()
+    assert {path.name for path in out.iterdir()} == {
+        "release.csv", "projection.csv", "reserve.csv"}
     report = verify_submission(packet, out)
     assert report["schema_errors"] == [] and report["additivity_errors"] == []
     release = pd.read_csv(out / "release.csv")

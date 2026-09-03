@@ -1,12 +1,12 @@
 """Packet builder: one world, split into what an agent receives and what stays sealed.
 
-A packet is a directory. ``participant/`` holds flat files only: a household survey at
+A packet is a directory. ``participant/`` holds a household survey at
 two snapshots carrying the health anchor, the four observed sources at two snapshots, a
 five-year aggregate experience file, the county-to-state map with each county's land
 area, and the contract that names the estimands, levels, snapshot ticks, projection
-horizon, disclosure threshold, allocation budget, obligation, mechanism families, and
+horizon, obligation, public reserve rule, mechanism families, and
 covariate definitions. ``retained/`` holds the exact truth tables
-at the revised snapshot and at the horizon, the detailed table, and the source package's
+at the revised snapshot and at the horizon and the source package's
 crosswalks and mechanisms. A development packet copies the truth tables into
 ``participant/truth/`` so methods can be tuned on an open world; a hidden packet never
 does. The manifest hashes every file and records which side it is on, and the builder
@@ -25,8 +25,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .actuarial import (ACTUARIAL_AGE_BAND_LABELS, ActuarialThresholds,
-                        ObligationContract, actuarial_pass, ensemble_truth,
+from .actuarial import (ACTUARIAL_AGE_BAND_LABELS, BROAD_AGE_BAND_LABELS,
+                        RATE_ESTIMANDS, V4_SUBMISSION_COLUMNS, ActuarialThresholds,
+                        ObligationContract, actuarial_pass, eligibility_floor,
                         regions_from_admin, reserve_total)
 from .admin import build_admin
 from .businesses import build_businesses
@@ -48,10 +49,11 @@ from .projection import (DEMAND_ESTIMAND, continuation_liabilities,
 from .events import EVENT_TYPES
 from .release import (AGE_BAND_LABELS, ESTIMANDS, LEVELS, SEX_LABELS,
                       compute_detailed_table_truth, compute_truth)
-from .sources import (BENCHMARK_BAND_DEFINITION, BENCHMARK_BAND_LEVEL, BENCHMARK_ITEMS,
-                      BENCHMARK_SUBGROUP_ITEM, N_BENCHMARK_BANDS, SOURCE_REGIMES,
-                      benchmark_bands, benchmark_values, build_observed_sources,
-                      draw_benchmark_bias, draw_source_params, participant_source_snapshots)
+from .sources import (BENCHMARK_BAND_DEFINITION, BENCHMARK_BAND_LEVEL, BENCHMARK_BIAS,
+                      BENCHMARK_ITEMS, BENCHMARK_ROUNDING, BENCHMARK_SUBGROUP_ITEM,
+                      N_BENCHMARK_BANDS, SOURCE_REGIMES, benchmark_bands,
+                      benchmark_values, build_observed_sources, draw_benchmark_bias,
+                      draw_source_params, participant_source_snapshots)
 from .survey import (N_SURVEY_OUTSIDE_AXES, SURVEY_BANDS, SURVEY_ENVELOPE,
                      SurveyParams, draw_survey, draw_survey_instrument)
 from .terrain import generate_elevation
@@ -77,6 +79,8 @@ class PacketParams:
     experience_lag_months: int = 12  # publication lag of that file behind the snapshot
     ensemble_members: int = 2048     # committed continuations behind the tail truth
     reserve_weight_spread: float = 4.0   # highest regional shortfall weight over lowest
+    # Provisional execution value. Qualification must replace and record it before freeze.
+    reserve_rate_per_person_year: float = 4_600.0
     shock_annual_rate: float = ANNUAL_SHOCK_RATE   # published shock years per year
 
 
@@ -93,15 +97,6 @@ class PacketParams:
 # put an epidemic year inside the window, which is a published family and visible in the
 # file's own national series.
 EXPERIENCE_BURN_IN_MONTHS = 48
-
-# The window the health anchor asks about, and the window the archive is compared over.
-# A two-year window was tried, because doubling the admission rate cuts the sampling
-# error of the anchor's own estimate, and it did not move the axis it was tried for: the
-# wider window also thins the burden contrast between the young and the old, since almost
-# everyone frail enough to be admitted at all is admitted inside two years. The window
-# stays at one year and the constant is named so the survey, the archive comparison and
-# the contract read the same number.
-HEALTH_ANCHOR_WINDOW_MONTHS = 12
 
 # The committed version-four world: one size for the development set, the qualification
 # worlds and the graded ones, so a bar frozen on one is read on the same object. The size
@@ -177,8 +172,7 @@ def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     }
 
 
-def _recent_admission(history: dict, state: dict, tick: int,
-                      window: int = HEALTH_ANCHOR_WINDOW_MONTHS) -> np.ndarray:
+def _recent_admission(history: dict, state: dict, tick: int, window: int = 12) -> np.ndarray:
     """True indicator, per living person in ledger order, of an admission in the window.
 
     This is the quantity the survey's health anchor reports with error.  It is read off
@@ -193,59 +187,6 @@ def _recent_admission(history: dict, state: dict, tick: int,
                 .astype(np.int64) - 1)
     admitted[position[(position >= 0) & (position < len(admitted))]] = True
     return admitted[np.flatnonzero(state["person"]["is_alive"])]
-
-
-HEALTH_INCLUSION_COLUMNS = ("age_band", "admissions", "archived_admissions",
-                            "archived_share")
-
-
-def health_inclusion_truth(built: dict, tick: int,
-                           window: int = HEALTH_ANCHOR_WINDOW_MONTHS) -> dict:
-    """What share of each band's real admissions reached the health archive.
-
-    The target-dependence axis is the slope of health-source inclusion in a person's
-    latent burden, and the survey's admission item is its only anchor. A method reads the
-    axis off the gradient of the gap between the archive's admission rate and the
-    anchor's: where inclusion reads burden, the archive keeps a larger share of the
-    admissions of the bands that carry the most of it, and a gradient does not move with
-    the archive's own coverage level the way the national gap did. The level statistic
-    the first pass used read a signed rank correlation of -0.02 with the realized
-    intensity over twenty-one worlds, which is no trace at all.
-
-    This is the realized quantity behind that gradient. A hidden world keeps it, and a
-    development world ships it beside the anchor, so the map from the statistic to the
-    dependence is fitted on worlds that show both.
-    """
-    event = built["history"]["event"]
-    person = replay_event_history(built["history"], tick)["person"]
-    n_person = len(person["birth_tick"])
-    position = ((event["truth_person_id"] & np.uint64(SEQUENCE_MASK))
-                .astype(np.int64) - 1)
-    admitted = ((event["event_type"] == EVENT_TYPES["encounter_admitted"])
-                & (event["tick"] > int(tick) - int(window))
-                & (event["tick"] <= int(tick))
-                & (position >= 0) & (position < n_person))
-    archived = np.isin(
-        event["truth_encounter_id"],
-        np.asarray(built["sources"]["hidden"]["crosswalks"]["revised"]["health"]
-                   ["truth_entity_id"]))
-    age = np.maximum(0, (int(tick) - person["birth_tick"][np.clip(position, 0, n_person - 1)])
-                     // 12)
-    band = np.clip(np.searchsorted(np.asarray([18, 45, 65, 75, 85]), age, side="right"),
-                   0, len(ACTUARIAL_AGE_BAND_LABELS) - 1)
-    labels, total, kept, share = [], [], [], []
-    for b, label in enumerate(ACTUARIAL_AGE_BAND_LABELS):
-        in_band = admitted & (band == b)
-        n = int(in_band.sum())
-        k = int((in_band & archived).sum())
-        labels.append(label)
-        total.append(n)
-        kept.append(k)
-        share.append(k / n if n else float("nan"))
-    return {"age_band": np.asarray(labels),
-            "admissions": np.asarray(total, dtype=np.int64),
-            "archived_admissions": np.asarray(kept, dtype=np.int64),
-            "archived_share": np.asarray(share, dtype=np.float64)}
 
 
 def _survey_at(built: dict, tick: int, vintage: int) -> dict:
@@ -587,10 +528,18 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     obligation = ObligationContract(
         horizon_months=params.horizon_months,
         qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
-    _write_table(participant / "experience_history.csv",
+    experience_path = participant / "experience_history.csv"
+    _write_table(experience_path,
                  _experience_history(built, admin, obligation, params.experience_years,
-                                     params.experience_lag_months),
-                 forbid_truth=True)
+                                     params.experience_lag_months), forbid_truth=True)
+    # Read the file back after six-decimal serialization. The public total is therefore a
+    # deterministic function of the exact values a participant receives, not of a
+    # higher-precision array retained only while the packet is being built.
+    import pandas as pd
+    public_experience = pd.read_csv(experience_path)
+    latest_experience_year = int(public_experience["year"].max())
+    reserve_exposure = float(public_experience.loc[
+        public_experience["year"] == latest_experience_year, "exposure"].sum())
     population_revised = snapshots["revised"]["population"]
     age_years = (ticks["revised"] - population_revised["birth_tick"]) // 12
     budget = int(round(params.budget_fraction * int((age_years >= 65).sum())))
@@ -617,17 +566,30 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
                                              params.ensemble_members, region_of_county,
                                              workers=workers)
         _store_liability(cache_dir, cache_key, liability)
-    tail = ensemble_truth(liability)
+    rounding_unit = thresholds.reserve_rounding_unit
+    total = reserve_total(reserve_exposure, params.reserve_rate_per_person_year,
+                          rounding_unit)
     reserve = {"obligation": obligation.as_public(),
-               "total": reserve_total(tail["q"], tail["es"], thresholds),
-               "gamma": thresholds.gamma,
+               "total": total,
+               "total_rule": {
+                   "file": "experience_history.csv",
+                   "year": "maximum published year",
+                   "year_column": "year",
+                   "selected_year": latest_experience_year,
+                   "exposure_column": "exposure",
+                   "aggregation": "sum exposure over every row in the selected year",
+                   "exposure_person_years": reserve_exposure,
+                   "rate_per_person_year": float(params.reserve_rate_per_person_year),
+                   "rounding": "up",
+                   "rounding_unit": rounding_unit,
+               },
                "regions": "state",
                "weights": [float(w) for w in weights],
                "baseline_share": [float(v) for v in baseline_share],
                "baseline_rule": "A_B splits the total in proportion to each region's share "
                                 "of persons at or above the eligibility age in the revised "
                                 "population source",
-               "rounding_unit": thresholds.reserve_rounding_unit,
+               "rounding_unit": rounding_unit,
                "weight_rule": "public ladder over regions ranked by the share of persons "
                               "85 and over in the revised population source",
                "members": int(params.ensemble_members)}
@@ -641,12 +603,28 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         "ticks": {"preliminary": ticks["preliminary"], "revised": ticks["revised"],
                   "horizon": ticks["horizon"]},
         "months_per_tick": 1,
-        "disclosure_threshold": params.disclosure_threshold,
         "allocation": {"demand": DEMAND_ESTIMAND, "level": "county", "budget": budget},
+        "submission": {
+            "files": {name: list(columns)
+                      for name, columns in V4_SUBMISSION_COLUMNS.items()},
+            "additional_entries": "forbidden",
+        },
         "mechanisms": contract_block(),
         "obligation": obligation.as_public(),
         "reserve": reserve,
         "actuarial_age_bands": list(ACTUARIAL_AGE_BAND_LABELS),
+        "rate_eligibility": {
+            "truth_quantity": "retained person-years exposure",
+            "estimands": list(RATE_ESTIMANDS),
+            "bands": list(BROAD_AGE_BAND_LABELS),
+            "exposure_level": "county",
+            "rate_level": "state",
+            "floor_person_years_by_band": {
+                band: eligibility_floor(thresholds, band)
+                for band in BROAD_AGE_BAND_LABELS
+            },
+            "reduction": "one empirical 95th percentile over all eligible cells",
+        },
         "shock_family": {
             "annual_rate": params.shock_annual_rate,
             "kinds": {kind: {field: list(bounds) for field, bounds in fields.items()}
@@ -672,11 +650,14 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
             "items": list(BENCHMARK_ITEMS),
             "levels": ["nation", "state", BENCHMARK_BAND_LEVEL],
             "reference_tick": ticks["revised"],
-            "rounding": 100,
+            "rounding": BENCHMARK_ROUNDING,
             "subgroup_item": BENCHMARK_SUBGROUP_ITEM,
             "subgroup_level": BENCHMARK_BAND_LEVEL,
             "n_economic_bands": N_BENCHMARK_BANDS,
             "subgroup_definition": BENCHMARK_BAND_DEFINITION,
+            "bias_ranges": {
+                name: list(bounds) for name, bounds in BENCHMARK_BIAS.items()
+            },
             "bias_family": "each value is the exact count times exp(b); at nation level "
                            "b is uniform in magnitude with a fair-coin sign, at state "
                            "and economic-band level b is normal with one world-wide "
@@ -685,23 +666,9 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         "health_anchor": {
             "file": "survey_revised.csv",
             "item": "recent_hospitalization",
-            "window_months": HEALTH_ANCHOR_WINDOW_MONTHS,
+            "window_months": 12,
             "sensitivity": SurveyParams().anchor_sensitivity,
             "specificity": SurveyParams().anchor_specificity,
-            "archive_comparison":
-                "the anchor and the archive count the same event over the same window "
-                "of months before the revised tick. Correct the anchor for its declared "
-                "sensitivity and specificity, take the archive's distinct patients with "
-                "an admission in that window over the register's persons, and compare "
-                "the two rates band by band on the actuarial age bands. Health-source "
-                "inclusion rises with a person's latent burden, so the gap between the "
-                "two rates widens with the band's burden exactly when it does; the level "
-                "of the gap also moves with how much of the archive the source keeps "
-                "at all, which is a different axis, so the gradient is the part that "
-                "identifies this one",
-            "development_truth": "health_inclusion_truth.csv, on development worlds "
-                                 "only: the archive's realized share of each band's "
-                                 "admissions",
         },
         "survey_family": {
             "unit_response": "logit p_respond = a_0 + a_age * (head age - 45)"
@@ -735,15 +702,18 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     }
     (participant / "contract.json").write_text(json.dumps(contract, indent=1, sort_keys=True) + "\n")
 
-    # Retained side: exact truth now and at the horizon, the detailed table, the
+    # Retained side: exact truth now and at the horizon, the continuation ensemble, the
     # source package's sealed evidence, and the world's character draw.
     truth_revised, detailed = _truth_at(built, ticks["revised"])
     future = project_truth_from_history(built["history"], admin, ticks["horizon"])
     _write_table(retained / "truth_revised.csv", _truth_rows(truth_revised), forbid_truth=False)
     _write_table(retained / "truth_horizon.csv", _truth_rows(future["truth"]), forbid_truth=False)
-    _write_table(retained / "detailed_revised.csv", _detailed_rows(detailed), forbid_truth=False)
-    _write_table(retained / "health_inclusion_truth.csv",
-                 health_inclusion_truth(built, ticks["revised"]), forbid_truth=False)
+    if development:
+        _write_table(
+            retained / "detailed_revised.csv",
+            _detailed_rows(detailed),
+            forbid_truth=False,
+        )
     _write_table(retained / "rate_truth_horizon.csv",
                  _rate_truth_rows(rate_truth_from_history(
                      built["history"], admin, ticks["revised"], params.horizon_months,
@@ -763,8 +733,7 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     }, indent=1, sort_keys=True, default=str) + "\n")
     if development:
         (participant / "truth").mkdir()
-        for name in ("truth_revised.csv", "truth_horizon.csv", "detailed_revised.csv",
-                     "health_inclusion_truth.csv"):
+        for name in ("truth_revised.csv", "truth_horizon.csv", "detailed_revised.csv"):
             (participant / "truth" / name).write_bytes((retained / name).read_bytes())
 
     manifest = {"schema": "meridia.packet.manifest.v0", "development": development,

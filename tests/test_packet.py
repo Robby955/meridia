@@ -2,6 +2,7 @@
 engine exactly, deterministic manifests, and a development packet that ships its truth."""
 
 import json
+import math
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -11,7 +12,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.actuarial import ensemble_truth
 from meridia.actuarial import ObligationContract
 from meridia.packet import (EXPERIENCE_BURN_IN_MONTHS, FORBIDDEN_COLUMN_PREFIXES,
                             GRADING_WORLD, PacketParams, _experience_history,
@@ -157,8 +157,8 @@ def test_the_reserve_block_is_published_and_carries_no_sealed_quantity(packet):
     out, _ = packet
     contract = json.loads((out / "participant" / "contract.json").read_text())
     reserve = contract["reserve"]
-    assert set(reserve) >= {"obligation", "total", "gamma", "regions", "weights"}
-    assert reserve["regions"] == "state" and 0.20 <= reserve["gamma"] <= 0.30
+    assert set(reserve) >= {"obligation", "total", "total_rule", "regions", "weights"}
+    assert reserve["regions"] == "state"
     assert reserve["total"] > 0 and reserve["total"] % reserve["rounding_unit"] == 0
     weights = np.asarray(reserve["weights"], dtype=np.float64)
     assert len(weights) == contract["n_states"]
@@ -168,9 +168,36 @@ def test_the_reserve_block_is_published_and_carries_no_sealed_quantity(packet):
     assert obligation["eligibility_min_age"] == 65
     # Nothing regional and sealed rides along: no per-region liability, quantile or
     # shortfall appears anywhere in the participant contract.
-    text = json.dumps(contract)
+    text = json.dumps(reserve)
     for forbidden in ("q95", "es95", "liability", "exceedance", "member"):
         assert f'"{forbidden}"' not in text
+
+
+def test_contract_publishes_the_exact_three_file_schema(packet):
+    out, _ = packet
+    contract = json.loads((out / "participant" / "contract.json").read_text())
+    assert contract["submission"] == {
+        "files": {
+            "release.csv": ["estimand", "level", "unit", "sex", "age_band",
+                            "estimate", "lower", "upper"],
+            "projection.csv": ["estimand", "level", "unit", "estimate", "lower", "upper"],
+            "reserve.csv": ["region", "liability_mean", "q95", "es95", "allocation"],
+        },
+        "additional_entries": "forbidden",
+    }
+
+
+def test_contract_publishes_the_exposure_only_rate_eligibility_rule(packet):
+    out, _ = packet
+    contract = json.loads((out / "participant" / "contract.json").read_text())
+    rule = contract["rate_eligibility"]
+    assert rule["truth_quantity"] == "retained person-years exposure"
+    assert rule["bands"] == ["0-17", "18-64", "65+"]
+    assert rule["floor_person_years_by_band"] == {
+        "0-17": 600.0, "18-64": 600.0, "65+": 500.0,
+    }
+    assert "reference_rate" not in rule
+    assert "minimum_expected_events" not in rule
 
 
 def test_the_published_weights_rebuild_from_the_population_source(packet):
@@ -214,18 +241,21 @@ def test_retained_tail_truth_and_rate_truth_are_written(packet):
         assert (exposure["age_band"] == band).any()
 
 
-def test_the_reserve_total_sits_above_the_sealed_quantiles(packet):
-    """R = sum q* + gamma sum (es* - q*): feasible for a perfect submission, and no more."""
+def test_the_reserve_total_recomputes_from_the_public_experience_file(packet):
+    import pandas as pd
     out, _ = packet
     contract = json.loads((out / "participant" / "contract.json").read_text())
-    with np.load(out / "retained" / "continuation_liabilities.npz") as archive:
-        liability = archive["liability"]
-    truth = ensemble_truth(liability)
+    frame = pd.read_csv(out / "participant" / "experience_history.csv")
+    rule = contract["reserve"]["total_rule"]
+    latest = int(frame["year"].max())
+    exposure = float(frame.loc[frame["year"] == latest, "exposure"].sum())
+    raw = exposure * float(rule["rate_per_person_year"])
+    expected = math.ceil(raw / float(rule["rounding_unit"])) * float(rule["rounding_unit"])
     total = float(contract["reserve"]["total"])
-    assert total >= float(truth["q"].sum())
-    raw = float(truth["q"].sum()
-                + contract["reserve"]["gamma"] * float((truth["es"] - truth["q"]).sum()))
-    assert 0 <= total - raw < contract["reserve"]["rounding_unit"]
+    assert rule["selected_year"] == latest
+    assert rule["exposure_person_years"] == pytest.approx(exposure)
+    assert total == pytest.approx(expected)
+    assert 0 <= total - raw < float(rule["rounding_unit"])
 
 
 def test_the_shock_family_is_published_with_its_rate(packet):
@@ -470,40 +500,6 @@ def test_the_benchmark_publishes_a_subgroup_count_on_the_economic_gradient(packe
     coverage = np.log(register / published)
     slope = float(np.polyfit(np.arange(4.0), coverage, 1)[0])
     assert slope > 0.0
-
-
-def test_the_health_inclusion_truth_is_retained_and_open_only_on_development(tmp_path):
-    """The target-dependence anchor, and the realized quantity behind it.
-
-    The survey's admission item and the health archive count the same event over the same
-    window, so their gap band by band is the trace of an inclusion rule that reads latent
-    burden. The realized share the archive kept is retained on every world and shipped on
-    the worlds a method may tune on.
-    """
-    import pandas as pd
-    hidden_dir = tmp_path / "hidden"
-    development_dir = tmp_path / "development"
-    hidden = build_packet(SEED, hidden_dir, PARAMS, development=False)
-    development = build_packet(SEED, development_dir, PARAMS, development=True)
-
-    assert "health_inclusion_truth.csv" in hidden["retained"]
-    assert "truth/health_inclusion_truth.csv" not in hidden["participant"]
-    assert "truth/health_inclusion_truth.csv" in development["participant"]
-    assert development["participant"]["truth/health_inclusion_truth.csv"]["sha256"] == \
-        hidden["retained"]["health_inclusion_truth.csv"]["sha256"]
-
-    table = pd.read_csv(hidden_dir / "retained" / "health_inclusion_truth.csv")
-    assert list(table.columns) == ["age_band", "admissions", "archived_admissions",
-                                   "archived_share"]
-    assert (table["archived_admissions"] <= table["admissions"]).all()
-    present = table[table["admissions"] > 0]
-    assert len(present) >= 4
-    assert ((present["archived_share"] >= 0.0) & (present["archived_share"] <= 1.0)).all()
-
-    contract = json.loads((hidden_dir / "participant" / "contract.json").read_text())
-    anchor = contract["health_anchor"]
-    assert "band by band" in anchor["archive_comparison"]
-    assert anchor["development_truth"].startswith("health_inclusion_truth.csv")
 
 
 def test_the_shock_family_publishes_its_regional_loadings(packet):

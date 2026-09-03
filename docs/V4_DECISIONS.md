@@ -240,7 +240,7 @@ lanes. They are listed so nothing is silently decided by default.
   today, so anything that starts reading it will see the right value.
 ## Reference methods and controls (protocol sections 11 and 14)
 
-Owner of this section: the methods lane, `meridia/methods/actuarial_reference.py` and the
+The methods work in this section covers `meridia/methods/actuarial_reference.py` and the
 version-four half of `meridia/methods/controls.py`. The two strong lines keep their own
 reconstruction and their own uncertainty draws; the actuarial chain they share sits in
 one module so a schema change is read in one place and the two lines cannot drift.
@@ -350,8 +350,8 @@ one module so a schema change is read in one place and the two lines cannot drif
 
 ## Integration pass: the surface the three lanes now share
 
-Owner of this section: the integration pass that wired the generator, the actuarial
-module and the methods lane into one surface and ran the freeze. It records the decisions
+This integration section records the pass that wired the generator, the actuarial
+module and the methods work into one surface and ran the freeze. It records the decisions
 that no single lane could take because each of them changed what another lane reads.
 
 ### The three artifacts, and what settled them
@@ -541,7 +541,7 @@ witness pairs.
   clear the tail gates on five or six worlds.
 - `skill_minimum` freezes at -0.9927, because one witness pair scored -0.8427.
   `proportional_reserve` clears it everywhere.
-- `rate_coverage_floor` freezes at -0.06, because the witnesses' own rate intervals cover
+- The frozen `rate_coverage_floor` is -0.06, because the witnesses' own rate intervals cover
   between 0.04 and 0.55 of the gated cells.
 - `ignore_health_selection` and `development_average_regime` clear every gate, since the
   gates that would catch them are the rate and tail gates above.
@@ -580,7 +580,7 @@ than the shortcut it is supposed to beat.
 `scripts/build_sealed_reconstruction_packet.py` now builds at `packet.GRADING_WORLD`, the
 same size as the development and qualification worlds, and takes `--workers`. It still
 refuses any world that is not a hidden-regime draw with both declared intensities outside
-the development band and inside the public envelope.
+Each extrapolated intensity stays outside the development band and inside the public envelope.
 
 It was not run. Registering a version-four seal manifest needs the master key, and the
 sealed `person_table` digest changed when latent frailty joined the person schema, so
@@ -625,7 +625,7 @@ selection model be calibrated once on a world that ships truth.
 
 ### The target-dependence axis carries one mechanism
 
-`missingness_target_dependence` is now only the frailty slope of health-source inclusion.
+The `missingness_target_dependence` axis is now only the frailty slope of health-source inclusion.
 Item missingness on the money value has its own published slope, `item_missing_band_slope`.
 One coefficient driving two mechanisms with different targets left neither identified, and
 the anchor statistic's sign reversed between the development and hidden regimes, which is
@@ -649,7 +649,7 @@ marginals.
 
 ### The mortality improvement band is wide enough for its anchor to resolve it
 
-The development band moves from (0.002, 0.026) to (-0.010, 0.048) and the public envelope
+Mortality's development band moves from (0.002, 0.026) to (-0.010, 0.048), and its public envelope
 from (-0.012, 0.042) to (-0.030, 0.075). The drift estimator's standard error on a world
 this size is about 0.011, set by the roughly two and a half thousand deaths a five-year,
 six-state experience file carries in the trend window. Against the old spread of 0.023 the
@@ -707,7 +707,7 @@ outside the range its own criterion can take is written at the limit instead, th
 report names it, and the witness then fails it rather than inheriting a number that can
 never fire. The first pass emitted a `tau_worst` of 1.425 against a deviation whose maximum
 is 0.95, a `regional_shortfall_ceiling` of 1.5 against a probability, and a
-`rate_coverage_floor` of -0.06 against a coverage that cannot go below zero.
+A value of -0.06 for `rate_coverage_floor` is compared with coverage that cannot go below zero.
 
 `bars.json` now records `frozen`, written after the control battery rather than before it,
 and `verify_submission` refuses to gate a version-four submission with a bar set that does
@@ -860,7 +860,7 @@ back, and the reference's weakest quantity is now scored.
    sign reversing between regimes. The covariate it rides on, `econ_c`, is itself thinned by
    the mechanism, which is the likely reason. Either find a statistic that does not go
    through `econ_c` or record the axis as partially identified.
-3. `missingness_target_dependence` now traces its realized coefficient consistently, at
+3. The target-dependence statistic now traces its realized coefficient consistently, at
    -0.350 within development and -0.486 within the hidden regime, where the sign declared
    before the measurement was positive. A stable sign in both regimes is identifiability;
    the direction the family implies has to be derived rather than read off, and until it is
@@ -885,13 +885,13 @@ three gives the same result in `tests/test_packet.py`.
 
 ### The verifier scoring surface
 
-Owner of this section: the lane that holds `meridia/actuarial.py`, `meridia/verify.py`,
+The verifier section covers `meridia/actuarial.py`, `meridia/verify.py`,
 `meridia/scoring.py`, `scripts/freeze_v4_bars.py` and their tests. It closes the phase-one
 audit findings on the scored surface. Every entry names what changed, the reason, and the
 measurement behind it. Each change carries a test that fails on the previous tree and
 passes on this one.
 
-#### Eligibility comes from a published rule, not a floor per band
+#### Published eligibility rule and band floors
 
 `EXPOSURE_ELIGIBILITY_BY_BAND` was a hand-written person-year floor for each band. It gated
 the right ages, which the flat five thousand did not, but it stated no rule, so nothing
@@ -970,7 +970,7 @@ ceiling sits at or above its criterion's maximum, when a floor sits at or below 
 or when a bar is written with no declared range at all. The list goes at the top of the
 freeze report, the result line names it, and the run does not complete. The three bars of
 the first pass, a `tau_worst` of 1.425, a `regional_shortfall_ceiling` of 1.5 and a
-`rate_coverage_floor` of -0.06, are the cases the check is written against: the first two
+The cases checked include a `rate_coverage_floor` of -0.06; the first two
 clamp back inside their range, and the coverage floor is the one that still cannot fire.
 
 #### The tail is scored in units of the ensemble's own width
@@ -1047,7 +1047,7 @@ regional liability level, not the tail shape, is what the strong references miss
 
 ### The generator's remaining leaks
 
-Owner of this section: the lane that holds `meridia/survey.py`, `meridia/demography.py`,
+The generator section covers `meridia/survey.py`, `meridia/demography.py`,
 `meridia/character.py`, `meridia/mechanisms.py`, `meridia/sources.py`, `meridia/packet.py`,
 `meridia/events.py`, `scripts/build_v4_worlds.py` and their tests. It closes the phase-one
 audit findings on the generator side. Two of the eight were already closed on the baseline
@@ -1064,7 +1064,7 @@ whole to a world nobody had seen: nothing about the instrument sat outside the r
 open worlds spanned.
 
 `survey.SURVEY_ENVELOPE` is now the instrument's published plausibility envelope, wider than
-the development band on both sides of all nine axes, and `draw_survey_instrument` places two
+Both sides of all nine axes extend beyond the development band, and `draw_survey_instrument` places two
 axes of an evaluation world between the band and the envelope edge, with the side drawn per
 axis. That is the arrangement the mechanism layer already used for its six regime axes, and
 the count is published as `survey_family.n_outside_axes` beside the envelope itself. Every
@@ -1137,7 +1137,7 @@ with its own published spread `item_missing_county_sd` in (0.09, 0.36). On one w
 vectors have standard deviations 0.19 and 0.34 and a correlation of 0.09, and the test
 shows the item missingness rate reads its own effect and not the other.
 
-#### The mortality trend needs a settled ledger, not a wider band
+#### Mortality trend after ledger settlement
 
 The improvement axis had a trace through the experience file and the trace did not work. The
 reason is not the axis and not the file's format: a ledger's opening years carry a settling
@@ -1215,7 +1215,7 @@ any protected cell, which is how the lower bound sat unexercised.
 
 ### The reference methods and the control battery
 
-Owner of this section: the methods lane, `meridia/methods/actuarial_reference.py`,
+This methods section covers `meridia/methods/actuarial_reference.py`,
 `meridia/methods/controls.py`, the two strong lines that share them, and their tests.
 Nothing outside `meridia/methods/` is edited here, and no estimator reads a truth file;
 truth is read only to measure what the estimators did, and every number below is such a
@@ -1227,7 +1227,7 @@ a line says otherwise.
 
 #### Ablation 5 now fixes the regime at the development-world average it names
 
-`development_average_regime` set the mortality drift to zero and its standard error to
+This control set the mortality drift to zero and its standard error to
 0.002. Neither number is a development-world average. Zero drift is not the average regime,
 it is no regime at all, and 0.002 is an eighth of the smallest standard error the estimator
 reports on a world this size, so the control was also filing a false confidence that no
@@ -1466,7 +1466,7 @@ is closed to the extent the level uncertainty explains it.
 
 ## Phase two rebuild, 2026-09-03 12:42 (bars/national-v9, worlds-p3, code da01a42)
 
-Twenty-one worlds rebuilt from the phase-two code. Reference and control runs on all six
+The phase-two run rebuilt twenty-one worlds. Reference and control runs on all six
 qualification worlds; freeze RESULT: NOT FROZEN.
 
 - Witnesses: line A passes qual-2 only; line B passes none. Every remaining failure is in
@@ -1503,10 +1503,11 @@ qualification worlds; freeze RESULT: NOT FROZEN.
 This section belongs to the lane holding `meridia/mechanisms.py`, `meridia/sources.py`,
 `meridia/survey.py`, `meridia/packet.py`, `meridia/events.py`, `meridia/demography.py`,
 `meridia/character.py`, `meridia/microdata.py`, the two build scripts under `scripts/`
-and their tests. It closes the two unidentified regime axes the phase-two rebuild left
-open, adds the regional shock loadings the protocol's phase-three list names, re-mints the
-graded seeds, and takes the world build off the cost wall it was on. Each entry below
-carries a test that fails on the previous tree and passes here.
+and their tests. It adds the administrative benchmark anchor, carries a conditional
+regional-shock-loading experiment, re-mints the graded seeds, and takes the world build
+off the cost wall it was on. It does not claim that either previously unidentified axis
+may extrapolate: both remain inside the development range under the verifier's hidden-axis
+constraint.
 
 #### The measurement these entries are read against
 
@@ -1517,19 +1518,17 @@ the whole cost of a packet and enters none of the six statistics, so the worlds 
 committed object and the measurement runs in ninety seconds rather than four hours. The
 same thirty seeds were built on the phase-two tree for the comparison.
 
-`scripts/identifiability_v4.py`, signed rank correlation of each axis's statistic with its
-realized intensity, phase two in brackets:
+The generator-lane runs below were preflights, not freeze evidence. They also mixed source
+snapshots while the policy file was changing, so they cannot be used as the P4 receipt.
+The stable-snapshot migration diagnostic is recorded separately below. The only anchor
+decisions carried forward are the ones subsequently repeated on fixed snapshots:
 
-    mortality_improvement            +0.491  [+0.464]
-    migration_age_pattern            +0.270  [+0.269]
-    age_reporting_error              +0.604  [+0.527]
-    linkage_urban_gradient           +0.774  [+0.755]
-    administrative_completeness      +0.859  [+0.157]
-    missingness_target_dependence    -0.004  [+0.134]
+    administrative_completeness      +0.715
+    missingness_target_dependence    +0.020, +0.139 on two preflights
 
-The phase-two rebuild reported +0.50 and +0.53 for the first two axes on eighteen worlds.
-On thirty they read +0.46 and +0.27 on the same tree, so the second of those was small
-sample luck and not something this pass cost.
+The first clears the registered 0.4 threshold; the second does not. Per the explicit axis
+policy, both remain constrained inside the development band. P4 must remeasure every axis
+from one source-bound set of twelve development and six qualification packets.
 
 #### The completeness axis gets the anchor protocol section 3 already lists
 
@@ -1552,8 +1551,9 @@ coverage moves by about two percent per band across the gradient, so a per-band 
 state spread would be the whole signal.
 
 Register persons over published persons, band by band, is then the gradient with nothing in
-between. The axis reads +0.859 pooled, +0.699 within the development worlds and +0.853
-within the hidden ones.
+between. The accepted preflight reads +0.715 pooled. The anchor remains, but the hidden
+constraint remains too; clearing 0.4 is evidence that the public quantity is useful, not
+permission to silently broaden the generator.
 
 Nothing scored is handed over. The subgroup cuts across the states and counties the release
 is scored at, and four biased totals over eighteen counties do not place a county.
@@ -1561,52 +1561,20 @@ is scored at, and four biased totals over eighteen counties do not place a count
 #### The target-dependence axis has a trace, no anchor, and stays inside the band
 
 The axis is the slope of health-source inclusion in a person's latent burden. It carries
-that one mechanism and the survey's admission item is its one anchor, which is the
-arrangement phase two settled. What phase two did not check is whether the anchor can read
-it.
+that mechanism. The original survey admission item remains useful for estimating the
+health-selection correction, but it did not identify the slope strongly enough to justify
+out-of-band hidden values.
 
-Three things changed and one conclusion follows.
+An age-gradient comparison between the archive and survey was tried twice. Its signed rank
+correlations were +0.020 and +0.139, both below the preregistered 0.4 threshold. That
+experiment is removed: there is no special age-gradient contract rule, no scaled or capped
+health-inclusion mechanism added for it, and no `truth/health_inclusion_truth.csv` in a
+development packet. The original archive-versus-survey statistic remains diagnostic only.
 
-The mechanism was too faint to leave a mark. Latent burden's mean moves by about half a log
-unit between a child and a person of eighty, so at the raw slope an axis in the middle of
-its band moved the inclusion share by six points across the whole age range. The slope is
-now scaled by two and the resulting shift is capped at plus or minus two logits, which keeps
-the far tail of the burden distribution from driving an inclusion probability to zero or
-one, a case protocol section 10 refuses. Against the retained truth on the thirty worlds the
-realized gradient now tracks the axis at +0.66 where it read +0.38 before.
-
-The statistic is a gradient rather than a level. The national gap between the archive's
-admission rate and the anchor's reads how much the source retains overall, which is a
-different axis, and that is why it read -0.02. The anchor and the archive are now compared
-on three broad age groups, under 45, 45 to 64, and 65 and over, over the same window and the
-same population definition, and the statistic is the oldest minus the youngest, averaged
-over the two snapshots. `contract.json` states the comparison.
-
-The anchor still cannot resolve it. At about four thousand respondents the sampling error of
-one age group's admission rate is near seven percent and the whole gradient is near ten, so
-the statistic reads -0.004. A two-year anchor window was tried for exactly this reason,
-since doubling the rate cuts the error of the estimate, and it made the trace worse: nearly
-everyone frail enough to be admitted at all is admitted inside two years, so the wider
-window thins the very contrast being read. Raising the item's declared sensitivity and
-specificity was tried and reverted, because it buys a sharper anchor by softening a declared
-difficulty and it did not close the gap either.
-
-So the axis is held inside the development band on evaluation worlds.
-`mechanisms.OUTSIDE_ELIGIBLE_AXES` is the list of axes a hidden world may push past the
-band, it holds the other five, and the contract publishes it beside the rule. The mechanism
-still runs and still recombines into a joint configuration the design does not spend, and
-the axis's realized coefficient still leaves the band, because the declared interaction with
-`administrative_completeness` scales it and that axis is anchored: over the eighteen hidden
-worlds the realized coefficient runs 0.263 to 2.103 against a band of 0.20 to 1.30.
-
-Development packets ship `truth/health_inclusion_truth.csv`, the archive's realized share of
-each age band's admissions. The worlds a method may tune on therefore show the quantity the
-anchor is a noisy view of, which is the difference between an axis a method can learn to
-model and one it is asked to read off nothing.
-
-This is the world size talking, and it is the same wall the mortality trend hit in phase
-two. Growing the survey would close it, at the price of a sample that is a tenth of the
-country.
+The axis therefore stays inside its public development range on every hidden world. The
+contract lists it under `held_inside_development_band`; it still varies continuously and
+still participates in unseen joint configurations. This is a measured deletion decision,
+not a claim that the failed anchor worked.
 
 #### Regional shock loadings
 
@@ -1617,9 +1585,9 @@ one and the aggregate tail was what the six marginals already said.
 Each region now carries a loading on the family, drawn once per world from the published
 band 0.35 to 1.80 on its own stream, held for every year and every continuation member. A
 multiplier m lands in region r as 1 + L_r * (m - 1). A loading of one takes the whole
-multiplier and a loading of zero takes none of it in either direction, so a fertility
-multiplier under one thins births less where the loading is low. At m of one the factor is
-exactly one everywhere, which is what keeps a shock-free month byte for byte what it was.
+multiplier and a loading of zero takes none of it in either direction. At m of one the
+factor is exactly one everywhere, which is what keeps a shock-free month byte for byte what
+it was.
 
 The loadings scale the mortality and the admission multipliers and nothing else. Those two
 price the obligation and those two are what the experience file's deaths and qualifying
@@ -1629,16 +1597,26 @@ reaches them. For admissions the national target takes the mean of the per-candi
 and the selection weight takes the factor itself, so the level follows the published family
 and the split between regions follows the loadings.
 
-Visible in the experience file, measured on the twelve development worlds: four carry a
-mortality spike inside the published window, and in those the state death rate lift ranks
-with the loading at +0.886, +0.829, +0.657 and -0.314, median +0.743. The band and the rule
-are in `contract.json` under `shock_family`; the realized vector is retained.
+The loading is conditional, not yet part of the frozen task. When the five-year experience
+window contains no mortality/admission shock evidence, the reference must marginalize over
+the published loading band instead of plugging in the sealed vector or a point estimate.
+The probability of no shock of any kind is `(1 - 0.20)^5 = 0.328`. Because only one of the
+three equally likely public shock kinds carries mortality/admission loading, the relevant
+no-evidence probability is `(1 - 0.20 / 3)^5 = 0.708`. The wider trigger is the one the
+reference uses.
 
-Replay and determinism are unchanged. The loadings are a function of the world's seed on a
-stream nothing else uses, so no other draw moves; a continuation member inherits the world's
-loadings and redraws only its own shock years; and a ledger run with no shock in it produces
-the same events it produced before the loadings existed, which `tests/test_events.py` checks
-by digest rather than by argument.
+The loading remains only if that reference clears the tail composite on every qualification
+world while the registered wrong methods still separate. If it does not, the loading is a
+deletion candidate and is removed before the P4 world build. No tail ceiling moves to save
+it. Earlier development-world correlations are diagnostic only because most windows contain
+no informative spike.
+
+Replay and determinism are unchanged. The sealed generator's true loadings are a function
+of the world's seed on a stream nothing else uses, so no other draw moves; continuation
+truth inherits the world's loadings and redraws only shock years. The participant reference
+does not inherit the sealed values: it estimates them when evidence exists and marginalizes
+over the public band otherwise. A ledger run with no shock in it produces the same events it
+produced before the loadings existed, which `tests/test_events.py` checks by digest.
 
 #### The graded seeds are re-minted
 
@@ -1691,3 +1669,235 @@ For the twenty-one world set that is the difference between rebuilding everythin
 rebuilding what actually moved. A bar change or a verifier change now costs about seven
 minutes of packet writing across the set rather than four and a half hours, and a
 generator change still costs the full build, which is what a generator change should cost.
+## Phase three verifier contract and qualification decision, 2026-09-03
+
+Status: CHECKPOINT, NOT A SOLUTION. The code surface is defined. The qualification
+measurements named below are still required before a bar set can be frozen.
+
+### The version-four file surface
+
+The protected detailed table is removed from version four. It duplicates the separate
+linked-cell suppression task and can fail a sound actuarial reconstruction for a reason
+outside the reserve decision. Version-four submissions contain exactly `release.csv`,
+`projection.csv`, and `reserve.csv`. The ordered columns and field meanings are in
+`docs/SUBMISSION_FORMAT.md` and in each participant contract. Extra files, directories,
+symbolic links, missing files, and changed headers fail a deterministic check. The legacy
+detailed-table code remains available to older packet versions but does not enter a
+version-four verdict.
+
+Schema, population additivity, exposure and event-count consistency, and reserve
+feasibility are deterministic hard checks. They do not add stochastic pass events. A
+submission that fails one of them cannot count as scientific evidence for a gate.
+
+Five stochastic composites remain:
+
+- `exposures_and_rates`, one empirical 95th-percentile relative error over all eligible
+  exposure, mortality, and incidence cells;
+- `release_accuracy`, the largest estimand-level empirical 95th-percentile relative error
+  across the release and projection files;
+- `interval_quality`, coverage deviation and mean normalized interval score together;
+- `tail_calibration`, pooled exceedance deviation and the q95 and ES95 errors measured in
+  regional tail-width units;
+- `reserve_skill`, one minus skill against the public proportional baseline and the sealed
+  perfect-information allocation.
+
+The all-gates rule remains binary on all three graded worlds. At a one percent target
+false-fail rate per stochastic composite, its marginal-rate product is
+`0.99^(5 * 3) = 0.8600583546412883`. This product is an arithmetic summary. Gate and world
+failures can be correlated, so it is not an empirical joint pass probability.
+
+### How a bar is allowed to freeze
+
+Each component ceiling is the exact empirical 99th percentile from balanced,
+deterministically identified resampling reports. The order statistic is at one-based rank
+`ceiling(0.99 * N)`. Final line-by-world reports are separate witnesses and are never
+resampled as substitute evidence. At least 100 balanced replicate reports are required so
+the empirical sample can resolve a one percent tail.
+
+Attainability is measured by leaving out one qualification world at a time, setting each
+component ceiling from the other five worlds, and scoring the held-out reports. A
+composite fails the attainability check when more than one percent of held-out reports
+exceed any component ceiling. The final ceiling is then the all-qualification-world 99th
+percentile. Every final reference report must clear it. No fixed margin, cap, or manual
+increase can replace this evidence.
+
+Every retained composite also needs a registered, structurally valid wrong method that
+fails it. The freeze report records the control, world, component, and failure. A composite
+that every registered wrong method passes is removed or sent back for a new measurement;
+it is not kept because it sounds desirable.
+
+Six qualification worlds cannot establish a one percent unconditional error rate on new
+worlds. The report states that limitation and gives the achieved conditional rates. The
+new-world claim requires more independently generated qualification worlds or later
+prospective evidence.
+
+### Exposure eligibility and discrete tails
+
+Rate eligibility reads retained person-years exposure only. It does not use an expected
+event schedule or a reference rate. Exposure is gated at county level. Mortality and
+incidence are gated at state level after aggregation to `0-17`, `18-64`, and `65+`.
+Eligibility is fixed before a submitted row is read, and the complete cell list is stored
+per world in bar provenance. The freeze report lists every state, sex, exposure value,
+floor decision, and summary count. The younger broad-band floors remain 600 person-years. The
+`65+` floor is 500 person-years. Across all six qualification worlds the smallest state by
+sex `65+` exposure is 578.167 person-years, so all 72 intended elder cells are included.
+The fine bands cannot support the same claim: a 500 floor excludes 3 of 72 `65-74` cells
+and 33 of 72 `75-84` cells, while every `85+` cell is below 500. Those fine-band rates are
+diagnostic and the scored elder rate is the exposure-weighted `65+` rate.
+
+At these floors, the gated county exposure cells and state rate cells are:
+
+- County exposure cells are 90 of 102 on qual-0, 107 of 108 on qual-1, and 97 of 102
+  on qual-2.
+- The remaining counts are 89 of 102 on qual-3, 99 of 108 on qual-4, and 93 of 108
+  on qual-5.
+- Mortality and incidence each gate all 36 state-by-sex broad-band cells on every world.
+
+For `M` continuation members, q95 is the sorted value at one-based rank
+`ceiling(0.95 * M)`. ES95 is the mean of every member at or above that value, including all
+ties. The packet truth, reference calculations, red-team measurement, verifier, and freeze
+report use the same definition.
+
+### Public reserve total
+
+The reserve total no longer reads sealed q95 or ES95. For each world it is the latest
+published experience-file exposure multiplied by one public currency-per-person-year
+coefficient, rounded upward to the public unit. The contract states the selected year,
+exposure, coefficient, rounding direction, and unit so the value can be recomputed from
+participant files.
+
+The coefficient is not frozen yet. Qualification must select the smallest preregistered
+coefficient for which the legitimate reference lines are feasible and clear reserve skill
+while the proportional allocation fails. A red-team fit uses the twelve development
+worlds to regress regional q95 and ES95 on the public total and reports held-out predictive
+R squared on the six qualification worlds. The same report gives world-aggregate results.
+No reserve coefficient is accepted until that held-out measurement is recorded here.
+
+### The current upstream failure
+
+The phase-one v8 reports show a systematic reference error, not random gate attrition. The
+reference lines passed one of six qualification worlds. On four worlds the worst-region
+exceedance deviation was 0.95, which means every continuation exceeded at least one filed
+regional q95. State mortality 95th-percentile relative error reached 2.3 to 3.4 in thin
+cells. Reserve skill reached minus 3.2 and minus 3.8 on one world.
+
+The causal order supported by those diagnostics is regional elder exposure and survival,
+then regional liability level, then tail calibration, then reserve allocation. Widening a
+tail ceiling to admit that chain would certify a biased reference and is prohibited. The
+thin-cell mortality failures are expected to change under broad exposure-only eligibility;
+the liability-level failures require a reconstruction change or a task-scope decision.
+
+### Mortality identification decomposition
+
+The six qualification worlds clear the regime-admissibility question in protocol section
+10. Mortality improvement is active during every month of public experience years 4 to 8.
+It does not begin only after the public window. The ratio of observed elder horizon
+mortality to public-history mortality, the trend-only ratio between the two window
+midpoints, and their residual are:
+
+Qual-0 gives 1.057 observed, 0.935 trend-only, and 1.130 residual; qual-1 gives
+0.698, 0.752, and 0.928. The corresponding triples are 0.916, 1.100, and 0.833 on
+qual-2; 0.672, 0.792, and 0.848 on qual-3; 0.595, 0.637, and 0.935 on qual-4; and
+0.695, 0.766, and 0.908 on qual-5.
+
+The isolated trend factor over the 12-month publication lag is 0.9889, 0.9536, 1.0160,
+0.9619, 0.9276, and 0.9565 respectively. The lag therefore changes the mortality level by
+-7.24 percent to +1.60 percent. It cannot explain the previously measured 30 to 59 percent
+elder mortality errors.
+
+The public shock process draws a shock year independently with probability 0.20 each year.
+Every continuation member redraws it. A five-year horizon therefore has 1.0 expected shock
+year and probability 0.6723 of at least one shock. Mortality spikes are one member of the
+published shock family, with 0.333 expected mortality-spike years and probability 0.2918 of
+at least one over five years. The realized public-history, lag, and horizon mortality-spike
+counts are 0/0/1, 0/0/0, 1/0/0, 1/0/1, 0/0/0, and 0/0/0 across qual-0 through qual-5.
+The corresponding all-shock horizon counts are 2, 1, 0, 1, 0, and 1.
+
+This evidence clears the generator timing question. The remaining regional level error is
+tested through the elder cohort-component reconstruction and the continuation shock redraw.
+No tail ceiling changes until that line reports its before-and-after exposure error,
+regional liability means, and pooled exceedance deviation on all six worlds. The freeze
+receipt and its generated `PROVENANCE.md` carry the same decomposition and bind it to the
+generator source digest.
+
+Qualification now asks three direct questions:
+
+- Does the design reconstruction with the sealed development-only tail calculation still
+  miss regional means by more than one sealed tail width? If yes, reconstruction is the
+  upstream failure.
+- Does a distinct participant-only elder linkage and coverage strategy bring state 65+
+  exposure, mortality, and regional liability means inside their registered limits? If
+  yes, the task is difficult but identified by its public inputs.
+- Do all legitimate participant-only strategies share the same regional level bias while
+  only a true-population control clears it? If yes, the present input package does not
+  identify the scored target. The task then gains a stronger public anchor or drops the
+  regional tail and reserve gates. Bars are not widened around the bias.
+
+## Phase three response to the rebuilt-world refreeze
+
+The read-only phase-two rebuild at source commit `7a4ccfd` wrote
+`bars/national-v9` with `RESULT: NOT FROZEN`. Line A passed qual-2 only and line B passed
+none. Six wrong methods also passed on qual-2 under bars derived from the witnesses:
+`static_projection`, `ignore_health_selection`, `development_average_regime`,
+`normal_tail`, `padded_tail`, and `proportional_reserve`. That is a failure of separation,
+not a reason to widen a bar.
+
+### Every registered control must separate on all six worlds
+
+The qualification battery now has 22 wrong methods, each assigned one primary composite.
+Every method is run once on qual-0 through qual-5. It must pass the deterministic file and
+schema checks and fail its primary composite on every world. The freeze receipt records,
+for every gate, method, world, and component, the observed value, frozen ceiling, and
+outcome. One passing world is enough to place that gate in `deletion_candidates`. Missing,
+duplicate, hard-invalid, or unregistered reports also stop the freeze. There is no longer
+a one-method-per-gate matching and a failure on one convenient world supplies no support.
+
+The primary assignments are:
+
+- exposures and rates: `deterministic_linkage`, `ignore_health_selection`, and
+  `informative_selection`;
+- release accuracy: `register_only`, `survey_only`, `no_dedup`, `static_projection`,
+  `benchmark_only`, `exact_key_union`, `version_three_recipe`, and
+  `experience_history_only`;
+- interval quality: `inflated_intervals` and `reconstruction_uncertainty`;
+- tail calibration: `development_average_regime`, `mean_only_tail`, `normal_tail`,
+  `padded_tail`, `regime_recombination`, and `predictive_tails`;
+- reserve skill: `uniform_allocation`, `reserve_allocation`, and
+  `proportional_reserve`.
+
+The two sealed-truth decompositions remain diagnostics. They are not participant methods
+and do not count toward gate separation.
+
+### Both constrained axes stay in the development range
+
+The administrative benchmark anchor's accepted preflight correlation is +0.715 and clears
+the registered +0.4 threshold. The two health/survey preflights read only +0.020 and +0.139,
+so that attempted anchor was removed. The hidden-axis policy is deliberately stricter than
+the anchor result: both `administrative_completeness` and the target-dependence axis remain
+constrained inside the development band.
+
+Both axes still vary continuously over their full development ranges, 0.30 to 1.70 and
+0.20 to 1.30 respectively, and still enter the unseen joint level pattern. They are no
+longer eligible for either of the two out-of-band hidden draws. Those draws are selected
+from `mortality_improvement`, `migration_age_pattern`, `age_reporting_error`, and
+`linkage_urban_gradient`. The packet contract publishes this policy and the sealed-packet
+builder refuses a world that violates it.
+
+The reported migration drop from +0.525 to +0.195 was not reproduced on a fixed source
+snapshot. A small-world source-policy cross showed that new truth read through stale
+participant files produces about +0.193, while consistent old or new snapshots recover
+about +0.447. On the committed 60,000-person geometry the fixed-snapshot diagnostic was
++0.445. That identifies source-policy drift in the in-flight build, not one generator
+commit to revert. The margin over 0.4 is small, so this is a diagnosis only: P4 must report
+the pooled and within-regime correlations again, and a result below 0.4 stops the freeze.
+
+`scripts/identifiability_v4.py` now writes a machine-readable receipt binding all twelve
+development packets and six qualification packets, the six correlations, the generator
+policy, and source digests. A completed bar freeze requires that receipt. The change moves
+the generator, so the v9 packets and bars are evidence for the decision but cannot be the
+final freeze inputs. All worlds must be rebuilt before the next qualification run.
+
+The tail ceilings remain unchanged until the elder cohort-component report supplies all
+six before-and-after exposure errors, regional liability means, and pooled exceedance
+deviations. A fresh freeze must then satisfy the one-percent false-fail condition and the
+all-control all-world separation condition at the same ceilings.

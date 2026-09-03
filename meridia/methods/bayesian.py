@@ -372,7 +372,7 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     budget = float(contract["allocation"]["budget"])
     allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
     cube_point = cube * ratio_draws.mean(axis=0)[:, None, None]
-    suppress = params.suppression_multiplier * int(contract["disclosure_threshold"])
+    suppress = params.suppression_multiplier * int(contract.get("disclosure_threshold", 10))
     result = {"release": release_rows, "projection": projection_rows, "dispersion": dispersion}
     # Version four: the posterior draws of the county age cube are the population paths
     # the actuarial layer propagates, so the liability tails carry this line's own

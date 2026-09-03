@@ -15,21 +15,20 @@ import numpy as np
 import pytest
 
 from meridia.actuarial import (ACTUARIAL_AGE_BAND_LABELS, EXPOSURE_ESTIMAND,
-                               INCIDENCE_ESTIMAND, MIN_CELL_PERSONS,
-                               MIN_EXPECTED_EVENTS, MORTALITY_ESTIMAND,
-                               REFERENCE_EVENT_RATES, SCORED_WINDOW_YEARS,
+                               INCIDENCE_ESTIMAND, MORTALITY_ESTIMAND,
                                ActuarialThresholds, ContinuationEnsemble,
                                ObligationContract, actuarial_pass,
                                build_continuation_ensemble, calibration_criteria,
                                check_rate_additivity, continuation_member_key,
-                               eligibility_floor, ensemble_truth,
+                               eligibility_floor, empirical_tail, ensemble_truth,
                                evaluate_actuarial_gates,
                                exceedance_probabilities, expected_uncovered,
                                exposure_and_rate_truth, interval_score,
                                liabilities_from_pass, parse_rate_rows, parse_reserve_rows,
                                perfect_information_allocation,
                                proportional_baseline_allocation, quantile_score,
-                               relative_error, reserve_total, score_rates, score_reserve,
+                               relative_error, required_rate_rows, reserve_total,
+                               score_rates, score_reserve,
                                shortfall_error, skill_score, width_relative_error)
 from meridia.events import EVENT_TYPES, _EVENT_DTYPES
 
@@ -199,6 +198,17 @@ def test_ensemble_truth_is_the_mean_the_quantile_and_the_mean_above_it():
     assert truth["es"].tolist() == [40.0, 400.0]
 
 
+def test_empirical_tail_uses_ceiling_rank_and_includes_every_tie():
+    values = np.arange(1.0, 21.0)[:, None]
+    q, es = empirical_tail(values, 0.95)
+    assert q.tolist() == [19.0]
+    assert es.tolist() == [19.5]
+    tied = np.asarray([1.0] * 18 + [5.0, 5.0])[:, None]
+    q, es = empirical_tail(tied, 0.95)
+    assert q.tolist() == [5.0]
+    assert es.tolist() == [5.0]
+
+
 def test_the_ensemble_is_assembled_member_by_member_with_one_realized_future():
     ensemble = build_continuation_ensemble(lambda m: LIABILITY[m], n_members=4,
                                            realized_member=2)
@@ -253,11 +263,11 @@ def test_shortfall_error_is_normalized_against_the_ensemble_tail_mean():
 RESERVE_THRESHOLDS = ActuarialThresholds(reserve_rounding_unit=10.0)
 
 
-def test_reserve_total_adds_a_public_share_of_the_tail_and_rounds_up():
-    q = np.asarray([40.0, 400.0])
-    assert reserve_total(q, q, RESERVE_THRESHOLDS) == pytest.approx(440.0)
-    # 440 + 0.25 * (10 + 100) = 467.5, rounded up to the next multiple of ten.
-    assert reserve_total(q, np.asarray([50.0, 500.0]), RESERVE_THRESHOLDS) == pytest.approx(470.0)
+def test_reserve_total_uses_only_public_exposure_rate_and_rounding():
+    assert reserve_total(100.0, 4.4, 10.0) == pytest.approx(440.0)
+    assert reserve_total(101.0, 4.4, 10.0) == pytest.approx(450.0)
+    with pytest.raises(ValueError):
+        reserve_total(100.0, 0.0, 10.0)
 
 
 def test_the_practical_baseline_covers_every_quantile_and_spreads_the_slack():
@@ -378,10 +388,15 @@ def test_interval_score_charges_width_and_misses():
 
 
 def _rate_truth_and_submission(exposure: float = 10_000.0, rate: float = 0.01):
-    truth = {(EXPOSURE_ESTIMAND, "state", 0, "male", "65-74"): exposure,
-             (MORTALITY_ESTIMAND, "state", 0, "male", "65-74"): rate}
-    parsed = {(EXPOSURE_ESTIMAND, "state", 0, "male", "65-74"): (exposure, exposure, exposure),
-              (MORTALITY_ESTIMAND, "state", 0, "male", "65-74"): (rate, rate * 0.9, rate * 1.1)}
+    truth, parsed = {}, {}
+    for band in ("65-74", "75-84", "85+"):
+        cell_exposure = exposure / 3.0
+        truth[(EXPOSURE_ESTIMAND, "state", 0, "male", band)] = cell_exposure
+        truth[(MORTALITY_ESTIMAND, "state", 0, "male", band)] = rate
+        parsed[(EXPOSURE_ESTIMAND, "state", 0, "male", band)] = \
+            (cell_exposure, cell_exposure, cell_exposure)
+        parsed[(MORTALITY_ESTIMAND, "state", 0, "male", band)] = \
+            (rate, rate * 0.9, rate * 1.1)
     return truth, parsed
 
 
@@ -393,19 +408,48 @@ def test_score_rates_reads_only_cells_with_enough_exposure():
     assert metrics[f"{MORTALITY_ESTIMAND}/state"]["gated"] is True
     assert metrics[f"{MORTALITY_ESTIMAND}/state"]["percentile_error"] == pytest.approx(0.0)
     assert metrics[f"{MORTALITY_ESTIMAND}/state"]["coverage"] == pytest.approx(1.0)
-    assert metrics[f"{MORTALITY_ESTIMAND}/state"]["cells"] == [(0, "male", "65-74")]
+    assert metrics[f"{MORTALITY_ESTIMAND}/state"]["cells"] == [(0, "male", "65+")]
     thin_truth, thin_parsed = _rate_truth_and_submission(exposure=100.0)
     thin = score_rates(thin_parsed, thin_truth, thresholds)
     assert all(block["n_cells"] == 0 for block in thin.values())
 
 
+def test_composite_eligible_cells_are_truth_defined_even_when_a_row_is_missing():
+    thresholds = ActuarialThresholds()
+    truth, parsed = _rate_truth_and_submission(exposure=10_000.0)
+    complete = score_rates(parsed, truth, thresholds)["composite"]
+    missing = dict(parsed)
+    missing.pop((MORTALITY_ESTIMAND, "state", 0, "male", "85+"))
+    incomplete = score_rates(missing, truth, thresholds)["composite"]
+    assert incomplete["eligible_cells"] == complete["eligible_cells"]
+    assert incomplete["n_eligible"] == complete["n_eligible"]
+    assert incomplete["n_cells"] < complete["n_cells"]
+    assert [MORTALITY_ESTIMAND, "state", 0, "male", "65+"] \
+        in incomplete["eligible_cells"]
+
+
+def test_interval_composite_does_not_cancel_opposite_subgroup_miscalibration():
+    from meridia.verify import _interval_quality
+    low = {"first/all": {"n_units": 10, "coverage": 0.8,
+                         "mean_interval_score": 0.2}}
+    high = {"second/all": {"n_units": 10, "coverage": 1.0,
+                            "mean_interval_score": 0.2}}
+    deviation, score = _interval_quality(low, high, {}, alpha=0.10)
+    assert deviation == pytest.approx(0.10)
+    assert score == pytest.approx(0.20)
+
+
 def test_score_rates_gates_exposure_at_county_and_rates_at_state():
-    thresholds = ActuarialThresholds(exposure_eligibility_person_years=0.0)
+    thresholds = ActuarialThresholds(exposure_eligibility_person_years=1.0)
     truth = {(EXPOSURE_ESTIMAND, "county", 0, "male", "65+"): 100.0,
              (EXPOSURE_ESTIMAND, "county", 0, "male", "65-74"): 100.0,
-             (EXPOSURE_ESTIMAND, "state", 0, "male", "65-74"): 100.0,
+             (EXPOSURE_ESTIMAND, "state", 0, "male", "65-74"): 34.0,
+             (EXPOSURE_ESTIMAND, "state", 0, "male", "75-84"): 33.0,
+             (EXPOSURE_ESTIMAND, "state", 0, "male", "85+"): 33.0,
              (MORTALITY_ESTIMAND, "county", 0, "male", "65-74"): 0.01,
-             (MORTALITY_ESTIMAND, "state", 0, "male", "65-74"): 0.01}
+             (MORTALITY_ESTIMAND, "state", 0, "male", "65-74"): 0.01,
+             (MORTALITY_ESTIMAND, "state", 0, "male", "75-84"): 0.01,
+             (MORTALITY_ESTIMAND, "state", 0, "male", "85+"): 0.01}
     parsed = {k: (v, v, v) for k, v in truth.items()}
     metrics = score_rates(parsed, truth, thresholds)
     assert metrics[f"{EXPOSURE_ESTIMAND}/county"]["gated"] is True
@@ -449,6 +493,20 @@ def test_reserve_rows_parse_and_report_their_own_violations():
     assert any("q95 below the liability mean" in e for e in ordered)
     _, negative = parse_reserve_rows(_reserve_rows([(25.0, 40.0, 40.0, -1.0)]), 1)
     assert any("allocation is not a finite non-negative number" in e for e in negative)
+
+
+def test_submission_indices_reject_fractional_values_instead_of_truncating():
+    reserve_rows = _reserve_rows([(25.0, 40.0, 40.0, 50.0)])
+    reserve_rows[0]["region"] = 0.5
+    _, reserve_errors = parse_reserve_rows(reserve_rows, 1)
+    assert any("region is not a known region index" in e for e in reserve_errors)
+
+    admin = {"n_counties": 1, "n_states": 1, "county_state": np.asarray([0])}
+    rate_rows = [{"estimand": EXPOSURE_ESTIMAND, "level": "county", "unit": 0.5,
+                  "sex": "male", "age_band": "65+", "estimate": 1.0,
+                  "lower": 1.0, "upper": 1.0}]
+    _, rate_errors = parse_rate_rows(rate_rows, admin)
+    assert any("unit is not a known county integer" in e for e in rate_errors)
 
 
 def test_rate_rows_report_missing_unexpected_and_malformed_rows():
@@ -577,25 +635,55 @@ def _packet(tmp_path):
     liability = np.column_stack([1000.0 + 10.0 * np.arange(40),
                                  np.append(10000.0 + 100.0 * np.arange(39), 50000.0)])
     sealed = ensemble_truth(liability, 0.95)
-    total = reserve_total(sealed["q"], sealed["es"])
+    total = reserve_total(1_000.0, 16.0, 1_000.0)
 
     packet = tmp_path / "packet"
     (packet / "participant").mkdir(parents=True)
     (packet / "retained").mkdir()
     _write(packet / "participant" / "geography.csv", {"county": [0, 1], "state": [0, 1]})
     (packet / "participant" / "contract.json").write_text(json.dumps({
-        "schema": "meridia.packet.v4", "disclosure_threshold": 0,
-        "reserve": {"total": total, "gamma": 0.25,
-                    "obligation": UNDISCOUNTED.as_public()}}, indent=1) + "\n")
+        "schema": "meridia.packet.v4",
+        "experience_history": {
+            "file": "experience_history.csv",
+            "columns": ["year", "age_band", "sex", "state", "exposure", "deaths",
+                        "qualifying_events", "net_migration"],
+        },
+        "submission": {
+            "files": {
+                "release.csv": ["estimand", "level", "unit", "sex", "age_band",
+                                "estimate", "lower", "upper"],
+                "projection.csv": ["estimand", "level", "unit", "estimate", "lower",
+                                   "upper"],
+                "reserve.csv": ["region", "liability_mean", "q95", "es95", "allocation"],
+            },
+            "additional_entries": "forbidden",
+        },
+        "reserve": {
+            "total": total,
+            "total_rule": {
+                "file": "experience_history.csv",
+                "year": "maximum published year",
+                "year_column": "year",
+                "selected_year": 2,
+                "exposure_column": "exposure",
+                "aggregation": "sum exposure over every row in the selected year",
+                "exposure_person_years": 1_000.0,
+                "rate_per_person_year": 16.0,
+                "rounding": "up",
+                "rounding_unit": 1_000.0,
+            },
+            "obligation": UNDISCOUNTED.as_public(),
+        }}, indent=1) + "\n")
+    _write(packet / "participant" / "experience_history.csv", {
+        "year": [2], "age_band": ["65-74"], "sex": ["female"], "state": [0],
+        "exposure": [1_000.0], "deaths": [10], "qualifying_events": [20],
+        "net_migration": [0],
+    })
     keys = sorted(truth)
     for name in ("truth_revised.csv", "truth_horizon.csv"):
         _write(packet / "retained" / name,
                {"estimand": [k[0] for k in keys], "level": [k[1] for k in keys],
                 "unit": [k[2] for k in keys], "value": [truth[k] for k in keys]})
-    counties, bands, sexes = np.indices(detailed.shape)
-    _write(packet / "retained" / "detailed_revised.csv", {
-        "county": counties.ravel(), "age_band": np.asarray(AGE_BAND_LABELS)[bands.ravel()],
-        "sex": np.asarray(SEX_LABELS)[sexes.ravel()], "count": detailed.ravel()})
     rate_keys = sorted(rate_truth)
     _write(packet / "retained" / "rate_truth_horizon.csv", {
         "estimand": [k[0] for k in rate_keys], "level": [k[1] for k in rate_keys],
@@ -620,36 +708,36 @@ def _oracle_submission(directory, admin, truth, detailed, rate_truth, sealed, to
             block[column].append(row[column])
         block["sex"].append("")
         block["age_band"].append("")
-    for key in sorted(rate_truth):
+    for key in sorted(required_rate_rows(admin)):
         value = rate_truth[key] if math.isfinite(rate_truth[key]) else 0.0
         for column, v in zip(("estimand", "level", "unit", "sex", "age_band"), key):
             block[column].append(v)
         for column in ("estimate", "lower", "upper"):
             block[column].append(value)
-    for name in ("release.csv", "projection.csv"):
-        _write(directory / name, block)
-    counties, bands, sexes = np.indices(detailed.shape)
-    _write(directory / "detailed.csv", {
-        "county": counties.ravel(), "age_band": np.asarray(AGE_BAND_LABELS)[bands.ravel()],
-        "sex": np.asarray(SEX_LABELS)[sexes.ravel()], "count": detailed.ravel()})
+    _write(directory / "release.csv", block)
+    _write(directory / "projection.csv", {
+        column: [row[column] for row in rows]
+        for column in ("estimand", "level", "unit", "estimate", "lower", "upper")})
     _write(directory / "reserve.csv", {
         "region": [0, 1], "liability_mean": sealed["mean"], "q95": q_hat,
         "es95": sealed["es"], "allocation": allocation})
 
 
-def test_the_version_four_verifier_scores_all_four_files(tmp_path):
+def test_the_version_four_verifier_scores_five_composites_from_three_files(tmp_path):
     from meridia.verify import verify_submission
     packet, admin, truth, detailed, rate_truth, liability, sealed, total = _packet(tmp_path)
     # Two continuations of forty exceed this quantile in each region, so the submission
     # is exactly calibrated at five percent.
     q_hat = np.asarray([1370.0, 13700.0])
     oracle = perfect_information_allocation(liability, total)
+    participant_input = packet / "participant" / "sources" / "observed.csv"
+    participant_input.parent.mkdir()
+    participant_input.write_text("value\n1\n")
     _oracle_submission(tmp_path / "submission", admin, truth, detailed, rate_truth,
                        sealed, total, oracle, q_hat)
     report = verify_submission(packet, tmp_path / "submission")
     assert report["schema_errors"] == [] and report["additivity_errors"] == []
     assert report["rate_errors"] == [] and report["reserve_errors"] == []
-    assert report["disclosure"]["pass"]
     # Every gated block reads at least one eligible cell, and the submission publishes the
     # retained truth, so each of them scores an error of zero on cells it names.
     for key in (f"{EXPOSURE_ESTIMAND}/county", f"{MORTALITY_ESTIMAND}/state",
@@ -658,7 +746,37 @@ def test_the_version_four_verifier_scores_all_four_files(tmp_path):
         assert block["gated"] is True and block["n_cells"] > 0
         assert block["percentile_error"] == pytest.approx(0.0)
         assert len(block["cells"]) == block["n_cells"]
-    assert report["pass"] is True
+    assert report["hard_pass"] is True
+    assert report["pass"] is False
+    assert report["reasons"] == [
+        "bars: no frozen composite bar receipt was supplied"
+    ]
+    assert set(report["composite_metrics"]) == {
+        "exposures_and_rates", "release_accuracy", "interval_quality",
+        "tail_calibration", "reserve_skill"}
+    assert set(report["gate_results"]) == set(report["composite_metrics"])
+    assert all(not result["evaluated"] for result in report["gate_results"].values())
+    assert report["evidence"]["schema"] == "meridia.v4.verifier-evidence.v1"
+    assert all(len(report["evidence"][field]) == 64 for field in (
+        "packet_digest_sha256", "contract_digest_sha256",
+        "submission_digest_sha256", "verifier_digest_sha256",
+    ))
+    first_packet_digest = report["evidence"]["packet_digest_sha256"]
+    participant_input.write_text("value\n2\n")
+    rebound = verify_submission(packet, tmp_path / "submission")
+    assert rebound["evidence"]["packet_digest_sha256"] != first_packet_digest
+    eligibility = report["eligibility_evidence"]["bands"]
+    assert eligibility["65+"]["status"] == "scored"
+    assert eligibility["65+"]["floor_person_years"] == 500.0
+    assert eligibility["65-74"]["status"] == "report-only"
+    assert eligibility["75-84"]["status"] == "report-only"
+    assert eligibility["85+"]["status"] == "report-only"
+    for record in eligibility.values():
+        assert len(record["cells"]) == record["cell_count"] == 4
+        assert record["eligible_count"] == sum(
+            cell["eligible"] for cell in record["cells"])
+        assert record["minimum_exposure_person_years"] == min(
+            cell["exposure_person_years"] for cell in record["cells"])
     reserve = report["reserve"]
     assert reserve["feasible"]
     assert reserve["exceedance"].tolist() == pytest.approx([0.05, 0.05])
@@ -689,46 +807,31 @@ def test_the_version_four_verifier_fails_an_unexpected_file(tmp_path):
     (directory / "allocation.csv").write_text("county,allocation\n0,1\n")
     report = verify_submission(packet, directory)
     assert not report["pass"]
-    assert report["reasons"][0].startswith("file set: unexpected ['allocation.csv']")
+    assert "unexpected ['allocation.csv']" in report["reasons"][0]
 
 
-def test_the_eligibility_floors_come_from_the_published_rule_and_gate_the_old_ages():
-    """A flat floor removed every band the obligation is made of from every rate gate."""
+def test_the_version_four_verifier_fails_an_unexpected_directory(tmp_path):
+    from meridia.verify import verify_submission
+    packet, admin, truth, detailed, rate_truth, liability, sealed, total = _packet(tmp_path)
+    directory = tmp_path / "submission"
+    _oracle_submission(directory, admin, truth, detailed, rate_truth, sealed, total,
+                       perfect_information_allocation(liability, total),
+                       np.asarray([1370.0, 13700.0]))
+    (directory / "artifacts").mkdir()
+    report = verify_submission(packet, directory)
+    assert not report["pass"]
+    assert "unexpected ['artifacts']" in report["reasons"][0]
+
+
+def test_eligibility_depends_only_on_exposure_and_maps_fine_old_ages_to_65_plus():
     thresholds = ActuarialThresholds()
-    person_floor = MIN_CELL_PERSONS * SCORED_WINDOW_YEARS
-    # Every floor is the rule applied to its own band, never a number chosen per band.
-    for estimand, schedule in REFERENCE_EVENT_RATES.items():
-        for band, rate in schedule.items():
-            assert eligibility_floor(thresholds, band, estimand) == pytest.approx(
-                max(person_floor, MIN_EXPECTED_EVENTS / rate))
     for band in ACTUARIAL_AGE_BAND_LABELS:
-        assert eligibility_floor(thresholds, band) == pytest.approx(person_floor)
-    # The rule falls with age over the ages the rates are thin at, which is what puts the
-    # obligation's own bands inside the mortality gate.
-    mortality = [eligibility_floor(thresholds, band, MORTALITY_ESTIMAND)
-                 for band in ("18-44", "45-64", "65-74")]
-    assert mortality[0] > mortality[1] > mortality[2]
-
-    # State by sex exposures at the committed world size, measured over the sixty-month
-    # window on the six qualification worlds. The 65-74 and 75-84 bands clear the floor
-    # their rates are gated at on every one of them, and would have failed a flat five
-    # thousand person-years. The oldest band does not clear it on any of them, because a
-    # cell of at most 178 person-years is under 120 expected persons.
-    largest_cell = {
-        "qual-0": {"65-74": 2_306.0, "75-84": 710.0, "85+": 44.0},
-        "qual-1": {"65-74": 4_039.0, "75-84": 1_723.0, "85+": 168.0},
-        "qual-2": {"65-74": 2_946.0, "75-84": 1_021.0, "85+": 133.0},
-        "qual-3": {"65-74": 3_954.0, "75-84": 1_244.0, "85+": 137.0},
-        "qual-4": {"65-74": 2_578.0, "75-84": 831.0, "85+": 76.0},
-        "qual-5": {"65-74": 4_523.0, "75-84": 1_671.0, "85+": 178.0},
-    }
-    for world, cells in largest_cell.items():
-        for band in ("65-74", "75-84"):
-            for estimand in (MORTALITY_ESTIMAND, INCIDENCE_ESTIMAND):
-                assert cells[band] >= eligibility_floor(thresholds, band, estimand), \
-                    (world, band, estimand)
-            assert cells[band] < 5_000.0
-        assert cells["85+"] < eligibility_floor(thresholds, "85+", MORTALITY_ESTIMAND)
+        for estimand in (EXPOSURE_ESTIMAND, MORTALITY_ESTIMAND, INCIDENCE_ESTIMAND):
+            expected = 500.0 if band in ("65-74", "75-84", "85+") else 600.0
+            assert eligibility_floor(thresholds, band, estimand) == pytest.approx(expected)
+    assert eligibility_floor(thresholds, "65+") == pytest.approx(500.0)
+    moved = ActuarialThresholds(exposure_eligibility_person_years=750.0)
+    assert eligibility_floor(moved, "85+", INCIDENCE_ESTIMAND) == pytest.approx(625.0)
 
 
 def test_a_gated_block_with_no_eligible_cell_is_named_rather_than_dropped():
@@ -738,7 +841,8 @@ def test_a_gated_block_with_no_eligible_cell_is_named_rather_than_dropped():
     metrics = score_rates(parsed, truth, thresholds)
     block = metrics[f"{MORTALITY_ESTIMAND}/state"]
     assert block["n_cells"] == 0 and block["gated"] is True
-    assert "eligibility floor" in block["reason"]
+    assert block["n_eligible"] == 0
+    assert "fixed eligible set" in block["reason"]
     verdict = evaluate_actuarial_gates([], metrics, [], None, thresholds)
     assert not verdict["pass"]
     assert any("has no eligible cell" in r for r in verdict["reasons"])
@@ -874,85 +978,6 @@ def test_a_state_rate_its_own_counties_contradict_is_named():
     assert errors[0].startswith(f"{MORTALITY_ESTIMAND}: state 0 male 65-74 implies")
 
 
-def _freeze_script():
-    """The freeze script, loaded as a module so its rules can be tested directly."""
-    import importlib.util
-    from pathlib import Path as _Path
-    path = _Path(__file__).resolve().parents[1] / "scripts" / "freeze_v4_bars.py"
-    spec = importlib.util.spec_from_file_location("freeze_v4_bars", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_the_freeze_refuses_a_bar_that_cannot_fire():
-    """Three bars of the first freeze were outside the range their criterion can take."""
-    freeze = _freeze_script()
-    bars = {"actuarial": {"tau_worst": 1.425, "regional_shortfall_ceiling": 1.5,
-                          "rate_coverage_floor": -0.06},
-            "disclosure_utility_floor": 0.878}
-    hard = freeze._unattainable_bars(bars)
-    assert any(h.startswith("tau_worst") for h in hard)
-    assert any(h.startswith("regional_shortfall_ceiling") for h in hard)
-    assert any(h.startswith("rate_coverage_floor") for h in hard)
-
-    freeze._clamp_to_attainability(bars, 0.007679)
-    assert bars["actuarial"]["tau_worst"] == freeze.CEILING_CAP["tau_worst"]
-    assert bars["actuarial"]["regional_shortfall_ceiling"] == \
-        freeze.CEILING_CAP["regional_shortfall_ceiling"]
-    # Clamping fixes the two ceilings. A coverage floor at or under zero still refuses
-    # nothing, and the freeze says so instead of writing it and finishing.
-    hard = freeze._unattainable_bars(bars)
-    assert [h.split(":")[0] for h in hard] == ["rate_coverage_floor"]
-
-    bars["actuarial"]["mystery_ceiling"] = 3.0
-    assert any(h.startswith("mystery_ceiling") for h in freeze._unattainable_bars(bars))
-
-    # Every bar the freeze itself writes under the actuarial block has a declared range.
-    written = set(freeze.CEILING_CAP) | {"quantile_score_ceiling", "rate_coverage_floor",
-                                         "skill_minimum"}
-    declared = set(freeze.CEILING_CAP) | set(freeze.CRITERION_RANGE) \
-        | {"quantile_score_ceiling"}
-    assert written <= declared
-
-
-def _rate_report(n_cells: int, cells: list) -> dict:
-    return {"rate_metrics": {
-        f"{MORTALITY_ESTIMAND}/state": {
-            "gated": True, "n_cells": n_cells, "cells": cells, "percentile_error": 0.4,
-            "max_error": 0.4, "coverage": 0.5, "mean_interval_score": 0.1,
-            "worst_cell": cells[0] if cells else None, "reason": ""},
-        f"{MORTALITY_ESTIMAND}/county": {
-            "gated": False, "n_cells": 9, "cells": [(0, "male", "85+")],
-            "percentile_error": 9.0, "max_error": 9.0, "coverage": 0.0,
-            "mean_interval_score": 9.0, "worst_cell": (0, "male", "85+"), "reason": ""}}}
-
-
-def test_the_freeze_records_which_cells_each_rate_bar_read():
-    """A rate ceiling is only as strong as the cells its eligibility rule admits."""
-    freeze = _freeze_script()
-    reports = {("A", "qual-0"): _rate_report(2, [(0, "male", "65-74"),
-                                                 (1, "female", "75-84")]),
-               ("B", "qual-0"): _rate_report(1, [(0, "male", "65-74")])}
-    record = freeze._rate_cell_record(reports)
-    block = record[f"{MORTALITY_ESTIMAND}/state"]
-    assert block["n_cells"] == {"qual-0/A": 2, "qual-0/B": 1}
-    assert block["bands"] == ["65-74", "75-84"]
-    assert block["cells"] == [[0, "male", "65-74"], [1, "female", "75-84"]]
-    assert block["empty"] == []
-    # An ungated block sets no bar, so it is not recorded as one.
-    assert f"{MORTALITY_ESTIMAND}/county" not in record
-
-    reports[("B", "qual-1")] = _rate_report(0, [])
-    record = freeze._rate_cell_record(reports)
-    assert record[f"{MORTALITY_ESTIMAND}/state"]["empty"] == ["qual-1/B"]
-    # A block with nothing eligible never enters the bar it would otherwise loosen.
-    bars = freeze._rate_bars(reports)
-    assert bars["mortality_error_ceiling"] == pytest.approx(
-        max(freeze.RATE_MARGIN * 0.4, freeze.RATE_FLOOR[MORTALITY_ESTIMAND]))
-    assert bars["rate_coverage_floor"] == pytest.approx(0.4)
-
-
 def test_an_unfrozen_bar_set_refuses_to_gate_a_version_four_submission(tmp_path):
     """A bar file written before its own freeze verdict must not be read as frozen."""
     from meridia.verify import verify_submission
@@ -961,12 +986,32 @@ def test_an_unfrozen_bar_set_refuses_to_gate_a_version_four_submission(tmp_path)
     oracle = perfect_information_allocation(liability, total)
     _oracle_submission(tmp_path / "submission", admin, truth, detailed, rate_truth,
                        sealed, total, oracle, q_hat)
-    bars = {"actuarial": {"tau_mean": 0.5}}
+    bars = {
+        "schema": "meridia.v4.composite-bars.v1",
+        "gates": {
+            "exposures_and_rates": {"components": {
+                "p95_relative_error": {"direction": "ceiling", "value": 1e9}}},
+            "release_accuracy": {"components": {
+                "p95_relative_error": {"direction": "ceiling", "value": 1e9}}},
+            "interval_quality": {"components": {
+                "coverage_deviation": {"direction": "ceiling", "value": 1e9},
+                "mean_interval_score": {"direction": "ceiling", "value": 1e9}}},
+            "tail_calibration": {"components": {
+                "pooled_exceedance_deviation": {"direction": "ceiling", "value": 1e9},
+                "q95_width_relative_error": {"direction": "ceiling", "value": 1e9},
+                "es95_width_relative_error": {"direction": "ceiling", "value": 1e9}}},
+            "reserve_skill": {"components": {
+                "skill_loss": {"direction": "ceiling", "value": 1e9}}},
+        },
+    }
     unfrozen = verify_submission(packet, tmp_path / "submission", bars)
     assert unfrozen["pass"] is False
     assert unfrozen["reasons"] == ["bars: this bar set does not record a completed freeze"]
     during_freeze = verify_submission(packet, tmp_path / "submission", bars,
                                       allow_unfrozen=True)
-    assert during_freeze["pass"] is True
-    frozen = verify_submission(packet, tmp_path / "submission", dict(bars, frozen=True))
-    assert frozen["pass"] is True
+    assert during_freeze["pass"] is False
+    assert during_freeze["reasons"] == unfrozen["reasons"]
+    forged = verify_submission(packet, tmp_path / "submission", dict(bars, frozen=True))
+    assert forged["pass"] is False
+    assert any(reason.startswith("bars:") for reason in forged["reasons"])
+    assert forged["bar_schema_errors"]

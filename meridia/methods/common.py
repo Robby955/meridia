@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from ..release import AGE_BAND_LABELS, SEX_LABELS
+from ..actuarial import RESERVE_COLUMNS, V4_PROJECTION_COLUMNS, V4_RELEASE_COLUMNS
 
 INCOME_ITEMS = ("median_household_income", "mean_income_adults", "low_income_household_share")
 COUNT_ITEMS = ("persons", "households", "children_under_16", "elders_65_plus")
@@ -161,15 +162,25 @@ def rows_from_draws(point: dict, draws: dict, extra_half: dict | None = None) ->
 def write_submission(out_dir: Path, release_rows, projection_rows, cube: np.ndarray,
                      suppress_below: float, allocation: np.ndarray,
                      reserve_rows: list[dict] | None = None) -> None:
-    """Write one submission. ``reserve_rows`` selects the version-four fourth file.
+    """Write one submission. ``reserve_rows`` selects the version-four three-file surface.
 
-    A version-three recipe run on a version-four packet still owes four files, so the
+    A version-three recipe run on a version-four packet still owes the three V4 files, so the
     caller hands it the reserve rows its own numbers imply and the point allocation is
     dropped. Which file is written is the surface's decision, never the recipe's.
     """
     import pandas as pd
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if reserve_rows is not None:
+        widened = [dict(row, sex=row.get("sex", ""), age_band=row.get("age_band", ""))
+                   for row in release_rows]
+        pd.DataFrame(widened)[list(V4_RELEASE_COLUMNS)].to_csv(
+            out_dir / "release.csv", index=False)
+        pd.DataFrame(projection_rows)[list(V4_PROJECTION_COLUMNS)].to_csv(
+            out_dir / "projection.csv", index=False)
+        pd.DataFrame(reserve_rows)[list(RESERVE_COLUMNS)].to_csv(
+            out_dir / "reserve.csv", index=False)
+        return
     n_counties = cube.shape[0]
     detail = []
     for c in range(n_counties):
@@ -181,8 +192,5 @@ def write_submission(out_dir: Path, release_rows, projection_rows, cube: np.ndar
     pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
     pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
     pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
-    if reserve_rows is None:
-        pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
-            out_dir / "allocation.csv", index=False)
-    else:
-        pd.DataFrame(reserve_rows).to_csv(out_dir / "reserve.csv", index=False)
+    pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
+        out_dir / "allocation.csv", index=False)

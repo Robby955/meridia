@@ -68,24 +68,20 @@ world's draw. Development worlds ship with their truth; hidden worlds exist only
 sealed digests until grading. No statistic of a hidden world's full population appears
 in any participant file.
 
-Every axis an evaluation world pushes past the development band has a statistic on the
-participant files that tracks its realized intensity across worlds. The list is published
-in the contract as `mechanisms.outside_eligible_axes`, and it holds five of the six axes.
-`missingness_target_dependence` is not one of them: an evaluation world draws it inside
-the development band, the band the open worlds cover, and the two axes that leave the
-band come from the other five. The reason is measured rather than asserted. The anchor
-protocol section 3 gives that mechanism is the survey's admission item against the health
-archive, and at this world size the sampling error of one age group's admission rate is
-wider than the gradient the axis has to be read from. The mechanism still runs, still
-recombines, and the development packets ship the realized share of admissions the archive
-kept, so a method can see on an open world what it is being asked to model. What no
-evaluation world does is put a difficulty there that no supplied anchor reaches, which is
-what protocol section 10 refuses.
+Every axis an evaluation world pushes past the development band must have a participant-
+file statistic whose signed rank correlation with the realized intensity clears 0.4 on
+the freeze worlds. The contract publishes the four currently eligible axes under
+`mechanisms.hidden_world.eligible_for_outside_development_band` and publishes
+`administrative_completeness` and `missingness_target_dependence` under
+`held_inside_development_band`. Both constrained axes still vary over their full public
+development ranges and still enter hidden joint configurations; the generator simply
+does not extrapolate them beyond evidence participants can read.
 
-Two anchors were added to the participant surface for the same reason. The benchmark
-publishes the resident person count of each economic band of counties, with the band of
-every county in `geography.csv`, its definition and reference tick in the contract, and
-its own declared bias family. The contract states how the survey admission item and the
-archive are to be compared. Neither hands over a scored quantity: the benchmark's
-subgroup cuts across the states and counties the release is scored at, and the
-comparison rule names a procedure rather than a value.
+The administrative benchmark anchor remains public. It publishes the resident-person
+count of each economic band of counties, with each county's band in `geography.csv` and
+the definition, reference tick, rounding, and numerical bias ranges in `contract.json`.
+Its measured correlation was +0.715, but the hidden-axis constraint remains as a separate
+fail-closed policy. The attempted age-gradient health/survey anchor was removed after two
+preflights measured only +0.020 and +0.139. The original admission item remains a public
+diagnostic and a reference input; it is not evidence for hidden extrapolation and no
+development truth file is supplied for that failed experiment.

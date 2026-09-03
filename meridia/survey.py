@@ -166,7 +166,7 @@ def draw_survey(micro: dict, population: np.ndarray, seed: int,
     same nonresponse and the same measurement error.
 
     ``recent_admission`` is the true indicator that a person was admitted to hospital in
-    the anchor window before the reference tick.  It is reported through a misclassified
+    the twelve months before the reference tick.  It is reported through a misclassified
     item with a declared sensitivity and specificity, both published in the packet
     contract.  That item is the independent health anchor: the sample is drawn without
     reference to health-register inclusion, so an informative inclusion rule stays

@@ -96,7 +96,7 @@ CONTROLS = ("register_only", "survey_only", "no_dedup", "inflated_intervals",
 ACTUARIAL_CONTROLS = ("deterministic_linkage", "ignore_health_selection",
                       "development_average_regime", "mean_only_tail", "normal_tail",
                       "padded_tail", "proportional_reserve", "version_three_recipe",
-                      "suppress_all_detail", "experience_history_only")
+                      "experience_history_only")
 ALL_CONTROLS = CONTROLS + ACTUARIAL_CONTROLS
 
 # One layer switch per version-four control. version_three_recipe also rebuilds the release
@@ -462,7 +462,7 @@ def _experience_history_only(packet_dir: Path, out_dir: Path,
         else AR.LayerParams(experience_only=True)
     result = AR.actuarial_submission(
         Path(packet_dir), data, county_state, now[None], fertility, release, projection,
-        detail, 2.0 * int(contract["disclosure_threshold"]), Path(out_dir),
+        detail, 2.0 * int(contract.get("disclosure_threshold", 10)), Path(out_dir),
         AGE_BAND_LABELS, SEX_LABELS, layer)
     if result is None:
         raise AR.MissingActuarialInputs(
@@ -474,18 +474,6 @@ def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
     """Run the strong design-based line with exactly one step removed."""
     if name == "experience_history_only":
         _experience_history_only(Path(packet_dir), Path(out_dir))
-        return
-    if name == "suppress_all_detail":
-        # A strong submission whose protected table publishes nothing. Disclosure
-        # protection is one-sided and a blank table meets it; the utility floor is what
-        # refuses one, and this control is what shows the floor firing.
-        import pandas as pd
-        A.run(packet_dir, out_dir,
-              A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path,
-                             actuarial="on"))
-        detail = pd.read_csv(out_dir / "detailed.csv")
-        detail["count"] = float("nan")
-        detail.to_csv(out_dir / "detailed.csv", index=False)
         return
     switches = dict(ACTUARIAL_SWITCHES[name])
     if name == "development_average_regime":
@@ -514,7 +502,7 @@ def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
     result = AR.actuarial_submission(
         Path(packet_dir), data, county_state, age_sex[None], 0.055, release, projection,
         np.asarray(register["cube"], dtype=np.float64),
-        2.0 * int(contract["disclosure_threshold"]), Path(out_dir),
+        2.0 * int(contract.get("disclosure_threshold", 10)), Path(out_dir),
         AGE_BAND_LABELS, SEX_LABELS, layer)
     if result is None:
         raise AR.MissingActuarialInputs(
@@ -533,7 +521,7 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
     tick = int(contract["ticks"]["revised"])
     horizon_months = int(contract["ticks"]["horizon"]) - tick
     budget = float(contract["allocation"]["budget"])
-    threshold = int(contract["disclosure_threshold"])
+    threshold = int(contract.get("disclosure_threshold", 10))
     out_dir = Path(out_dir)
 
     if name in ("inflated_intervals", "static_projection", "uniform_allocation", "exact_key_union"):
@@ -548,12 +536,19 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
                 raise ValueError("exact_key_union needs the development fit stored in calibration A")
             rows = [r for r in base["release"] if r["estimand"] not in COUNT_ITEMS]
             rows += _exact_key_union_rows(data, tick, county_state, fit)
-            pd.DataFrame(rows).to_csv(out_dir / "release.csv", index=False)
+            pd.DataFrame(rows)[list(AR.V4_RELEASE_COLUMNS)].to_csv(
+                out_dir / "release.csv", index=False)
         elif name == "inflated_intervals":
-            point = {(r["estimand"], r["level"], r["unit"]): r["estimate"] for r in base["release"]}
-            pd.DataFrame(_rows_with_relative_half(point, 0.40)).to_csv(out_dir / "release.csv", index=False)
+            rows = pd.read_csv(out_dir / "release.csv")
+            half = 0.40 * rows["estimate"].abs()
+            rows["lower"] = np.maximum(rows["estimate"] - half, 0.0)
+            rows["upper"] = rows["estimate"] + half
+            rows[list(AR.V4_RELEASE_COLUMNS)].to_csv(out_dir / "release.csv", index=False)
         elif name == "static_projection":
-            pd.DataFrame(base["release"]).to_csv(out_dir / "projection.csv", index=False)
+            rows = pd.DataFrame(base["release"])
+            rows = rows[(rows["age_band"].isna()) | (rows["age_band"] == "")]
+            rows[list(AR.V4_PROJECTION_COLUMNS)].to_csv(
+                out_dir / "projection.csv", index=False)
         else:   # uniform_allocation: a strong forecast with the reserve split evenly
             reserve_path = out_dir / "reserve.csv"
             if reserve_path.exists():
