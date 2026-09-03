@@ -42,7 +42,14 @@ RETAINED_VERIFIER_FILES = (
 )
 DEVELOPMENT_WORLDS = 12
 SUBMISSION_SURFACE = ["release.csv", "detailed.csv", "projection.csv", "reserve.csv"]
-RESERVE_TOTAL_PATTERN = re.compile(r"(must sum exactly to \*\*)[0-9]+(\*\*)")
+# Before a freeze the instruction commits the placeholder token rather than a figure, so
+# the constraint it states can never be read as a real one. The packaging step below
+# rewrites whatever stands between the bold markers, token or earlier figure, with the
+# sealed world's published reserve total.
+RESERVE_TOTAL_PLACEHOLDER = "RESERVE_TOTAL"
+RESERVE_TOTAL_PATTERN = re.compile(
+    r"(must sum exactly to \*\*)(?:[0-9]+|" + RESERVE_TOTAL_PLACEHOLDER + r")(\*\*)"
+)
 
 
 def _sha256(path: Path) -> str:
@@ -189,7 +196,9 @@ def _render_instruction_reserve_total(task_dir: Path, contract: dict) -> int:
 
     The total is the one aggregate the protocol publishes on purpose, so it belongs in the
     instruction as a figure rather than a pointer. Every pass criterion stays in
-    ``bars.json`` and is never typed into the instruction.
+    ``bars.json`` and is never typed into the instruction. The instruction carries no note
+    about this step: it ships to the solver verbatim, so the note lives here and in
+    ``authoring/INTERFACE_ASSUMPTIONS.md`` instead.
     """
     total = contract.get("reserve", {}).get("total")
     if not isinstance(total, (int, float)) or not float(total) > 0.0:
@@ -203,6 +212,8 @@ def _render_instruction_reserve_total(task_dir: Path, contract: dict) -> int:
     )
     if replacements != 1:
         raise ValueError("instruction must contain exactly one reserve total")
+    if RESERVE_TOTAL_PLACEHOLDER in rendered:
+        raise ValueError("instruction still carries the reserve total placeholder")
     instruction_path.write_text(rendered)
     return int(total)
 
