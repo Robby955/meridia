@@ -14,9 +14,17 @@ them.
   A world's whole configuration follows from its seed, so a graded seed in the tree is
   the graded configuration in the tree.
 
-Every packet is a deterministic function of its seed and the shared parameters. The
-``--workers`` flag divides the continuation ensemble between processes and changes
-nothing in the output.
+Every packet is a deterministic function of its seed and the shared parameters. Two
+flags divide the work and neither changes the output. ``--workers`` divides one world's
+continuation ensemble between processes; ``--world-workers`` builds whole worlds at once.
+The second is the one that scales: the ensemble step is what a packet costs, it holds no
+lock and shares nothing with the baseline step, and a world's ledger is a single
+process's work whatever the ensemble is doing. Use one or the other, since together they
+oversubscribe the machine.
+
+``--cache`` points at a directory of continuation ensembles keyed on the digest of the
+baseline ledger that produced them. A rebuild that changes only what a verifier or a bar
+reads takes the futures off the shelf instead of paying for them again.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ import argparse
 import json
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from meridia.mechanisms import DEVELOPMENT_DESIGN
@@ -91,28 +100,49 @@ def progress_line(family: str, entry: dict, n_files: int, seconds: float) -> str
     return f"{family}/{entry['name']}: {named}files {n_files} {seconds:.0f}s"
 
 
+def build_one(job: dict) -> str:
+    """Build one world and return its log line. Runs in this process or a worker."""
+    family, entry = job["family"], job["entry"]
+    directory = Path(job["out"]) / family / entry["name"]
+    if directory.exists():
+        return f"{family}/{entry['name']}: already built"
+    start = time.time()
+    manifest = build_packet(entry["seed"], directory, entry["params"],
+                            development=entry["development"],
+                            workers=job["workers"],
+                            cache_dir=Path(job["cache"]) if job["cache"] else None)
+    if manifest["development"] != entry["development"]:
+        raise RuntimeError(f"{family}/{entry['name']} was written on the wrong side")
+    digest = json.loads((directory / "manifest.json").read_text())
+    n_files = len(digest["participant"]) + len(digest["retained"])
+    return progress_line(family, entry, n_files, time.time() - start)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--family", default="all", choices=("all",) + FAMILIES)
-    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=1,
+                        help="processes inside one world's continuation ensemble")
+    parser.add_argument("--world-workers", type=int, default=1,
+                        help="worlds built at once, each on its own process")
+    parser.add_argument("--cache", type=Path, default=None,
+                        help="directory of continuation ensembles, keyed on the "
+                             "baseline ledger digest")
     args = parser.parse_args()
     families = list(FAMILIES) if args.family == "all" else [args.family]
     args.out.mkdir(parents=True, exist_ok=True)
-    for family in families:
-        for entry in family_plan(family):
-            directory = args.out / family / entry["name"]
-            if directory.exists():
-                print(f"{family}/{entry['name']}: already built", flush=True)
-                continue
-            start = time.time()
-            manifest = build_packet(entry["seed"], directory, entry["params"],
-                                    development=entry["development"],
-                                    workers=args.workers)
-            digest = json.loads((directory / "manifest.json").read_text())
-            n_files = len(digest["participant"]) + len(digest["retained"])
-            print(progress_line(family, entry, n_files, time.time() - start), flush=True)
-            assert manifest["development"] == entry["development"]
+    jobs = [{"family": family, "entry": entry, "out": str(args.out),
+             "workers": args.workers,
+             "cache": str(args.cache) if args.cache else None}
+            for family in families for entry in family_plan(family)]
+    if args.world_workers > 1:
+        with ProcessPoolExecutor(max_workers=args.world_workers) as pool:
+            for line in pool.map(build_one, jobs):
+                print(line, flush=True)
+        return
+    for job in jobs:
+        print(build_one(job), flush=True)
 
 
 if __name__ == "__main__":

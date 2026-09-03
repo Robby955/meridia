@@ -1495,3 +1495,199 @@ qualification worlds; freeze RESULT: NOT FROZEN.
   exposure and survival, not the tail model. Next pass: the elder cohort-component line on
   the experience file with the shock process redrawn in every continuation member, then
   refreeze with per-gate false-fail calibration and the control-separation requirement.
+
+## Phase three, 2026-09-03
+
+### The generator lane
+
+This section belongs to the lane holding `meridia/mechanisms.py`, `meridia/sources.py`,
+`meridia/survey.py`, `meridia/packet.py`, `meridia/events.py`, `meridia/demography.py`,
+`meridia/character.py`, `meridia/microdata.py`, the two build scripts under `scripts/`
+and their tests. It closes the two unidentified regime axes the phase-two rebuild left
+open, adds the regional shock loadings the protocol's phase-three list names, re-mints the
+graded seeds, and takes the world build off the cost wall it was on. Each entry below
+carries a test that fails on the previous tree and passes here.
+
+#### The measurement these entries are read against
+
+Thirty worlds, built at the committed geometry: 96 by 128 cells, 60,000 persons, 18
+counties, 6 states, 180 ledger months, one world per row of the twelve-run design plus
+eighteen hidden-regime worlds. The continuation ensemble is cut to eight members, which is
+the whole cost of a packet and enters none of the six statistics, so the worlds are the
+committed object and the measurement runs in ninety seconds rather than four hours. The
+same thirty seeds were built on the phase-two tree for the comparison.
+
+`scripts/identifiability_v4.py`, signed rank correlation of each axis's statistic with its
+realized intensity, phase two in brackets:
+
+    mortality_improvement            +0.491  [+0.464]
+    migration_age_pattern            +0.270  [+0.269]
+    age_reporting_error              +0.604  [+0.527]
+    linkage_urban_gradient           +0.774  [+0.755]
+    administrative_completeness      +0.859  [+0.157]
+    missingness_target_dependence    -0.004  [+0.134]
+
+The phase-two rebuild reported +0.50 and +0.53 for the first two axes on eighteen worlds.
+On thirty they read +0.46 and +0.27 on the same tree, so the second of those was small
+sample luck and not something this pass cost.
+
+#### The completeness axis gets the anchor protocol section 3 already lists
+
+Register coverage rides the county economic gradient, the covariate that reports that
+gradient is itself thinned by the same mechanism, and the state series pools counties from
+both ends of it. Neither statistic tried before worked: the register against the survey
+read -0.150 and the register against the state benchmark read +0.067, with the sign
+reversing between regimes.
+
+The benchmark now publishes a count for a defined subgroup, which is one of the imperfect
+aggregates section 3 names. The subgroup is a band of counties: the producer classifies
+every county by its own establishment payroll per resident adult and publishes the resident
+person count of each of four bands. `geography.csv` carries the band of every county, so the
+grouping is reproducible rather than estimated, and `contract.json` carries the definition,
+the reference tick, the number of bands and the bias family. The subgroup series has its own
+declared bias spread, 0.004 to 0.015 against 0.03 to 0.08 for the state series, because it
+is one national operation on a published classification rather than six separate
+collections. That has to be the smaller of the two for the series to be an anchor at all:
+coverage moves by about two percent per band across the gradient, so a per-band bias at the
+state spread would be the whole signal.
+
+Register persons over published persons, band by band, is then the gradient with nothing in
+between. The axis reads +0.859 pooled, +0.699 within the development worlds and +0.853
+within the hidden ones.
+
+Nothing scored is handed over. The subgroup cuts across the states and counties the release
+is scored at, and four biased totals over eighteen counties do not place a county.
+
+#### The target-dependence axis has a trace, no anchor, and stays inside the band
+
+The axis is the slope of health-source inclusion in a person's latent burden. It carries
+that one mechanism and the survey's admission item is its one anchor, which is the
+arrangement phase two settled. What phase two did not check is whether the anchor can read
+it.
+
+Three things changed and one conclusion follows.
+
+The mechanism was too faint to leave a mark. Latent burden's mean moves by about half a log
+unit between a child and a person of eighty, so at the raw slope an axis in the middle of
+its band moved the inclusion share by six points across the whole age range. The slope is
+now scaled by two and the resulting shift is capped at plus or minus two logits, which keeps
+the far tail of the burden distribution from driving an inclusion probability to zero or
+one, a case protocol section 10 refuses. Against the retained truth on the thirty worlds the
+realized gradient now tracks the axis at +0.66 where it read +0.38 before.
+
+The statistic is a gradient rather than a level. The national gap between the archive's
+admission rate and the anchor's reads how much the source retains overall, which is a
+different axis, and that is why it read -0.02. The anchor and the archive are now compared
+on three broad age groups, under 45, 45 to 64, and 65 and over, over the same window and the
+same population definition, and the statistic is the oldest minus the youngest, averaged
+over the two snapshots. `contract.json` states the comparison.
+
+The anchor still cannot resolve it. At about four thousand respondents the sampling error of
+one age group's admission rate is near seven percent and the whole gradient is near ten, so
+the statistic reads -0.004. A two-year anchor window was tried for exactly this reason,
+since doubling the rate cuts the error of the estimate, and it made the trace worse: nearly
+everyone frail enough to be admitted at all is admitted inside two years, so the wider
+window thins the very contrast being read. Raising the item's declared sensitivity and
+specificity was tried and reverted, because it buys a sharper anchor by softening a declared
+difficulty and it did not close the gap either.
+
+So the axis is held inside the development band on evaluation worlds.
+`mechanisms.OUTSIDE_ELIGIBLE_AXES` is the list of axes a hidden world may push past the
+band, it holds the other five, and the contract publishes it beside the rule. The mechanism
+still runs and still recombines into a joint configuration the design does not spend, and
+the axis's realized coefficient still leaves the band, because the declared interaction with
+`administrative_completeness` scales it and that axis is anchored: over the eighteen hidden
+worlds the realized coefficient runs 0.263 to 2.103 against a band of 0.20 to 1.30.
+
+Development packets ship `truth/health_inclusion_truth.csv`, the archive's realized share of
+each age band's admissions. The worlds a method may tune on therefore show the quantity the
+anchor is a noisy view of, which is the difference between an axis a method can learn to
+model and one it is asked to read off nothing.
+
+This is the world size talking, and it is the same wall the mortality trend hit in phase
+two. Growing the survey would close it, at the price of a sample that is a tenth of the
+country.
+
+#### Regional shock loadings
+
+The protocol's phase-three list asks for these in as many words. Version four's shocks were
+national and every region took the whole multiplier, so the regional liabilities moved as
+one and the aggregate tail was what the six marginals already said.
+
+Each region now carries a loading on the family, drawn once per world from the published
+band 0.35 to 1.80 on its own stream, held for every year and every continuation member. A
+multiplier m lands in region r as 1 + L_r * (m - 1). A loading of one takes the whole
+multiplier and a loading of zero takes none of it in either direction, so a fertility
+multiplier under one thins births less where the loading is low. At m of one the factor is
+exactly one everywhere, which is what keeps a shock-free month byte for byte what it was.
+
+The loadings scale the mortality and the admission multipliers and nothing else. Those two
+price the obligation and those two are what the experience file's deaths and qualifying
+event counts carry, so a development world exposes the loadings in a file the agent
+receives. Splitting fertility or internal migration would put loadings where no anchor
+reaches them. For admissions the national target takes the mean of the per-candidate factors
+and the selection weight takes the factor itself, so the level follows the published family
+and the split between regions follows the loadings.
+
+Visible in the experience file, measured on the twelve development worlds: four carry a
+mortality spike inside the published window, and in those the state death rate lift ranks
+with the loading at +0.886, +0.829, +0.657 and -0.314, median +0.743. The band and the rule
+are in `contract.json` under `shock_family`; the realized vector is retained.
+
+Replay and determinism are unchanged. The loadings are a function of the world's seed on a
+stream nothing else uses, so no other draw moves; a continuation member inherits the world's
+loadings and redraws only its own shock years; and a ledger run with no shock in it produces
+the same events it produced before the loadings existed, which `tests/test_events.py` checks
+by digest rather than by argument.
+
+#### The graded seeds are re-minted
+
+The values 3101, 3102 and 3103 appeared in transcripts and in tests, so the three worlds
+they name are spent. Three new seeds were minted through the sealing module's keyed digest,
+`sealed_seed(master, index)` at indices five, six and seven, which are indices version three
+did not spend. They were written to the sealed file outside the repository at
+`~/.config/meridia/v4_graded_seeds.json`, mode 600, and were not printed or logged.
+
+Their digests, `sha256` of the decimal seed:
+
+    index 5  271c38919fa7a7ae118b92c433be4ed9780a26ecd2af30ce9a1c6b923cb35732
+    index 6  7b03878fc0426fb151f4753c2caa651d921a6fff6f9287b2513f5051c8976395
+    index 7  5d4671046d118698c6b6e9dec3412432ba344c0bc198c6a5c89d3d547d924bdc
+
+Anyone holding the master key can rederive the three seeds and check the digests. Nobody
+without it can, and the three burned values are not among them.
+
+#### What a world costs, and why a refreeze no longer pays for its futures
+
+The twenty-one world set took about three and a half hours on six processes. Two things
+made it that: the only division was inside one world's continuation ensemble, so five
+sixths of the machine sat idle through every ledger, and each world waited for the one
+before it.
+
+`build_v4_worlds.py` now takes `--world-workers`, which builds whole worlds at once and is
+separate from the `--workers` that divides one ensemble. Worlds share nothing, so the two
+are independent and either can be one while the other is many.
+
+The ensemble is also cached. A member is a function of the branch state the ledger kept at
+the revised snapshot, the shock law it redraws its own future from, the horizon, the
+obligation that prices it, and the mechanism vector it runs under. A verifier, a bar and a
+scoring change sit downstream of all five. `--cache` points at a directory of ensembles
+keyed on the digest of those five, so a rebuild that moves nothing upstream of the ledger
+takes the futures off the shelf, and one that moves anything upstream misses the key and
+pays. A cached ensemble with more members than the packet asks for is used from the front,
+since a member is a function of its own index.
+
+One world at the committed size, seed 1101, 2,048 members, six ensemble processes:
+
+    cold, no cache        817.8 s
+    cold, filling a cache 754.7 s
+    warm, cache hit        19.0 s
+
+All three write the same ensemble, digest `ce344979e02fe1b5...`. The nineteen seconds are
+the terrain, the population, the ledger, the sources, the two surveys and the twenty-two
+files; the eight hundred are the futures.
+
+For the twenty-one world set that is the difference between rebuilding everything and
+rebuilding what actually moved. A bar change or a verifier change now costs about seven
+minutes of packet writing across the set rather than four and a half hours, and a
+generator change still costs the full build, which is what a generator change should cost.

@@ -67,3 +67,25 @@ Participants see the parameter ranges and the mechanism families, never a sealed
 world's draw. Development worlds ship with their truth; hidden worlds exist only as
 sealed digests until grading. No statistic of a hidden world's full population appears
 in any participant file.
+
+Every axis an evaluation world pushes past the development band has a statistic on the
+participant files that tracks its realized intensity across worlds. The list is published
+in the contract as `mechanisms.outside_eligible_axes`, and it holds five of the six axes.
+`missingness_target_dependence` is not one of them: an evaluation world draws it inside
+the development band, the band the open worlds cover, and the two axes that leave the
+band come from the other five. The reason is measured rather than asserted. The anchor
+protocol section 3 gives that mechanism is the survey's admission item against the health
+archive, and at this world size the sampling error of one age group's admission rate is
+wider than the gradient the axis has to be read from. The mechanism still runs, still
+recombines, and the development packets ship the realized share of admissions the archive
+kept, so a method can see on an open world what it is being asked to model. What no
+evaluation world does is put a difficulty there that no supplied anchor reaches, which is
+what protocol section 10 refuses.
+
+Two anchors were added to the participant surface for the same reason. The benchmark
+publishes the resident person count of each economic band of counties, with the band of
+every county in `geography.csv`, its definition and reference tick in the contract, and
+its own declared bias family. The contract states how the survey admission item and the
+archive are to be compared. Neither hands over a scored quantity: the benchmark's
+subgroup cuts across the states and counties the release is scored at, and the
+comparison rule names a procedure rather than a value.

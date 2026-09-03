@@ -89,3 +89,21 @@ def test_the_three_families_share_one_committed_world_size():
     assert len(sizes["development"] | sizes["qualification"]) == 1
     with pytest.raises(ValueError, match="unknown world family"):
         module.family_plan("something-else")
+
+
+def test_the_ensemble_step_is_divided_apart_from_the_baseline_step():
+    """Two flags, two axes of parallelism, and a cache between rebuilds.
+
+    The twenty-one world set took about three and a half hours on six processes because
+    the only division was inside one world's ensemble, and every world waited for the one
+    before it. Whole worlds share nothing, so they go in parallel; the ensemble is the
+    part that costs, and it depends on nothing a verifier or a bar reads, so it is cached
+    on the digest of the baseline ledger that produced it.
+    """
+    module = _module()
+    text = SCRIPT.read_text()
+    assert "--world-workers" in text
+    assert "--cache" in text
+    assert callable(module.build_one)
+    for flag in ("--out", "--family", "--workers", "--world-workers", "--cache"):
+        assert flag in text

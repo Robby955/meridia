@@ -8,7 +8,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.demography import period_life_expectancy, run_years, step_year
+from meridia.demography import (SHOCK_LOADING_BAND, draw_shock_loadings,
+                                period_life_expectancy, regional_multiplier, run_years,
+                                step_year)
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
 from meridia.microdata import build_microdata
 from meridia.population import build_population
@@ -103,3 +105,32 @@ def test_shock_dial_creates_excess_deaths_and_is_recorded():
         assert a == b
         for shock in a:
             assert 2 <= shock["year"] < 30
+
+
+def test_regional_shock_loadings_are_a_per_world_draw_from_the_published_band():
+    """Each region's share of the shared shock family, drawn once per world."""
+    low, high = SHOCK_LOADING_BAND
+    first = draw_shock_loadings(11, 6)
+    second = draw_shock_loadings(12, 6)
+    assert first.shape == (6,)
+    assert (first >= low).all() and (first <= high).all()
+    assert not np.allclose(first, second)
+    assert np.array_equal(first, draw_shock_loadings(11, 6))
+    assert float(first.std()) > 0.0
+    try:
+        draw_shock_loadings(11, 0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a world with no region should be refused")
+
+
+def test_a_loading_scales_the_departure_from_one_and_nothing_else():
+    """A loading of one takes the whole multiplier and a loading of zero takes none."""
+    loading = np.asarray([0.0, 0.5, 1.0, 2.0])
+    assert regional_multiplier(1.0, loading).tolist() == [1.0, 1.0, 1.0, 1.0]
+    assert regional_multiplier(3.0, loading).tolist() == [1.0, 2.0, 3.0, 5.0]
+    # A multiplier under one thins less where the loading is low, which is the same rule
+    # read in the other direction.
+    thinned = regional_multiplier(0.5, loading)
+    assert thinned.tolist() == [1.0, 0.75, 0.5, 0.0]

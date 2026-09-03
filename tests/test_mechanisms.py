@@ -26,7 +26,8 @@ from meridia.events import EVENT_TYPES, replay_event_history
 from meridia.mechanisms import (COEFFICIENT_RANGES, DEVELOPMENT_BAND, DEVELOPMENT_DESIGN,
                                 HIDDEN_LEVEL_PATTERNS, N_HIDDEN_OUTSIDE_AXES,
                                 MECHANISM_AXES,
-                                N_DEVELOPMENT_CELLS, PAIRWISE_AXIS_INTERACTIONS,
+                                N_DEVELOPMENT_CELLS, OUTSIDE_ELIGIBLE_AXES,
+                                PAIRWISE_AXIS_INTERACTIONS,
                                 PUBLIC_ENVELOPE, build_world_mechanisms,
                                 contract_block, draw_mechanism_coefficients,
                                 draw_mechanism_design, migration_age_pull, quintile_band,
@@ -409,7 +410,6 @@ def test_two_hidden_seeds_draw_different_level_patterns():
     first = draw_mechanism_design(2101, "hidden")
     second = draw_mechanism_design(2102, "hidden")
     assert first.levels != second.levels
-    assert first.outside != second.outside
     assert draw_mechanism_design(2101, "hidden").levels == first.levels
 
     # Nine hidden seeds, and the patterns are not one value. The seeds here are the
@@ -418,7 +418,7 @@ def test_two_hidden_seeds_draw_different_level_patterns():
     hidden = [draw_mechanism_design(seed, "hidden")
               for seed in (2101, 2102, 2103, 2104, 2105, 2106, 9001, 9002, 9003)]
     assert len({design.levels for design in hidden}) >= 8
-    assert len({design.outside for design in hidden}) >= 4
+    assert len({design.outside for design in hidden}) >= 5
 
     # The design draw and the coefficient draw are separate streams, so neither reads the
     # other's position and a world's corner is not a function of its coefficient vector.
@@ -551,3 +551,31 @@ def test_the_survey_draw_is_keyed_on_the_world_and_not_on_the_snapshot_tick(worl
     packet_module._survey_at(built, built["ticks"]["preliminary"], 0)
     packet_module._survey_at(built, built["ticks"]["revised"], 1)
     assert seen == [(built["seed"], 0), (built["seed"], 1)]
+
+
+def test_only_an_anchored_axis_leaves_the_development_band():
+    """Protocol section 10 refuses difficulty a supplied anchor cannot reach.
+
+    An axis may be pushed past the development band once a statistic on the participant
+    files tracks its realized intensity across worlds. Five of the six do.
+    ``missingness_target_dependence`` reads +0.14 against its realized value on eighteen
+    worlds, because the survey anchor's own sampling error at this world size is wider
+    than the gradient it has to resolve, so it stays inside the band a method can see on
+    the open worlds.
+    """
+    assert "missingness_target_dependence" not in OUTSIDE_ELIGIBLE_AXES
+    assert set(OUTSIDE_ELIGIBLE_AXES) < set(MECHANISM_AXES)
+    assert len(OUTSIDE_ELIGIBLE_AXES) == len(MECHANISM_AXES) - 1
+
+    low, high = DEVELOPMENT_BAND["missingness_target_dependence"]
+    for seed in (2101, 2102, 2103, 2104, 2105, 2106, 9001, 9002, 9003):
+        design = draw_mechanism_design(seed, "hidden")
+        assert set(design.outside) <= set(OUTSIDE_ELIGIBLE_AXES)
+        assert low <= design.intensity["missingness_target_dependence"] <= high
+        # Every other axis still recombines, and two of them still leave the band.
+        assert len(design.outside) == N_HIDDEN_OUTSIDE_AXES
+
+    block = contract_block()
+    assert block["outside_eligible_axes"] == list(OUTSIDE_ELIGIBLE_AXES)
+    assert block["n_outside_axes"] == N_HIDDEN_OUTSIDE_AXES
+    assert "outside_eligible_axes" in block["outside_rule"]

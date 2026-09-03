@@ -38,6 +38,11 @@ from meridia.mechanisms import (WorldMechanisms, build_world_mechanisms, expit,
 
 OBSERVED_SOURCES: Final = ("population", "business", "income", "health")
 
+# How far the target-dependence axis moves the health source's inclusion logit per log
+# unit of latent burden, and the largest shift any one record's burden may produce.
+HEALTH_FRAILTY_LOGIT_SCALE: Final = 2.0
+HEALTH_FRAILTY_LOGIT_CAP: Final = 2.0
+
 # Observed-token namespaces.  Each source draws a record, a primary entity, and a
 # secondary entity pool per vintage: the second entry of each pair is the replacement
 # pool an identifier moves into when it does not persist across vintages.
@@ -258,13 +263,54 @@ def draw_source_params(
 # across items and units.  Values are rounded to the nearest hundred.  Ranges are
 # public; a world's draws are retained metadata only.
 BENCHMARK_ITEMS: Final = ("persons", "households", "children_under_16", "elders_65_plus")
-BENCHMARK_BIAS: Final = {"nation_magnitude": (0.02, 0.07), "state_sd": (0.03, 0.08)}
+BENCHMARK_BIAS: Final = {"nation_magnitude": (0.02, 0.07), "state_sd": (0.03, 0.08),
+                         "economic_band_sd": (0.004, 0.015)}
 BENCHMARK_ROUNDING: Final = 100
 
+# The benchmark also publishes a count for one defined subgroup, which protocol section 3
+# names among the imperfect aggregates the agent receives. The subgroup is a band of
+# counties: the benchmark producer classifies every county by its own establishment
+# payroll per resident adult and publishes the resident person count of each band, with
+# the same bias family and the same reference tick as the rest of the series. The band a
+# county sits in is published in ``geography.csv``, so the grouping is reproducible and
+# is not a quantity the participant has to estimate.
+#
+# It exists because the completeness axis had no anchor. Register coverage rides the
+# county economic gradient, the covariate that reports that gradient is itself thinned by
+# it, and the state series pools counties from both ends of the gradient, so neither the
+# register against the survey nor the register against the state benchmark tracked the
+# axis: the two statistics read a signed rank correlation of -0.150 and -0.057 over
+# eighteen worlds, with the sign reversing between regimes. Against a benchmark published
+# on the gradient itself, the register's coverage per band is the gradient.
+N_BENCHMARK_BANDS: Final = 4
+BENCHMARK_SUBGROUP_ITEM: Final = "persons"
+BENCHMARK_BAND_LEVEL: Final = "economic_band"
+BENCHMARK_BAND_DEFINITION: Final = (
+    "counties in ascending quartiles of establishment payroll per resident adult, as the"
+    " benchmark producer measures it; the band of each county is published in"
+    " geography.csv as economic_band, and the count is of persons resident at the"
+    " snapshot tick, the same reference tick and the same bias family as the nation and"
+    " state rows"
+)
 
-def draw_benchmark_bias(seed: int, n_states: int) -> dict[str, np.ndarray]:
-    """Per-world log-bias of the benchmark series: nation (per item) and state
-    (per item and state).  Own seed sequence key; never derivable from public files."""
+
+def benchmark_bands(econ_rank: np.ndarray,
+                    n_bands: int = N_BENCHMARK_BANDS) -> np.ndarray:
+    """The published economic band of each county, 0 for the lowest quartile.
+
+    ``econ_rank`` is the county's payroll-per-adult rank in [0, 1], the quantity the
+    coverage family keys off, so the bands cut the gradient the axis runs along.
+    """
+    rank = np.asarray(econ_rank, dtype=np.float64)
+    return np.clip((rank * int(n_bands)).astype(np.int64), 0, int(n_bands) - 1)
+
+
+def draw_benchmark_bias(seed: int, n_states: int,
+                        n_bands: int = N_BENCHMARK_BANDS) -> dict[str, np.ndarray]:
+    """Per-world log-bias of the benchmark series: nation (per item), state (per item
+    and state), and economic band.  Own seed sequence key; never derivable from public
+    files.  The band draw comes last so the nation and state values of a world do not
+    move when the subgroup series is added."""
     if n_states < 1:
         raise ValueError("n_states must be positive")
     rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0xBE4C]))
@@ -273,11 +319,27 @@ def draw_benchmark_bias(seed: int, n_states: int) -> dict[str, np.ndarray]:
     sign = np.where(rng.random(n_items) < 0.5, -1.0, 1.0)
     state_sd = float(rng.uniform(*BENCHMARK_BIAS["state_sd"]))
     state = rng.normal(0.0, state_sd, size=(n_items, int(n_states)))
-    return {"nation": magnitude * sign, "state": state, "state_sd": np.float64(state_sd)}
+    # The subgroup series carries a much smaller unit-level bias than the state series,
+    # and its range is published beside it. The state figures come from six separate
+    # collections; the subgroup count is one national operation on a classification the
+    # producer publishes. It has to be the smaller of the two for the series to be an
+    # anchor at all: register coverage moves by about two percent per band across the
+    # gradient, so a per-band bias at the state series' spread would be the whole signal.
+    band_sd = float(rng.uniform(*BENCHMARK_BIAS["economic_band_sd"]))
+    band = rng.normal(0.0, band_sd, size=int(n_bands))
+    return {"nation": magnitude * sign, "state": state, "band": band,
+            "state_sd": np.float64(state_sd), "band_sd": np.float64(band_sd)}
 
 
-def benchmark_values(truth: dict, bias: dict, n_states: int) -> dict[str, np.ndarray]:
-    """Benchmark table rows (item, level, unit, value) from exact truth and the bias."""
+def benchmark_values(truth: dict, bias: dict, n_states: int,
+                     county_band: np.ndarray | None = None,
+                     n_bands: int = N_BENCHMARK_BANDS) -> dict[str, np.ndarray]:
+    """Benchmark table rows (item, level, unit, value) from exact truth and the bias.
+
+    With ``county_band`` the table also carries the subgroup series: the resident person
+    count of each economic band, summed from the county truth and biased on the band's
+    own draw.
+    """
     items, levels, units, values = [], [], [], []
     for k, item in enumerate(BENCHMARK_ITEMS):
         exact = float(truth[(item, "nation", 0)])
@@ -287,6 +349,15 @@ def benchmark_values(truth: dict, bias: dict, n_states: int) -> dict[str, np.nda
             exact = float(truth[(item, "state", s)])
             items.append(item); levels.append("state"); units.append(s)
             values.append(exact * float(np.exp(bias["state"][k, s])))
+    if county_band is not None:
+        band = np.asarray(county_band, dtype=np.int64)
+        for b in range(int(n_bands)):
+            exact = float(sum(truth[(BENCHMARK_SUBGROUP_ITEM, "county", int(c))]
+                              for c in np.flatnonzero(band == b)))
+            items.append(BENCHMARK_SUBGROUP_ITEM)
+            levels.append(BENCHMARK_BAND_LEVEL)
+            units.append(b)
+            values.append(exact * float(np.exp(bias["band"][b])))
     rounded = np.rint(np.asarray(values, dtype=np.float64) / BENCHMARK_ROUNDING) * BENCHMARK_ROUNDING
     return {
         "item": np.asarray(items),
@@ -999,7 +1070,20 @@ def _record_mechanism_rates(
             + float(coefficients["health_inclusion_completeness_by_target"])
             * (float(coefficients["administrative_completeness"]) - 1.0)
         )
-        coverage_shift = coverage_shift + frailty_slope * np.log(np.clip(frailty, 0.15, 6.0))
+        # The slope is scaled and then capped. Latent burden's own mean moves by about
+        # half a log unit between a child and a person of eighty, so at the raw slope an
+        # axis at the middle of its band moved the inclusion share by six points across
+        # the whole age range, under a survey anchor whose false positives are of the
+        # same order. The axis had a mechanism and no readable trace. The cap keeps the
+        # far tail of the burden distribution from driving an inclusion probability to
+        # zero or one, which protocol section 10 refuses as underidentified.
+        coverage_shift = coverage_shift + np.clip(
+            HEALTH_FRAILTY_LOGIT_SCALE
+            * frailty_slope
+            * np.log(np.clip(frailty, 0.15, 6.0)),
+            -HEALTH_FRAILTY_LOGIT_CAP,
+            HEALTH_FRAILTY_LOGIT_CAP,
+        )
     # Item missingness on the money value has its own money-band slope. In version four's
     # first pass this was the target-dependence axis again, which loaded one coefficient
     # onto two mechanisms with different targets and left neither identified. Its county

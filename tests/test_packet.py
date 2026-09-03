@@ -278,7 +278,7 @@ def test_benchmark_series_is_shipped_with_its_own_bias(packet):
     bench = pd.read_csv(out / "participant" / "sources" / "benchmark_revised.csv")
     assert list(bench.columns) == ["item", "level", "unit", "value"]
     assert set(bench["item"]) == {"persons", "households", "children_under_16", "elders_65_plus"}
-    assert set(bench["level"]) == {"nation", "state"}
+    assert set(bench["level"]) == {"nation", "state", "economic_band"}
     assert (bench["value"] % 100 == 0).all()
     truth = _read_truth(out / "retained" / "truth_revised.csv")
     world = json.loads((out / "retained" / "world.json").read_text())
@@ -428,3 +428,155 @@ def test_the_experience_file_reads_the_trend_once_the_ledger_has_settled():
     late = _experience_drift(_experience_history(built, built["admin"], obligation, 5, 12))
     assert abs(early - truth) > 0.05
     assert abs(late - truth) < 0.5 * abs(early - truth)
+
+
+def test_the_benchmark_publishes_a_subgroup_count_on_the_economic_gradient(packet):
+    """The completeness axis gets an anchor: a benchmark count for a defined subgroup.
+
+    Register coverage rides the county economic gradient, and the covariate that reports
+    that gradient is thinned by the same mechanism, so neither the register against the
+    survey nor the register against the state benchmark tracked the axis. The benchmark
+    now publishes the resident person count of each economic band of counties, with the
+    band of every county in ``geography.csv``, so the register's shortfall against it is
+    the gradient itself.
+    """
+    import pandas as pd
+    out, _ = packet
+    geography = pd.read_csv(out / "participant" / "geography.csv")
+    assert "economic_band" in geography.columns
+    assert sorted(set(geography["economic_band"])) == [0, 1, 2, 3]
+
+    contract = json.loads((out / "participant" / "contract.json").read_text())
+    block = contract["benchmark"]
+    assert block["subgroup_level"] == "economic_band"
+    assert block["subgroup_item"] == "persons"
+    assert block["n_economic_bands"] == 4
+    assert block["reference_tick"] == contract["ticks"]["revised"]
+    assert "payroll per resident adult" in block["subgroup_definition"]
+
+    bench = pd.read_csv(out / "participant" / "sources" / "benchmark_revised.csv")
+    subgroup = bench[bench["level"] == "economic_band"].sort_values("unit")
+    assert list(subgroup["item"]) == ["persons"] * 4
+    assert list(subgroup["unit"]) == [0, 1, 2, 3]
+    assert (subgroup["value"] > 0).all()
+
+    # The anchor works: register persons over benchmark persons falls or rises with the
+    # band, and the slope is positive because the axis is positive on every world.
+    population = pd.read_csv(out / "participant" / "sources" / "population_revised.csv")
+    band_of_county = geography.set_index("county")["economic_band"]
+    band = band_of_county.reindex(population["county"]).to_numpy()
+    register = np.bincount(band[band >= 0].astype(np.int64), minlength=4).astype(float)
+    published = subgroup["value"].to_numpy(dtype=float)
+    coverage = np.log(register / published)
+    slope = float(np.polyfit(np.arange(4.0), coverage, 1)[0])
+    assert slope > 0.0
+
+
+def test_the_health_inclusion_truth_is_retained_and_open_only_on_development(tmp_path):
+    """The target-dependence anchor, and the realized quantity behind it.
+
+    The survey's admission item and the health archive count the same event over the same
+    window, so their gap band by band is the trace of an inclusion rule that reads latent
+    burden. The realized share the archive kept is retained on every world and shipped on
+    the worlds a method may tune on.
+    """
+    import pandas as pd
+    hidden_dir = tmp_path / "hidden"
+    development_dir = tmp_path / "development"
+    hidden = build_packet(SEED, hidden_dir, PARAMS, development=False)
+    development = build_packet(SEED, development_dir, PARAMS, development=True)
+
+    assert "health_inclusion_truth.csv" in hidden["retained"]
+    assert "truth/health_inclusion_truth.csv" not in hidden["participant"]
+    assert "truth/health_inclusion_truth.csv" in development["participant"]
+    assert development["participant"]["truth/health_inclusion_truth.csv"]["sha256"] == \
+        hidden["retained"]["health_inclusion_truth.csv"]["sha256"]
+
+    table = pd.read_csv(hidden_dir / "retained" / "health_inclusion_truth.csv")
+    assert list(table.columns) == ["age_band", "admissions", "archived_admissions",
+                                   "archived_share"]
+    assert (table["archived_admissions"] <= table["admissions"]).all()
+    present = table[table["admissions"] > 0]
+    assert len(present) >= 4
+    assert ((present["archived_share"] >= 0.0) & (present["archived_share"] <= 1.0)).all()
+
+    contract = json.loads((hidden_dir / "participant" / "contract.json").read_text())
+    anchor = contract["health_anchor"]
+    assert "band by band" in anchor["archive_comparison"]
+    assert anchor["development_truth"].startswith("health_inclusion_truth.csv")
+
+
+def test_the_shock_family_publishes_its_regional_loadings(packet):
+    """A shock year is national; how hard it lands is not."""
+    out, _ = packet
+    contract = json.loads((out / "participant" / "contract.json").read_text())
+    band = contract["shock_family"]["regional_loading_band"]
+    assert band == [0.35, 1.80]
+    assert "1 + L_r * (m - 1)" in contract["shock_family"]["regional_loading"]
+    world = json.loads((out / "retained" / "world.json").read_text())
+    loading = world["mechanisms"]["region_shock_loading"]
+    assert len(loading) == PARAMS.n_states
+    assert all(band[0] <= float(v) <= band[1] for v in loading)
+    assert len(set(round(float(v), 9) for v in loading)) == len(loading)
+
+
+def test_the_continuation_ensemble_is_cached_on_the_baseline_ledger(tmp_path,
+                                                                    monkeypatch):
+    """A rebuild that changes nothing upstream of the ledger does not pay for futures.
+
+    The ensemble is what a packet costs at the committed size, and it is a function of
+    the branch state, the shock law, the horizon and the obligation. None of those is
+    downstream of a verifier or a bar, so refreezing does not have to rebuild them.
+    """
+    import meridia.packet as packet_module
+    cache = tmp_path / "ensembles"
+    first_dir = tmp_path / "first"
+    first = build_packet(SEED, first_dir, PARAMS, development=False, cache_dir=cache)
+    stored = sorted(cache.glob("*.npz"))
+    assert len(stored) == 1
+    assert len(stored[0].stem) == 64
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the cached ensemble was rebuilt")
+
+    monkeypatch.setattr(packet_module, "continuation_liabilities", refuse)
+    second_dir = tmp_path / "second"
+    second = build_packet(SEED, second_dir, PARAMS, development=False, cache_dir=cache)
+    assert second["retained"]["continuation_liabilities.npz"]["sha256"] == \
+        first["retained"]["continuation_liabilities.npz"]["sha256"]
+    assert second["participant"]["contract.json"]["sha256"] == \
+        first["participant"]["contract.json"]["sha256"]
+
+    # A world the cache has not seen is built, not read: the key covers the ledger.
+    third_dir = tmp_path / "third"
+    with pytest.raises(AssertionError, match="rebuilt"):
+        build_packet(SEED + 1, third_dir, PARAMS, development=False, cache_dir=cache)
+
+
+def test_the_cache_key_moves_when_the_priced_world_moves(tmp_path):
+    """The digest covers the branch, the shock law, the horizon and the obligation."""
+    from meridia.actuarial import ObligationContract, regions_from_admin
+    from meridia.mechanisms import QUALIFYING_DIAGNOSIS_GROUPS
+    from meridia.packet import baseline_ledger_digest
+
+    built = build_world(SEED, PARAMS)
+    region = regions_from_admin(built["admin"])
+    obligation = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
+    key = baseline_ledger_digest(built["history"], obligation, PARAMS.horizon_months,
+                                 region)
+    assert key == baseline_ledger_digest(built["history"], obligation,
+                                         PARAMS.horizon_months, region)
+    assert key != baseline_ledger_digest(built["history"], obligation,
+                                         PARAMS.horizon_months + 1, region)
+    dearer = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS,
+        death_benefit=ObligationContract().death_benefit + 100.0)
+    assert key != baseline_ledger_digest(built["history"], dearer,
+                                         PARAMS.horizon_months, region)
+    other = build_world(SEED + 1, PARAMS)
+    assert key != baseline_ledger_digest(other["history"], obligation,
+                                         PARAMS.horizon_months,
+                                         regions_from_admin(other["admin"]))

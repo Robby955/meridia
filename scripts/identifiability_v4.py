@@ -15,9 +15,11 @@ One statistic per axis, all from files the agent receives:
                               same pull at 65 and over
 - age_reporting_error         share of reported birth ticks off a year boundary
 - linkage_urban_gradient      slope of the missing-name share on the county's urbanity rank
-- administrative_completeness slope of register coverage on the county's economic rank
-- missingness_target_dependence  log gap between the health archive's admission rate and
-                              the anchor's, corrected for its declared error
+- administrative_completeness slope of the register's shortfall against the benchmark's
+                              subgroup count, over the published economic bands
+- missingness_target_dependence  old minus young contrast of the log gap between the
+                              health archive's admission rate and the anchor's,
+                              corrected for its declared error
 
 Run it on development and qualification worlds. Graded worlds are not opened.
 """
@@ -38,8 +40,12 @@ STATISTIC = {"mortality_improvement": "experience file mortality drift within ce
              "migration_age_pattern": "urban pull of net migration, young minus old",
              "age_reporting_error": "birth ticks off a year boundary",
              "linkage_urban_gradient": "missing-name share against urbanity",
-             "administrative_completeness": "register coverage against economic rank",
-             "missingness_target_dependence": "archive against anchor admission rate"}
+             "administrative_completeness":
+                 "register against the benchmark subgroup count, over economic bands",
+             "missingness_target_dependence":
+                 "archive against anchor admission rate, oldest minus youngest"}
+BROAD_BAND_EDGES = (45, 65)
+N_BROAD_BANDS = len(BROAD_BAND_EDGES) + 1
 # The sign each mechanism implies, read off the family and not off the data. The health
 # archive observes the included, and inclusion rises with latent burden, so a stronger
 # dependence on frailty raises the archive's admission rate above the population rate the
@@ -51,6 +57,13 @@ EXPECTED_SIGN = {"mortality_improvement": +1, "migration_age_pattern": +1,
                  "age_reporting_error": +1, "linkage_urban_gradient": -1,
                  "administrative_completeness": +1,
                  "missingness_target_dependence": +1}
+
+
+def _broad_band(age: np.ndarray) -> np.ndarray:
+    """Under 45, 45 to 64, 65 and over: the groups the anchor can place a rate in."""
+    return np.clip(np.searchsorted(np.asarray(BROAD_BAND_EDGES),
+                                   np.asarray(age, dtype=np.int64), side="right"),
+                   0, N_BROAD_BANDS - 1)
 
 
 def _rank01(values: np.ndarray) -> np.ndarray:
@@ -162,47 +175,71 @@ def statistics(packet: Path) -> dict:
     survey_persons = np.bincount(survey["county"].to_numpy(dtype=np.int64), weights=weight,
                                  minlength=cov["n_counties"])
     # The completeness axis is a gradient of register coverage in the county's economic
-    # rank. The survey is a noisy denominator on a world this size, so the statistic is
-    # the register against the published benchmark, state by state, which is the second
-    # handle the covariate note names: the benchmark is a count of the same population
-    # with a declared bias and no coverage gradient of its own.
+    # rank, and until the benchmark published a count on that gradient it had no anchor.
+    # The register against the survey and the register against the state benchmark both
+    # read the axis at about zero and reversed sign between regimes: the survey is a thin
+    # denominator at this world size, the state series pools counties from both ends of
+    # the gradient, and the covariate that reports the gradient is itself thinned by the
+    # mechanism. The benchmark now publishes the resident person count of each economic
+    # band of counties, and the band of every county sits in geography.csv, so the
+    # register's shortfall band by band is the gradient with nothing in between.
     benchmark = pd.read_csv(participant / "sources" / "benchmark_revised.csv")
-    bench_state = benchmark[(benchmark["item"] == "persons")
-                            & (benchmark["level"] == "state")].sort_values("unit")
-    n_states = int(contract["n_states"])
-    register_state = np.bincount(cov["county_state"], weights=cov["persons"],
-                                 minlength=n_states)
-    econ_state = np.bincount(cov["county_state"], weights=cov["econ_c"], minlength=n_states) / \
-        np.maximum(np.bincount(cov["county_state"], minlength=n_states), 1)
+    geography = pd.read_csv(participant / "geography.csv")
+    bands = benchmark[(benchmark["item"] == contract["benchmark"]["subgroup_item"])
+                      & (benchmark["level"] == contract["benchmark"]["subgroup_level"])] \
+        .sort_values("unit")
+    n_bands = int(contract["benchmark"]["n_economic_bands"])
+    band_of_county = geography.set_index("county")["economic_band"].reindex(
+        range(cov["n_counties"])).to_numpy(dtype=np.int64)
+    register_band = np.bincount(band_of_county, weights=cov["persons"], minlength=n_bands)
     with np.errstate(invalid="ignore", divide="ignore"):
-        gap = np.log(np.maximum(register_state, 1.0)
-                     / np.maximum(bench_state["value"].to_numpy(dtype=np.float64), 1.0))
-        coverage = np.log(np.maximum(cov["persons"], 1.0) / np.maximum(survey_persons, 1.0))
-    out["administrative_completeness"] = _slope(econ_state, gap)
-    out["administrative_completeness_survey"] = _slope(cov["econ_c"], coverage)
+        shortfall = np.log(np.maximum(register_band, 1.0)
+                           / np.maximum(bands["value"].to_numpy(dtype=np.float64), 1.0))
+    out["administrative_completeness"] = _slope(np.arange(float(n_bands)), shortfall)
     cov["elder_c"] = _rank01(_elder_share(population, tick, cov["n_counties"]))
 
     # The axis is a gradient, not a level: inclusion in the health source rises with a
-    # person's latent burden. Its trace has to be a gradient too, or it reads the source's
-    # own coverage level, which moves with a different axis. The anchor gives a population
-    # admission rate per county, corrected for its declared error; the archive gives the
-    # rate it observed; and the gap between them widens with the county's elder burden
-    # exactly when inclusion reads morbidity.
+    # person's latent burden. Its trace has to be a gradient too, or it reads how much of
+    # the archive the source keeps at all, which is a different axis. The national gap
+    # read the axis at -0.02 over twenty-one worlds for exactly that reason.
+    #
+    # Latent burden rises with age, so the anchor and the archive are compared on three
+    # broad age groups: under 45, 45 to 64, and 65 and over. Both count the same event
+    # over the same anchor window. The statistic is the contrast between the oldest group
+    # and the youngest, averaged over the two snapshots, and broad groups are what the
+    # anchor's own sampling error allows: at six bands the rate of the thinnest of them
+    # is less certain than the whole gradient.
     anchor = contract["health_anchor"]
-    health = pd.read_csv(participant / "sources" / "health_revised.csv")
-    window = health[health["admission_tick"] > tick - int(anchor["window_months"])]
-    n = cov["n_counties"]
-    observed = np.bincount(survey["county"].to_numpy(dtype=np.int64),
-                           weights=weight * survey["recent_hospitalization"].to_numpy(),
-                           minlength=n) / np.maximum(survey_persons, 1e-9)
-    corrected = (observed - (1.0 - anchor["specificity"])) / \
-        (anchor["sensitivity"] - (1.0 - anchor["specificity"]))
-    archive = window["patient_id"].nunique() / max(population["person_id"].nunique(), 1)
-    out["missingness_target_dependence"] = float(
-        np.log(max(archive, 1e-9)) - np.log(max(float(np.average(corrected,
-                                                                 weights=np.maximum(
-                                                                     survey_persons, 1e-9))),
-                                                1e-9)))
+    contrasts = []
+    for label in ("preliminary", "revised"):
+        snapshot = int(contract["ticks"][label])
+        register = pd.read_csv(participant / "sources" / f"population_{label}.csv")
+        snapshot_survey = pd.read_csv(participant / f"survey_{label}.csv")
+        archive = pd.read_csv(participant / "sources" / f"health_{label}.csv")
+        window = archive[
+            (archive["admission_tick"] > snapshot - int(anchor["window_months"]))
+            & (archive["admission_tick"] <= snapshot)].drop_duplicates("patient_id")
+        kept = np.bincount(
+            _broad_band((snapshot - window["birth_tick"].to_numpy(dtype=np.int64)) // 12),
+            minlength=N_BROAD_BANDS).astype(np.float64)
+        persons = np.bincount(
+            _broad_band((snapshot - register["birth_tick"].to_numpy(dtype=np.int64)) // 12),
+            minlength=N_BROAD_BANDS).astype(np.float64)
+        group = _broad_band(snapshot_survey["age"].to_numpy(dtype=np.int64))
+        design = snapshot_survey["design_weight"].to_numpy(dtype=np.float64)
+        responders = np.bincount(group, weights=design, minlength=N_BROAD_BANDS)
+        reported = np.bincount(
+            group, weights=design * snapshot_survey["recent_hospitalization"].to_numpy(),
+            minlength=N_BROAD_BANDS)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            observed = reported / np.maximum(responders, 1e-9)
+            corrected = (observed - (1.0 - anchor["specificity"])) / \
+                (anchor["sensitivity"] - (1.0 - anchor["specificity"]))
+            archive_rate = kept / np.maximum(persons, 1.0)
+            gap = np.log(np.where(archive_rate > 0, archive_rate, np.nan)) - \
+                np.log(np.where(corrected > 0, corrected, np.nan))
+        contrasts.append(gap[N_BROAD_BANDS - 1] - gap[0])
+    out["missingness_target_dependence"] = float(np.nanmean(contrasts))
     return out
 
 
