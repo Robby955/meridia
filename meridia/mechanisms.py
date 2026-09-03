@@ -140,6 +140,28 @@ N_DEVELOPMENT_CELLS: Final = int(DEVELOPMENT_DESIGN.shape[0])
 # rather than a quantity a method has to estimate.
 N_HIDDEN_OUTSIDE_AXES: Final = 2
 
+# Which axes an evaluation world may push past the development band. Protocol section 10
+# refuses a regime whose difficulty comes from something no supplied anchor reaches, so an
+# axis is eligible only once a statistic on the participant files tracks its realized
+# intensity. Five of the six do. ``missingness_target_dependence`` does not, and it is
+# held inside the development band until it does.
+#
+# What was tried for it, all against the survey admission item and the health archive,
+# which is the anchor protocol section 3 gives that mechanism. The national gap between
+# the archive's admission rate and the anchor's reads how much the source retains overall
+# rather than the gradient, at -0.02 over twenty-one worlds. Comparing the two rates band
+# by band removes the level, and the realized inclusion gradient it targets does track the
+# axis: measured against the retained truth on eighteen worlds it reads +0.66 once the
+# frailty term carries the scale the source layer now gives it. The anchor cannot resolve
+# it. At four thousand respondents the sampling error of one age group's admission rate is
+# about seven percent and the whole gradient is about ten, so the statistic reads +0.14. A
+# two-year anchor window was tried for the same reason and made it worse, because nearly
+# everyone frail enough to be admitted at all is admitted inside two years. This is the
+# world size talking, the same wall the mortality trend hit, and it is recorded rather
+# than papered over with an axis a method is asked to read off nothing.
+OUTSIDE_ELIGIBLE_AXES: Final = tuple(
+    axis for axis in MECHANISM_AXES if axis != "missingness_target_dependence")
+
 
 def _absent_level_patterns() -> tuple[tuple[int, ...], ...]:
     """Every sign pattern over the six axes that no development design row takes."""
@@ -376,7 +398,10 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     row the seed selects. Every axis lands in the half of the development band its level
     names, at a continuous position inside that half. The hidden world takes a level
     pattern that appears in no design row and pushes two intensities past the development
-    band, staying inside the public envelope.
+    band, staying inside the public envelope. The two come from the axes an anchor
+    reaches, which is ``OUTSIDE_ELIGIBLE_AXES``; every other axis still recombines into a
+    joint configuration the design never spends, but inside the band the open worlds
+    cover.
     """
     if regime not in ("development", "hidden"):
         raise ValueError(f"unknown mechanism regime {regime!r}")
@@ -397,8 +422,9 @@ def draw_mechanism_design(seed: int, regime: str, cell: int | None = None) -> Me
     if (DEVELOPMENT_DESIGN == np.asarray(levels, dtype=np.int8)).all(axis=1).any():
         raise RuntimeError("the hidden level pattern repeats a development design row")
     outside = tuple(sorted(
-        MECHANISM_AXES[k] for k in rng.choice(len(MECHANISM_AXES),
-                                              size=N_HIDDEN_OUTSIDE_AXES, replace=False)))
+        OUTSIDE_ELIGIBLE_AXES[k] for k in rng.choice(len(OUTSIDE_ELIGIBLE_AXES),
+                                                     size=N_HIDDEN_OUTSIDE_AXES,
+                                                     replace=False)))
     intensity = {}
     for k, axis in enumerate(MECHANISM_AXES):
         band = (
@@ -555,6 +581,14 @@ class WorldMechanisms:
     coefficients: dict[str, float]
     county: CountyCovariates
     effects: dict[str, np.ndarray] = field(default_factory=dict)
+    # One loading per region on the shared shock family, and the same vector spread over
+    # the counties so the ledger can read it from a cell. A world with no administrative
+    # geography carries a single loading of one, which leaves the standalone ledger where
+    # it was.
+    region_shock_loading: np.ndarray = field(
+        default_factory=lambda: np.ones(1, dtype=np.float64))
+    county_shock_loading: np.ndarray = field(
+        default_factory=lambda: np.ones(1, dtype=np.float64))
 
     def county_of_cell(self, cell: np.ndarray) -> np.ndarray:
         index = np.asarray(cell, dtype=np.int64)
@@ -574,6 +608,13 @@ class WorldMechanisms:
             return np.zeros(np.shape(county), dtype=np.float64)
         return values[np.asarray(county, dtype=np.int64)]
 
+    def shock_loading(self, county: np.ndarray) -> np.ndarray:
+        """The shock loading of the region each county sits in."""
+        values = self.county_shock_loading
+        if len(values) <= 1:
+            return np.full(np.shape(county), float(values[0]) if len(values) else 1.0)
+        return values[np.asarray(county, dtype=np.int64)]
+
     def record(self) -> dict:
         return {
             "design": self.design.record(),
@@ -581,6 +622,7 @@ class WorldMechanisms:
             "county_effect_sd": {
                 family: float(np.std(values)) for family, values in sorted(self.effects.items())
             },
+            "region_shock_loading": [float(v) for v in self.region_shock_loading],
         }
 
 
@@ -608,7 +650,18 @@ def build_world_mechanisms(
     )
     covariates = build_county_covariates(admin, micro, businesses)
     effects = draw_county_effects(seed, covariates.n_counties, coefficients)
-    return WorldMechanisms(design, coefficients, covariates, effects)
+    # The shock family lives in ``demography``, which imports this module for newborn
+    # frailty, so the loading draw is reached here rather than at import time.
+    from .demography import draw_shock_loadings
+    if admin is None:
+        region_loading = np.ones(1, dtype=np.float64)
+        county_loading = np.ones(covariates.n_counties, dtype=np.float64)
+    else:
+        county_state = np.asarray(admin["county_state"], dtype=np.int64)
+        region_loading = draw_shock_loadings(seed, int(admin["n_states"]))
+        county_loading = region_loading[county_state]
+    return WorldMechanisms(design, coefficients, covariates, effects,
+                           region_loading, county_loading)
 
 
 def contract_block() -> dict:
@@ -616,6 +669,14 @@ def contract_block() -> dict:
     return {
         "axes": list(MECHANISM_AXES),
         "public_envelope": {k: list(v) for k, v in PUBLIC_ENVELOPE.items()},
+        "outside_eligible_axes": list(OUTSIDE_ELIGIBLE_AXES),
+        "n_outside_axes": N_HIDDEN_OUTSIDE_AXES,
+        "outside_rule": "an evaluation world places n_outside_axes intensities between "
+                        "the development band and the envelope edge, drawn from "
+                        "outside_eligible_axes. An axis is listed there once a statistic "
+                        "on the participant files tracks its realized intensity across "
+                        "worlds; the rest recombine into a configuration the design does "
+                        "not spend, inside the band",
         "development_band": {k: list(v) for k, v in DEVELOPMENT_BAND.items()},
         "declared_interactions": dict(DECLARED_INTERACTIONS),
         "pairwise_axis_interactions": list(PAIRWISE_AXIS_INTERACTIONS),
@@ -625,8 +686,8 @@ def contract_block() -> dict:
         "families": {
             "source_inclusion": "logit p_include = logit(base) + a_completeness * (econ_c - 0.5)"
                         " + a_elder * (elder_c - 0.5) + u_c ; the health source adds"
-                        " (a_frailty + a_completeness_by_target * a_completeness)"
-                        " * log(frailty_i)",
+                        " clip(2 * a_frailty * (1 + a_completeness_by_target *"
+                        " (a_completeness - 1)) * log(frailty_i), -2, 2)",
             "item_missing": "logit p_missing = logit(base) + b_econ * (econ_c - 0.5)"
                             " + b_band * (band_r - 2) / 2 + v_c ; b_band is the record's"
                             " own money band and is not the health selection slope, and"

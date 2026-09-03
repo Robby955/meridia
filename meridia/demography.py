@@ -55,6 +55,38 @@ SHOCK_FAMILY = {
 # reconstruction error, and the sealed tail would be a target no method could reach.
 ANNUAL_SHOCK_RATE = 0.20
 
+# Each region's published loading on that family. A shock year is one national event, but
+# its bite is not the same everywhere, and a world whose regions all take the shock at
+# full strength has a reserve problem that a sum of six marginal tails already answers.
+# With loadings the regional liabilities are correlated through a structure a method has
+# to estimate: two regions move together in proportion to the product of their loadings,
+# and the aggregate tail is wider or narrower than the marginals imply. The band is
+# public and every world draws its own vector inside it; the realized values are
+# retained. Development worlds expose them through the experience file, where a shock
+# year shows as a state-specific jump in deaths and in first qualifying events.
+SHOCK_LOADING_BAND = (0.35, 1.80)
+
+
+def draw_shock_loadings(seed: int, n_regions: int,
+                        band: tuple[float, float] = SHOCK_LOADING_BAND) -> np.ndarray:
+    """One loading per region, drawn once per world on its own stream."""
+    if int(n_regions) < 1:
+        raise ValueError("n_regions must be positive")
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x5A0E]))
+    return rng.uniform(float(band[0]), float(band[1]), size=int(n_regions))
+
+
+def regional_multiplier(multiplier: float, loading: np.ndarray) -> np.ndarray:
+    """A national shock multiplier as it lands where the loading is ``loading``.
+
+    A loading of one takes the national multiplier unchanged and a loading of zero takes
+    none of it, in either direction, so a fertility multiplier under one thins births
+    less where the loading is low. At ``multiplier`` of one the result is exactly one
+    everywhere, which is what keeps a shock-free month identical to what it was before
+    the loadings existed.
+    """
+    return 1.0 + np.asarray(loading, dtype=np.float64) * (float(multiplier) - 1.0)
+
 
 def draw_annual_shocks(rng: np.random.Generator, first_year: int, n_years: int,
                        annual_rate: float = ANNUAL_SHOCK_RATE) -> list[dict]:

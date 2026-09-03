@@ -17,7 +17,8 @@ from meridia.businesses import EMPLOYMENT_TYPES
 from meridia.businesses import validate_business_conservation
 from meridia.character import draw_world_character
 from meridia.demography import (ANNUAL_SHOCK_RATE, draw_annual_shocks,
-                                draw_world_shocks, mortality_probability)
+                                draw_world_shocks, mortality_probability,
+                                regional_multiplier)
 from meridia.dwellings import validate_dwelling_conservation
 from meridia.hospitals import ENCOUNTER_OUTCOMES, validate_hospital_conservation
 from meridia.identities import ENTITY_NAMESPACE, NAMESPACE_SHIFT, SEQUENCE_MASK
@@ -522,6 +523,16 @@ def _shock_multipliers(shocks: list[dict], month: int) -> tuple[float, float, fl
     return mortality, fertility, migration, admission
 
 
+# The two multipliers the regional loadings scale. A shock year is national and the
+# family is published, but the mortality and the admission multipliers land in a region
+# in proportion to that region's own loading, so the regional liabilities are correlated
+# through a structure rather than moving as one. Those two are chosen because they are
+# what the obligation is priced on and what the experience file's deaths and qualifying
+# event counts carry, so a development world exposes the loadings in a file the agent
+# receives. Fertility and internal migration stay national: neither enters the benefit
+# formula, and splitting them would put loadings in a place no anchor reaches.
+
+
 # Latent frailty travels with the person: stored in hundredths so replay conserves it
 # byte for byte.  A newborn inherits part of the mother's burden, which is what makes
 # baseline health burden a household-level covariate rather than white noise.
@@ -830,7 +841,8 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
         )
         monthly_death_probability = 1.0 - np.power(
             1.0 - annual_death_probability,
-            mortality_multiplier / 12.0,
+            regional_multiplier(mortality_multiplier,
+                                mechanisms.shock_loading(death_county)) / 12.0,
         )
         dies = alive_position[
             rng.random(len(alive_position)) < monthly_death_probability
@@ -1515,13 +1527,24 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
             )
             open_person[open_person_position] = True
         patient_candidates = np.flatnonzero(person["is_alive"] & ~open_person)
+        patient_county = mechanisms.county_of_cell(person["cell"][patient_candidates])
+        # A shock year raises admissions where its loading is high. The national target
+        # takes the mean of the per-candidate factors and the selection weight takes the
+        # factor itself, so the level follows the family and the split between regions
+        # follows the loadings. Outside a shock year every factor is exactly one and both
+        # quantities are what they were.
+        admission_factor = regional_multiplier(
+            admission_multiplier, mechanisms.shock_loading(patient_county))
+        national_admission = (
+            float(admission_factor.mean()) if len(admission_factor) else 1.0
+        )
         target_admissions = min(
             len(patient_candidates),
             int(
                 round(
                     len(np.flatnonzero(person["is_alive"]))
                     * annual_encounter_rate
-                    * admission_multiplier
+                    * national_admission
                     / 12_000.0
                 )
             ),
@@ -1533,9 +1556,6 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
             # Admission risk: the published age curve times latent frailty and the
             # county's own burden.  Incidence is therefore a local hazard, and the
             # health source's inclusion rule reads the same frailty.
-            patient_county = mechanisms.county_of_cell(
-                person["cell"][patient_candidates]
-            )
             patient_frailty = (
                 person["frailty_centi"][patient_candidates].astype(np.float64) / 100.0
             )
@@ -1549,6 +1569,7 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
                     * (mechanisms.covariate("elder", patient_county) - 0.5)
                     + mechanisms.effect("incidence", patient_county)
                 )
+                * admission_factor
             )
             priorities = (
                 -np.log(

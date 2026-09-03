@@ -19,10 +19,13 @@ from meridia.events import continuation_shocks, events_visible_at
 from meridia.events import replay_event_history, validate_event_history
 from meridia.hospitals import HospitalParams, build_hospitals
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
-from meridia.identities import ENTITY_NAMESPACE, build_initial_identity_map
+from meridia.admin import build_admin
+from meridia.demography import SHOCK_LOADING_BAND, regional_multiplier
+from meridia.identities import ENTITY_NAMESPACE, SEQUENCE_MASK, build_initial_identity_map
 from meridia.identities import entity_namespace
+from meridia.mechanisms import build_world_mechanisms
 from meridia.microdata import build_microdata
-from meridia.population import build_population
+from meridia.population import build_population, resource_outposts
 from meridia.terrain import generate_elevation
 
 SEED = 20260831
@@ -32,6 +35,11 @@ TOTAL = 40_000
 
 @lru_cache(maxsize=2)
 def _start(seed: int = SEED):
+    return _start_full(seed)[2:]
+
+
+@lru_cache(maxsize=2)
+def _start_full(seed: int = SEED):
     character = draw_world_character(seed)
     world = generate_elevation(seed, H, W)
     outlets = ~world["land"]
@@ -58,7 +66,7 @@ def _start(seed: int = SEED):
     dwellings = build_dwellings(micro, seed, identities)
     businesses = build_businesses(micro, seed, identities)
     hospitals = build_hospitals(micro, seed, identities, businesses)
-    return micro, identities, dwellings, businesses, hospitals
+    return world, people, micro, identities, dwellings, businesses, hospitals
 
 
 @lru_cache(maxsize=8)
@@ -532,3 +540,66 @@ def test_event_builder_rejects_a_seed_from_another_truth_world():
             hospitals,
             months=2,
         )
+
+
+def test_a_shock_year_lands_in_proportion_to_the_region_loading():
+    """A shock is one national event; the loadings decide how hard it lands where.
+
+    Without them every region takes the whole multiplier, the regional liabilities move
+    as one, and the aggregate tail is what the six marginals already say. With them the
+    correlation structure is a thing a method has to estimate. The loadings are a per
+    world draw from a published band and are held for every year.
+    """
+    world, people, micro, identities, dwellings, businesses, hospitals = _start_full()
+    admin = build_admin(world["land"], people["settlements"],
+                        resource_outposts(world, SEED), n_states=4)
+    mechanisms = build_world_mechanisms(SEED, "development", admin, micro, businesses)
+    loading = mechanisms.region_shock_loading
+    assert len(loading) == 4
+    assert (loading >= SHOCK_LOADING_BAND[0]).all()
+    assert (loading <= SHOCK_LOADING_BAND[1]).all()
+    assert len(set(np.round(loading, 9))) == 4
+
+    common = dict(months=12, mechanisms=mechanisms)
+    spike = [{"year": 0, "kind": "mortality_spike", "mortality_multiplier": 3.0,
+              "admission_multiplier": 2.6}]
+    shocked = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                  hospitals, shocks=spike, **common)
+    quiet = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                hospitals, shocks=[], **common)
+
+    county_flat = np.asarray(admin["county"], dtype=np.int64).reshape(-1)
+    state_of_county = np.asarray(admin["county_state"], dtype=np.int64)
+    initial = shocked["initial_state"]["person"]
+    person_state = state_of_county[np.maximum(county_flat[initial["cell"]], 0)]
+
+    def deaths_by_state(history):
+        event = history["event"]
+        died = event["event_type"] == EVENT_TYPES["person_death"]
+        position = ((event["truth_person_id"][died] & np.uint64(SEQUENCE_MASK))
+                    .astype(np.int64) - 1)
+        position = position[(position >= 0) & (position < len(person_state))]
+        return np.bincount(person_state[position], minlength=4).astype(np.float64)
+
+    excess = deaths_by_state(shocked) / np.maximum(deaths_by_state(quiet), 1.0)
+    assert excess.min() > 1.0
+    order = np.argsort(loading)
+    assert excess[order[-1]] > excess[order[0]]
+    assert float(np.corrcoef(loading, excess)[0, 1]) > 0.5
+
+
+def test_a_quiet_month_is_untouched_by_the_loadings():
+    """A multiplier of one is one in every region, so a shock-free world does not move."""
+    assert regional_multiplier(1.0, np.asarray([0.35, 1.0, 1.8])).tolist() == [1.0, 1.0, 1.0]
+    world, people, micro, identities, dwellings, businesses, hospitals = _start_full()
+    admin = build_admin(world["land"], people["settlements"],
+                        resource_outposts(world, SEED), n_states=4)
+    mechanisms = build_world_mechanisms(SEED, "development", admin, micro, businesses)
+    quiet = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                hospitals, months=6, shocks=[], mechanisms=mechanisms)
+    flat = build_world_mechanisms(SEED, "development", admin, micro, businesses)
+    object.__setattr__(flat, "county_shock_loading",
+                       np.ones_like(flat.county_shock_loading))
+    same = build_event_history(micro, SEED, identities, dwellings, businesses,
+                               hospitals, months=6, shocks=[], mechanisms=flat)
+    assert _history_digest(quiet) == _history_digest(same)
