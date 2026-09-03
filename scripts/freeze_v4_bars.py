@@ -5,10 +5,17 @@ witness report for each reference line and qualification world, independently id
 deterministic replicate reports for every line-world pair, and reports from registered
 scientific controls that pass the deterministic hard checks.
 
-Only replicate reports set the exact empirical p99 ceilings. Final reports are never
+The reserve-rate input is the unaccepted candidate emitted by
+``calibrate_reserve_rate.py``.  This freezer is the only component that can promote it:
+promotion happens after the final references, proportional-reserve controls, calibrated
+reserve-skill bar, authenticated q95 diagnostics, and red-team audit have all been verified.
+
+Only replicate reports set the exact empirical p99 gate-severity ceilings. Calibration is
+independent by reference line and joint across a gate's components. Final reports are never
 bootstrapped or resampled as fake replication. Final witnesses must then clear the frozen
-bars. The command line consumes JSON evidence and writes ``bars.json``,
-``freeze_report.txt``, and ``PROVENANCE.md``.
+bars. The command line consumes JSON evidence and writes ``bars.json``, the two
+standalone promoted reserve-audit receipts, ``freeze_report.txt``, and
+``PROVENANCE.md``.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import math
 import statistics
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -27,25 +35,94 @@ from typing import Any
 SCHEMA = "meridia.v4.composite-bars.v1"
 EVIDENCE_SCHEMA = "meridia.v4.composite-freeze-evidence.v1"
 VERIFIER_EVIDENCE_SCHEMA = "meridia.v4.verifier-evidence.v1"
-EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v1"
+EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v3"
 PROVENANCE_SCHEMA = "meridia.v4.freeze-provenance.v1"
 DEVELOPMENT_DIAGNOSTIC_SCHEMA = "meridia.v4.development-diagnostics.v1"
 ELDER_AUDIT_SCHEMA = "meridia.methods.elder_reconstruction_audit.v1"
-REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v1"
+REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v2"
+MORTALITY_IDENTIFICATION_AUDIT_SCHEMA = (
+    "meridia.v4.mortality-identification-audit.v1"
+)
 RESERVE_QUALIFICATION_SCHEMA = "meridia.v4.reserve-qualification-audit.v1"
 RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v1"
 RESERVE_RED_TEAM_SCHEMA = "meridia.reserve-total-red-team.v1"
+RESERVE_TAIL_EVIDENCE_SCHEMA = "meridia.v4.reserve-tail-evidence.v1"
+ELDER_REFERENCE_EVIDENCE_SCHEMA = "meridia.v4.elder-reference-evidence.v1"
+SHOCK_REDRAW_REPORT_SCHEMA = "meridia.v4.continuation-shock-redraw-report.v1"
+RED_TEAM_INPUT_FILES = (
+    "participant/contract.json",
+    "participant/experience_history.csv",
+    "retained/continuation_liabilities.npz",
+)
+RESERVE_CALIBRATION_PENDING_BLOCKERS = (
+    "rerun every reference at the candidate rate and clear reserve skill",
+    "show the proportional reserve control failing at the candidate rate",
+    "record the held-out reserve-total red-team measurement",
+)
+RESERVE_CALIBRATION_CANDIDATE_KEYS = {
+    "schema",
+    "candidate",
+    "accepted",
+    "blockers",
+    "rate_per_person_year",
+    "rate_grid",
+    "tail_slack_share",
+    "target_rule",
+    "reference_lines",
+    "qualification_worlds",
+    "evidence",
+}
+RESERVE_CALIBRATION_EVIDENCE_KEYS = {
+    "reference_line",
+    "world",
+    "evidence_id",
+    "exposure_person_years",
+    "rounding_unit",
+    "submitted_q95_sum",
+    "submitted_es95_sum",
+    "target_reserve_before_rounding",
+    "required_rate",
+    "experience_sha256",
+    "reserve_submission_sha256",
+    "candidate_reserve_total",
+    "candidate_margin",
+}
+RESERVE_RED_TEAM_MEASUREMENT_KEYS = {
+    "schema",
+    "measurement_source",
+    "input_bindings",
+    "independent_unit",
+    "world_counts",
+    "regions_per_world",
+    "files_read_per_world",
+    "reserve_total_public_rule_verified",
+    "tail_definition",
+    "public_quantities",
+    "development_regional_models",
+    "qualification_predictive_regional_r2",
+    "qualification_incremental_regional_r2_over_region_means",
+    "primary_measure",
+    "descriptive_pooled_regional_r2",
+    "world_aggregate_tail_r2",
+    "interpretation",
+}
 QUANTILE = 0.99
 TARGET_FALSE_FAIL_RATE = 0.01
 EXPECTED_QUALIFICATION_WORLDS = 6
 GRADED_WORLD_COUNT = 3
 MIN_P99_SAMPLE_COUNT = 100
+REGISTERED_MEASUREMENT_PARAMS = {
+    "bootstrap_replicates": 100,
+    "bayesian_sweeps": 400,
+    "simulation_paths": 2048,
+    "linkage_bootstraps": 12,
+}
 ANCHOR_CORRELATION_THRESHOLD = 0.4
 REFERENCE_LINES = ("A", "B", "C")
 QUALIFICATION_WORLDS = tuple(
     f"qual-{index}" for index in range(EXPECTED_QUALIFICATION_WORLDS)
 )
-REPLICATES_PER_LINE_WORLD = 7
+REPLICATES_PER_LINE_WORLD = 17
 REFERENCE_REPORT_COUNT = len(REFERENCE_LINES) * len(QUALIFICATION_WORLDS)
 REPLICATE_REPORT_COUNT = (
     REFERENCE_REPORT_COUNT * REPLICATES_PER_LINE_WORLD
@@ -98,6 +175,61 @@ PUBLIC_AXIS_RANGES: dict[str, tuple[float, float]] = {
     "administrative_completeness": (0.00, 2.80),
     "missingness_target_dependence": (0.00, 2.20),
 }
+REALIZED_MECHANISM_ENVELOPES: dict[
+    str, dict[str, tuple[float, float]]
+] = {
+    "mortality_improvement": {
+        "development": (-0.010, 0.048),
+        "public": (-0.030, 0.075),
+    },
+    "migration_age_pattern": {
+        "development": (0.25, 1.55),
+        "public": (0.00, 2.40),
+    },
+    "age_reporting_error": {
+        "development": (0.596, 2.4248571428571424),
+        "public": (0.298, 4.021714285714285),
+    },
+    "linkage_urban_gradient": {
+        "development": (0.13125, 2.189375),
+        "public": (0.0, 5.33),
+    },
+    "administrative_completeness": {
+        "development": (0.30, 1.70),
+        "public": (0.00, 2.80),
+    },
+    "missingness_target_dependence": {
+        "development": (0.074, 2.119),
+        "public": (0.0, 5.764),
+    },
+}
+REALIZED_MECHANISM_DEFINITIONS = {
+    axis: "axis_intensity" for axis in REGIME_AXES
+}
+REALIZED_MECHANISM_DEFINITIONS.update({
+    "age_reporting_error": (
+        "age_reporting_error * age_error_mortality_scale"
+    ),
+    "linkage_urban_gradient": (
+        "linkage_urban_gradient * (1 + linkage_gradient_by_migration * "
+        "(migration_age_pattern - 1))"
+    ),
+    "missingness_target_dependence": (
+        "missingness_target_dependence * "
+        "(1 + health_inclusion_completeness_by_target * "
+        "(administrative_completeness - 1))"
+    ),
+})
+IDENTIFIABILITY_SOURCE_FILES = (
+    "scripts/identifiability_v4.py",
+    "meridia/character.py",
+    "meridia/events.py",
+    "meridia/mechanisms.py",
+    "meridia/packet.py",
+    "meridia/sources.py",
+    "scripts/build_sealed_reconstruction_packet.py",
+    "scripts/build_v4_worlds.py",
+)
 
 GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": ("p95_relative_error",),
@@ -108,7 +240,15 @@ GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
         "q95_width_relative_error",
         "es95_width_relative_error",
     ),
-    "reserve_skill": ("skill_loss",),
+    "reserve_skill": ("skill_loss", "worst_regional_shortfall_probability"),
+}
+
+# Every component is already a dimensionless loss with zero as its ideal value.  Keeping
+# these normalizers fixed at registration time makes the composite order statistic a
+# transparent max loss and prevents the qualification sample from tuning relative weights.
+GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
+    gate: {component: 1.0 for component in components}
+    for gate, components in GATE_COMPONENTS.items()
 }
 
 # Criterion ranges, not tunable attainability caps. An unbounded endpoint is null in JSON.
@@ -121,6 +261,7 @@ COMPONENT_RANGES: dict[tuple[str, str], tuple[float, float | None]] = {
     ("tail_calibration", "q95_width_relative_error"): (0.0, None),
     ("tail_calibration", "es95_width_relative_error"): (0.0, None),
     ("reserve_skill", "skill_loss"): (0.0, None),
+    ("reserve_skill", "worst_regional_shortfall_probability"): (0.0, 1.0),
 }
 
 # A name here denotes an omitted scientific layer or a deliberately wrong scientific
@@ -199,53 +340,6 @@ EXPECTED_MORTALITY_SHOCK_RANGES = [
 EXPECTED_ADMISSION_SHOCK_RANGES = [
     {"kind": "mortality_spike", "range": [1.4, 2.6]},
 ]
-MORTALITY_IDENTIFICATION_BASE: dict[str, Any] = {
-    "schema": "meridia.v4.mortality-identification.v1",
-    "supports_gate": "tail_calibration",
-    "trend": {
-        "active_during_public_experience_window": True,
-        "public_experience_years": [4, 5, 6, 7, 8],
-        "starts_only_after_publication": False,
-    },
-    "publication_lag": {
-        "months": 12,
-        "trend_effect_percent_range": [-7.24, 1.60],
-    },
-    "shock_process": {
-        "annual_probability": 0.20,
-        "expected_all_shock_years_per_five_year_horizon": 1.0,
-        "probability_any_shock_in_five_year_horizon": 0.6723,
-        "expected_mortality_spike_years_per_five_year_horizon": 0.333,
-        "probability_any_mortality_spike_in_five_year_horizon": 0.2918,
-        "redrawn_independently_in_every_continuation": True,
-    },
-    "per_world": {
-        "qual-0": {"horizon_history_ratio": 1.057, "trend_only_ratio": 0.935,
-                   "residual_ratio": 1.130, "lag_trend_factor": 0.9889,
-                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 1},
-                   "all_shock_years_in_horizon": 2},
-        "qual-1": {"horizon_history_ratio": 0.698, "trend_only_ratio": 0.752,
-                   "residual_ratio": 0.928, "lag_trend_factor": 0.9536,
-                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
-                   "all_shock_years_in_horizon": 1},
-        "qual-2": {"horizon_history_ratio": 0.916, "trend_only_ratio": 1.100,
-                   "residual_ratio": 0.833, "lag_trend_factor": 1.0160,
-                   "mortality_spike_years": {"history": 1, "lag": 0, "horizon": 0},
-                   "all_shock_years_in_horizon": 0},
-        "qual-3": {"horizon_history_ratio": 0.672, "trend_only_ratio": 0.792,
-                   "residual_ratio": 0.848, "lag_trend_factor": 0.9619,
-                   "mortality_spike_years": {"history": 1, "lag": 0, "horizon": 1},
-                   "all_shock_years_in_horizon": 1},
-        "qual-4": {"horizon_history_ratio": 0.595, "trend_only_ratio": 0.637,
-                   "residual_ratio": 0.935, "lag_trend_factor": 0.9276,
-                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
-                   "all_shock_years_in_horizon": 0},
-        "qual-5": {"horizon_history_ratio": 0.695, "trend_only_ratio": 0.766,
-                   "residual_ratio": 0.908, "lag_trend_factor": 0.9565,
-                   "mortality_spike_years": {"history": 0, "lag": 0, "horizon": 0},
-                   "all_shock_years_in_horizon": 1},
-    },
-}
 
 
 class EvidenceError(ValueError):
@@ -260,31 +354,6 @@ def _canonical_digest(value: Any) -> str:
     except (TypeError, ValueError) as exc:
         raise EvidenceError("evidence binding must be finite JSON") from exc
     return hashlib.sha256(payload).hexdigest()
-
-
-def _source_digest(relative_paths: Sequence[str]) -> str:
-    root = Path(__file__).resolve().parents[1]
-    digest = hashlib.sha256()
-    for relative in sorted(relative_paths):
-        path = root / relative
-        if path.is_symlink() or not path.is_file():
-            raise EvidenceError(f"identification source {relative} is unavailable")
-        name = relative.encode("utf-8")
-        payload = path.read_bytes()
-        digest.update(len(name).to_bytes(8, "big"))
-        digest.update(name)
-        digest.update(len(payload).to_bytes(8, "big"))
-        digest.update(payload)
-    return digest.hexdigest()
-
-
-def mortality_identification_evidence() -> dict[str, Any]:
-    evidence = json.loads(json.dumps(MORTALITY_IDENTIFICATION_BASE))
-    evidence["generator_source_digest_sha256"] = _source_digest((
-        "meridia/events.py", "meridia/mechanisms.py", "meridia/packet.py"
-    ))
-    evidence["diagnostic_digest_sha256"] = _canonical_digest(evidence)
-    return evidence
 
 
 def _sha256(value: Any, label: str) -> str:
@@ -312,6 +381,102 @@ def _report_binding(report: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def _packet_input_digests(report: Mapping[str, Any]) -> dict[str, str]:
+    evidence = report.get("evidence")
+    files = evidence.get("packet_file_sha256") \
+        if isinstance(evidence, Mapping) else None
+    if not isinstance(files, Mapping):
+        raise EvidenceError("verifier evidence has no packet file digest map")
+    return {
+        name: _sha256(files.get(name), f"{name} packet input digest")
+        for name in RED_TEAM_INPUT_FILES
+    }
+
+
+def _elder_reference_evidence(report: Mapping[str, Any]) -> dict[str, Any]:
+    receipt = report.get("elder_reference_evidence")
+    expected_keys = {
+        "schema", "valid", "packet_digest_sha256", "submission_digest_sha256",
+        "state_65_plus_person_years", "liability_mean_by_region",
+    }
+    if not isinstance(receipt, Mapping) or set(receipt) != expected_keys \
+            or receipt.get("schema") != ELDER_REFERENCE_EVIDENCE_SCHEMA \
+            or receipt.get("valid") is not True:
+        raise EvidenceError("final reference report lacks elder reconstruction evidence")
+    binding = _report_binding(report)
+    if _sha256(receipt.get("packet_digest_sha256"), "elder packet digest") \
+            != binding["packet_digest_sha256"] \
+            or _sha256(
+                receipt.get("submission_digest_sha256"), "elder submission digest"
+            ) != binding["submission_digest_sha256"]:
+        raise EvidenceError("elder reconstruction evidence has different report bytes")
+    for field, identity, submitted, sealed in (
+        ("state_65_plus_person_years", "state", "submitted_person_years",
+         "sealed_person_years"),
+        ("liability_mean_by_region", "region", "submitted", "sealed"),
+    ):
+        rows = receipt.get(field)
+        if not isinstance(rows, list) or len(rows) != 6 \
+                or {row.get(identity) for row in rows if isinstance(row, Mapping)} \
+                != set(range(6)):
+            raise EvidenceError(f"elder reconstruction {field} rows are incomplete")
+        for row in rows:
+            if not isinstance(row, Mapping) \
+                    or set(row) != {identity, submitted, sealed}:
+                raise EvidenceError(f"elder reconstruction {field} row fields differ")
+            _audit_number(row.get(submitted), f"elder {field} submitted")
+            _audit_number(row.get(sealed), f"elder {field} sealed")
+    return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
+
+
+def _shock_redraw_evidence(report: Mapping[str, Any]) -> dict[str, Any]:
+    receipt = report.get("continuation_shock_redraw_evidence")
+    if not isinstance(receipt, Mapping) or set(receipt) != {
+        "schema", "runtime_evidence_file_sha256", "liability_archive_sha256",
+        "runtime_evidence",
+    } or receipt.get("schema") != SHOCK_REDRAW_REPORT_SCHEMA:
+        raise EvidenceError("verifier report lacks continuation shock redraw evidence")
+    evidence = report.get("evidence")
+    files = evidence.get("packet_file_sha256") \
+        if isinstance(evidence, Mapping) else None
+    if not isinstance(files, Mapping) \
+            or _sha256(
+                receipt.get("runtime_evidence_file_sha256"),
+                "continuation shock runtime file digest",
+            ) != _sha256(
+                files.get("retained/continuation_shock_redraw.json"),
+                "retained continuation shock runtime file digest",
+            ) \
+            or _sha256(
+                receipt.get("liability_archive_sha256"),
+                "continuation shock liability archive digest",
+            ) != _sha256(
+                files.get("retained/continuation_liabilities.npz"),
+                "retained continuation liability digest",
+            ):
+        raise EvidenceError("continuation shock evidence is bound to different files")
+    try:
+        from meridia.packet import _validate_shock_redraw_evidence
+
+        runtime = _validate_shock_redraw_evidence(receipt.get("runtime_evidence"))
+    except (ImportError, TypeError, ValueError) as exc:
+        raise EvidenceError("continuation shock runtime measurement is invalid") from exc
+    runtime_file_digest = hashlib.sha256((
+        json.dumps(runtime, indent=1, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")).hexdigest()
+    if runtime_file_digest != receipt.get("runtime_evidence_file_sha256"):
+        raise EvidenceError(
+            "continuation shock runtime measurement differs from its retained file"
+        )
+    if runtime["redrawn_member_count"] != runtime["member_count"] \
+            or runtime["distinct_future_schedule_count"] <= 1 \
+            or not 0 < runtime["future_shock_year_count"] \
+            < runtime["future_year_opportunity_count"] \
+            or runtime["future_mortality_spike_year_count"] <= 0:
+        raise EvidenceError("continuation shock runtime shows no independent redraws")
+    return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
+
+
 def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
     """Return the exact replay binding whose digest is the evidence identifier."""
 
@@ -322,6 +487,23 @@ def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
     q95_feasibility = report.get("reserve_q95_feasibility")
     if not isinstance(q95_feasibility, Mapping):
         raise EvidenceError("verifier report has no reserve_q95_feasibility object")
+    tail_evidence = _reserve_tail_evidence(report)
+    reserve_rule_evidence = _reserve_rule_evidence(report)
+    shock_redraw_evidence = _shock_redraw_evidence(report)
+    packet_input_sha256 = _packet_input_digests(report)
+    if reserve_rule_evidence["experience_sha256"] \
+            != packet_input_sha256["participant/experience_history.csv"]:
+        raise EvidenceError(
+            "reserve rule experience digest differs from the packet input digest"
+        )
+    try:
+        measurement_params = json.loads(json.dumps(
+            _first(metadata, "measurement_params"),
+            sort_keys=True,
+            allow_nan=False,
+        ))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("measurement_params must be finite JSON") from exc
     binding: dict[str, Any] = {
         "schema": EVIDENCE_BINDING_SCHEMA,
         "kind": kind,
@@ -336,6 +518,7 @@ def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
             _first(metadata, "measurement_contract_digest_sha256"),
             "measurement_contract_digest_sha256",
         ),
+        "measurement_params": measurement_params,
         "run_receipt_digest_sha256": _sha256(
             _first(metadata, "run_receipt_digest_sha256"),
             "run_receipt_digest_sha256",
@@ -345,7 +528,28 @@ def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
         "reserve_q95_feasibility_digest_sha256": _canonical_digest(
             q95_feasibility
         ),
+        "reserve_tail_evidence": tail_evidence,
+        "reserve_tail_evidence_digest_sha256": _canonical_digest(tail_evidence),
+        "reserve_rule_evidence": reserve_rule_evidence,
+        "reserve_rule_evidence_digest_sha256": _canonical_digest(
+            reserve_rule_evidence
+        ),
+        "continuation_shock_redraw_evidence_digest_sha256": _canonical_digest(
+            shock_redraw_evidence
+        ),
+        "continuation_shock_redraw_file_sha256": shock_redraw_evidence[
+            "runtime_evidence_file_sha256"
+        ],
+        "continuation_source_law_sha256": shock_redraw_evidence[
+            "runtime_evidence"
+        ]["continuation_source_law_sha256"],
+        "packet_input_sha256": packet_input_sha256,
     }
+    if binding["measurement_params"] != REGISTERED_MEASUREMENT_PARAMS:
+        raise EvidenceError(
+            "freeze evidence measurement parameters differ from the registered "
+            "100/400/2048/12 design"
+        )
     if kind == "control":
         binding["control"] = _identifier(
             _first(metadata, "control", "control_name"), "control"
@@ -359,6 +563,12 @@ def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
             _first(metadata, "reference_line", "witness", "line"),
             "reference_line",
         )
+        if kind == "reference":
+            elder_evidence = _elder_reference_evidence(report)
+            binding["elder_reference_evidence"] = elder_evidence
+            binding["elder_reference_evidence_digest_sha256"] = _canonical_digest(
+                elder_evidence
+            )
     if kind == "replicate":
         binding["replicate_id"] = _identifier(
             _first(metadata, "replicate_id", "replicate"), "replicate_id"
@@ -561,13 +771,13 @@ def _reserve_q95_feasibility(report: Mapping[str, Any]) -> dict[str, Any]:
         raise EvidenceError("verifier report has no reserve_q95_feasibility object")
     fields = {
         name: _audit_number(receipt.get(name), f"reserve q95 feasibility {name}")
-        for name in (
-            "q95_sum",
-            "allocation_sum",
-            "reserve_total",
-            "total_minus_q95_sum",
-        )
+        for name in ("q95_sum", "allocation_sum", "reserve_total")
     }
+    fields["total_minus_q95_sum"] = _audit_number(
+        receipt.get("total_minus_q95_sum"),
+        "reserve q95 feasibility total_minus_q95_sum",
+        low=float("-inf"),
+    )
     expected_keys = set(fields) | {
         "all_regions_at_or_above_q95",
         "allocation_sums_to_total",
@@ -575,20 +785,106 @@ def _reserve_q95_feasibility(report: Mapping[str, Any]) -> dict[str, Any]:
     }
     if set(receipt) != expected_keys:
         raise EvidenceError("reserve_q95_feasibility fields differ from the contract")
-    if receipt.get("all_regions_at_or_above_q95") is not True \
-            or receipt.get("allocation_sums_to_total") is not True \
-            or receipt.get("feasible") is not True:
-        raise EvidenceError("reserve q95 feasibility must pass for freeze evidence")
+    flags = {
+        name: receipt.get(name)
+        for name in (
+            "all_regions_at_or_above_q95", "allocation_sums_to_total", "feasible"
+        )
+    }
+    if any(not isinstance(value, bool) for value in flags.values()):
+        raise EvidenceError("reserve q95 diagnostic flags must be boolean")
     tolerance = 1e-10 * max(1.0, fields["reserve_total"])
-    if abs(fields["allocation_sum"] - fields["reserve_total"]) > tolerance:
-        raise EvidenceError("reserve allocation sum differs from the public total")
+    sums_to_total = abs(
+        fields["allocation_sum"] - fields["reserve_total"]
+    ) <= tolerance
+    if flags["allocation_sums_to_total"] is not sums_to_total:
+        raise EvidenceError("reserve q95 allocation-sum diagnostic is inconsistent")
     if abs(
         fields["total_minus_q95_sum"]
         - (fields["reserve_total"] - fields["q95_sum"])
     ) > tolerance:
-        raise EvidenceError("reserve q95 feasibility margin is inconsistent")
-    if fields["total_minus_q95_sum"] < -tolerance:
-        raise EvidenceError("public reserve total is below the submitted q95 sum")
+        raise EvidenceError("reserve q95 diagnostic margin is inconsistent")
+    if flags["feasible"] is not (
+        flags["all_regions_at_or_above_q95"] and sums_to_total
+    ):
+        raise EvidenceError("reserve q95 floor diagnostic is internally inconsistent")
+    return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
+
+
+def _reserve_rule_evidence(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the public reserve-total recomputation recorded by the verifier."""
+
+    receipt = report.get("reserve_rule_evidence")
+    expected_keys = {
+        "valid", "selected_year", "exposure_person_years",
+        "rate_per_person_year", "rounding_unit", "reserve_total",
+        "experience_sha256",
+    }
+    if not isinstance(receipt, Mapping) or set(receipt) != expected_keys \
+            or receipt.get("valid") is not True:
+        raise EvidenceError("verifier report has no valid reserve_rule_evidence object")
+    selected_year = receipt.get("selected_year")
+    if isinstance(selected_year, bool) or not isinstance(selected_year, int):
+        raise EvidenceError("reserve rule selected_year must be an integer")
+    exposure = _audit_number(
+        receipt.get("exposure_person_years"),
+        "reserve rule exposure_person_years",
+        low=1e-300,
+    )
+    rate = _audit_number(
+        receipt.get("rate_per_person_year"),
+        "reserve rule rate_per_person_year",
+        low=1e-300,
+    )
+    unit = _audit_number(
+        receipt.get("rounding_unit"), "reserve rule rounding_unit", low=1e-300
+    )
+    total = _audit_number(receipt.get("reserve_total"), "reserve rule reserve_total")
+    if not math.isclose(
+        total, _public_reserve_total(exposure, rate, unit),
+        rel_tol=1e-12, abs_tol=1e-9,
+    ):
+        raise EvidenceError("reserve rule total does not recompute")
+    _sha256(receipt.get("experience_sha256"), "reserve rule experience_sha256")
+    return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
+
+
+def _reserve_tail_evidence(report: Mapping[str, Any]) -> dict[str, Any]:
+    receipt = report.get("reserve_tail_evidence")
+    expected_keys = {
+        "schema", "valid", "q95_sum", "es95_sum",
+        "reserve_submission_sha256",
+    }
+    if not isinstance(receipt, Mapping) or set(receipt) != expected_keys \
+            or receipt.get("schema") != RESERVE_TAIL_EVIDENCE_SCHEMA \
+            or receipt.get("valid") is not True:
+        raise EvidenceError("verifier report has no valid reserve_tail_evidence object")
+    q95_sum = _audit_number(
+        receipt.get("q95_sum"), "reserve tail q95_sum"
+    )
+    es95_sum = _audit_number(
+        receipt.get("es95_sum"), "reserve tail es95_sum"
+    )
+    if es95_sum < q95_sum:
+        raise EvidenceError("reserve tail ES95 sum is below its q95 sum")
+    reserve_digest = _sha256(
+        receipt.get("reserve_submission_sha256"),
+        "reserve tail reserve_submission_sha256",
+    )
+    evidence = report.get("evidence")
+    files = evidence.get("submission_file_sha256") \
+        if isinstance(evidence, Mapping) else None
+    if not isinstance(files, Mapping):
+        raise EvidenceError("verifier evidence has no submission file digest map")
+    if reserve_digest != _sha256(
+        files.get("reserve.csv"), "reserve.csv submission digest"
+    ):
+        raise EvidenceError("reserve tail evidence is bound to different reserve.csv bytes")
+    feasibility = _reserve_q95_feasibility(report)
+    if not math.isclose(
+        q95_sum, feasibility["q95_sum"], rel_tol=1e-12, abs_tol=1e-9
+    ):
+        raise EvidenceError("reserve tail q95 sum differs from the q95 diagnostic")
     return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
 
 
@@ -684,12 +980,37 @@ def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
     evidence_ids = [entry["evidence_id"] for entry in all_entries]
     if len(evidence_ids) != len(set(evidence_ids)):
         raise EvidenceError("an evidence identifier was reused across report classes")
-    for world in (*worlds, *DEVELOPMENT_WORLDS):
-        rows = [entry for entry in all_entries if entry["world"] == world]
+    def require_same_binding(
+        rows: Sequence[Mapping[str, Any]], label: str
+    ) -> None:
         for field in ("packet_digest_sha256", "contract_digest_sha256"):
             values = {entry["binding"][field] for entry in rows}
             if len(values) != 1:
-                raise EvidenceError(f"{world}: evidence disagrees on {field}")
+                raise EvidenceError(f"{label}: evidence disagrees on {field}")
+        for field in (
+            "continuation_shock_redraw_evidence_digest_sha256",
+            "continuation_shock_redraw_file_sha256",
+            "continuation_source_law_sha256",
+        ):
+            values = {entry["binding"][field] for entry in rows}
+            if len(values) != 1:
+                raise EvidenceError(f"{label}: evidence disagrees on {field}")
+        for field in ("packet_input_sha256", "reserve_rule_evidence"):
+            values = {
+                _canonical_digest(entry["binding"][field]) for entry in rows
+            }
+            if len(values) != 1:
+                raise EvidenceError(f"{label}: evidence disagrees on {field}")
+
+    base_by_world: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for entry in (*references, *controls):
+        base_by_world[entry["world"]].append(entry)
+    for world in worlds:
+        require_same_binding(base_by_world[world], world)
+    for world in DEVELOPMENT_WORLDS:
+        require_same_binding(
+            [entry for entry in diagnostics if entry["world"] == world], world
+        )
     method_by_identity: dict[str, str] = {}
     for line in lines:
         values = {
@@ -764,6 +1085,46 @@ def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
                 raise EvidenceError(
                     f"{world}/{replicate_id}: A, B, and C use different resample digests"
                 )
+            require_same_binding(rows, f"{world}/{replicate_id}")
+            base = base_by_world[world][0]["binding"]
+            for field in ("contract_digest_sha256",):
+                if rows[0]["binding"][field] != base[field]:
+                    raise EvidenceError(
+                        f"{world}/{replicate_id}: resample changes {field}"
+                    )
+            for field in (
+                "continuation_shock_redraw_evidence_digest_sha256",
+                "continuation_shock_redraw_file_sha256",
+                "continuation_source_law_sha256",
+            ):
+                if rows[0]["binding"][field] != base[field]:
+                    raise EvidenceError(
+                        f"{world}/{replicate_id}: resample changes {field}"
+                    )
+            packet_inputs = rows[0]["binding"]["packet_input_sha256"]
+            base_inputs = base["packet_input_sha256"]
+            for name in (
+                "participant/contract.json",
+                "retained/continuation_liabilities.npz",
+            ):
+                if packet_inputs[name] != base_inputs[name]:
+                    raise EvidenceError(
+                        f"{world}/{replicate_id}: resample changes fixed input {name}"
+                    )
+            reserve_rule = rows[0]["binding"]["reserve_rule_evidence"]
+            base_rule = base["reserve_rule_evidence"]
+            for field in (
+                "valid",
+                "selected_year",
+                "exposure_person_years",
+                "rate_per_person_year",
+                "rounding_unit",
+                "reserve_total",
+            ):
+                if reserve_rule[field] != base_rule[field]:
+                    raise EvidenceError(
+                        f"{world}/{replicate_id}: resample changes reserve rule {field}"
+                    )
             resample_owners[next(iter(digests))].append((world, replicate_id))
     duplicated_resamples = {
         digest: owners for digest, owners in resample_owners.items() if len(owners) > 1
@@ -890,39 +1251,56 @@ def _digest_bound_audit(
     return normalized
 
 
-def _validate_reserve_calibration_audit(
+def _public_reserve_total(exposure: float, rate: float, unit: float) -> float:
+    raw_units = Decimal(str(exposure)) * Decimal(str(rate)) / Decimal(str(unit))
+    return float(raw_units.to_integral_value(rounding=ROUND_CEILING) * Decimal(str(unit)))
+
+
+def _validate_reserve_calibration_candidate(
     audit: Mapping[str, Any] | None,
     references: Sequence[Mapping[str, Any]],
-    measurement_contract_digest: str,
+    controls: Sequence[Mapping[str, Any]],
+    gates: Mapping[str, Any],
 ) -> dict[str, Any]:
-    normalized = _digest_bound_audit(
-        audit,
-        schema=RESERVE_CALIBRATION_SCHEMA,
-        label="reserve calibration audit",
-        measurement_contract_digest=measurement_contract_digest,
-    )
-    if normalized.get("candidate") is not True \
-            or normalized.get("accepted") is not True \
-            or normalized.get("blockers") != [] \
+    if not isinstance(audit, Mapping) \
+            or audit.get("schema") != RESERVE_CALIBRATION_SCHEMA:
+        raise EvidenceError(
+            f"an unaccepted {RESERVE_CALIBRATION_SCHEMA} candidate is required"
+        )
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("reserve calibration candidate must be finite JSON") from exc
+    if set(normalized) != RESERVE_CALIBRATION_CANDIDATE_KEYS \
+            or normalized.get("candidate") is not True \
+            or normalized.get("accepted") is not False \
+            or normalized.get("blockers") \
+            != list(RESERVE_CALIBRATION_PENDING_BLOCKERS) \
             or normalized.get("reference_lines") != list(REFERENCE_LINES) \
             or normalized.get("qualification_worlds") != list(QUALIFICATION_WORLDS) \
             or normalized.get("target_rule") \
             != "sum(q95) + tail_slack_share * sum(ES95 - q95)":
-        raise EvidenceError("reserve calibration audit has not been accepted")
-    _audit_number(
+        raise EvidenceError(
+            "reserve calibration input must be the canonical unaccepted candidate"
+        )
+    rate = _audit_number(
         normalized.get("rate_per_person_year"),
         "reserve calibration rate_per_person_year",
         low=1e-300,
     )
-    _audit_number(
+    grid = _audit_number(
         normalized.get("rate_grid"), "reserve calibration rate_grid", low=1e-300
     )
-    _audit_number(
+    slack = _audit_number(
         normalized.get("tail_slack_share"),
         "reserve calibration tail_slack_share",
         low=0.0,
         high=1.0,
     )
+    if grid != 1.0 or slack != 0.25:
+        raise EvidenceError(
+            "reserve calibration must use RATE_GRID=1.0 and TAIL_SLACK_SHARE=0.25"
+        )
     rows = normalized.get("evidence")
     if not isinstance(rows, list) or len(rows) != REFERENCE_REPORT_COUNT:
         raise EvidenceError("reserve calibration audit needs all 18 reference reports")
@@ -930,9 +1308,11 @@ def _validate_reserve_calibration_audit(
         (row["reference_line"], row["world"]): row for row in references
     }
     observed: dict[tuple[str, str], Mapping[str, Any]] = {}
+    required_rates: list[float] = []
+    rounding_units: set[float] = set()
     for row in rows:
-        if not isinstance(row, Mapping):
-            raise EvidenceError("reserve calibration evidence row is not an object")
+        if not isinstance(row, Mapping) or set(row) != RESERVE_CALIBRATION_EVIDENCE_KEYS:
+            raise EvidenceError("reserve calibration candidate evidence fields differ")
         line = _identifier(
             row.get("reference_line"), "reserve calibration reference_line"
         )
@@ -945,6 +1325,24 @@ def _validate_reserve_calibration_audit(
         reference = expected[key]
         if row.get("evidence_id") != reference["evidence_id"]:
             raise EvidenceError("reserve calibration evidence id differs")
+        experience_digest = _sha256(
+            row.get("experience_sha256"),
+            "reserve calibration experience_sha256",
+        )
+        reserve_digest = _sha256(
+            row.get("reserve_submission_sha256"),
+            "reserve calibration reserve_submission_sha256",
+        )
+        exposure = _audit_number(
+            row.get("exposure_person_years"),
+            "reserve calibration exposure_person_years",
+            low=1e-300,
+        )
+        rounding_unit = _audit_number(
+            row.get("rounding_unit"),
+            "reserve calibration rounding_unit",
+            low=1e-300,
+        )
         q95_sum = _audit_number(
             row.get("submitted_q95_sum"), "reserve calibration submitted_q95_sum"
         )
@@ -965,32 +1363,263 @@ def _validate_reserve_calibration_audit(
             row.get("candidate_reserve_total"),
             "reserve calibration candidate_reserve_total",
         )
-        target = q95_sum + float(normalized["tail_slack_share"]) * (
-            es95_sum - q95_sum
+        target = q95_sum + slack * (es95_sum - q95_sum)
+        recorded_target = _audit_number(
+            row.get("target_reserve_before_rounding"),
+            "reserve calibration target_reserve_before_rounding",
         )
+        required_rate = _audit_number(
+            row.get("required_rate"), "reserve calibration required_rate"
+        )
+        reference_total = reference["reserve_q95_feasibility"]["reserve_total"]
+        reserve_rule = _reserve_rule_evidence(reference["report"])
+        tail_evidence = _reserve_tail_evidence(reference["report"])
         if es95_sum < q95_sum \
                 or candidate_total + 1e-9 < q95_sum \
                 or margin < 0.0 \
+                or experience_digest != reserve_rule["experience_sha256"] \
+                or reserve_digest != tail_evidence["reserve_submission_sha256"] \
+                or not math.isclose(
+                    q95_sum, tail_evidence["q95_sum"],
+                    rel_tol=1e-12, abs_tol=1e-9,
+                ) \
+                or not math.isclose(
+                    es95_sum, tail_evidence["es95_sum"],
+                    rel_tol=1e-12, abs_tol=1e-9,
+                ) \
+                or not math.isclose(
+                    exposure, reserve_rule["exposure_person_years"],
+                    rel_tol=1e-12, abs_tol=1e-9,
+                ) \
+                or not math.isclose(
+                    rate, reserve_rule["rate_per_person_year"],
+                    rel_tol=1e-12, abs_tol=1e-12,
+                ) \
+                or not math.isclose(
+                    rounding_unit, reserve_rule["rounding_unit"],
+                    rel_tol=1e-12, abs_tol=1e-12,
+                ) \
+                or not math.isclose(
+                    recorded_target, target, rel_tol=1e-12, abs_tol=1e-9
+                ) \
+                or not math.isclose(
+                    required_rate, target / exposure, rel_tol=1e-12, abs_tol=1e-12
+                ) \
+                or not math.isclose(
+                    candidate_total,
+                    _public_reserve_total(exposure, rate, rounding_unit),
+                    rel_tol=1e-12,
+                    abs_tol=1e-9,
+                ) \
+                or not math.isclose(
+                    candidate_total, reference_total, rel_tol=1e-12, abs_tol=1e-9
+                ) \
+                or not math.isclose(
+                    candidate_total, reserve_rule["reserve_total"],
+                    rel_tol=1e-12, abs_tol=1e-9,
+                ) \
                 or not math.isclose(
                     margin, candidate_total - target, rel_tol=1e-12, abs_tol=1e-9
                 ):
             raise EvidenceError("reserve calibration candidate is infeasible")
         observed[key] = row
+        required_rates.append(required_rate)
+        rounding_units.add(rounding_unit)
     if set(observed) != set(expected):
         raise EvidenceError("reserve calibration evidence pairs are incomplete")
+    if len(rounding_units) != 1:
+        raise EvidenceError(
+            "qualification reference reports do not share one reserve rounding unit"
+        )
+    expected_rate = math.ceil(max(required_rates) / grid) * grid
+    if not math.isclose(rate, expected_rate, rel_tol=1e-12, abs_tol=1e-12):
+        raise EvidenceError(
+            "reserve calibration rate is not the smallest registered feasible rate"
+        )
+
+    reserve_ceilings = {
+        component: gates["reserve_skill"]["components"][component]["value"]
+        for component in GATE_COMPONENTS["reserve_skill"]
+    }
+    failed_references = [
+        f"{row['reference_line']}/{row['world']}"
+        for row in references
+        if any(
+            row["metrics"]["reserve_skill"][component] > reserve_ceilings[component]
+            for component in GATE_COMPONENTS["reserve_skill"]
+        )
+    ]
+    if failed_references:
+        raise EvidenceError(
+            "reserve calibration remains blocked because final references fail "
+            "reserve_skill: " + ", ".join(failed_references)
+        )
+    proportional = sorted(
+        (row for row in controls if row["control"] == "proportional_reserve"),
+        key=lambda row: row["world"],
+    )
+    if len(proportional) != len(QUALIFICATION_WORLDS) \
+            or [row["world"] for row in proportional] != list(QUALIFICATION_WORLDS):
+        raise EvidenceError(
+            "reserve calibration needs one proportional_reserve report per world"
+        )
+    hard_invalid_proportional = [
+        row["world"] for row in proportional if row["hard_pass"] is not True
+    ]
+    if hard_invalid_proportional:
+        raise EvidenceError(
+            "reserve calibration remains blocked because proportional_reserve is "
+            "hard-invalid: " + ", ".join(hard_invalid_proportional)
+        )
+    passed_proportional = [
+        row["world"] for row in proportional
+        if all(
+            row["metrics"]["reserve_skill"][component] <= reserve_ceilings[component]
+            for component in GATE_COMPONENTS["reserve_skill"]
+        )
+    ]
+    if passed_proportional:
+        raise EvidenceError(
+            "reserve calibration remains blocked because proportional_reserve passes "
+            "reserve_skill: " + ", ".join(passed_proportional)
+        )
+
     return normalized
 
 
-def _validate_reserve_red_team_audit(
-    audit: Mapping[str, Any] | None,
+def _promote_reserve_calibration_candidate(
+    candidate: Mapping[str, Any],
+    references: Sequence[Mapping[str, Any]],
+    controls: Sequence[Mapping[str, Any]],
+    gates: Mapping[str, Any],
     measurement_contract_digest: str,
+    red_team: Mapping[str, Any],
 ) -> dict[str, Any]:
-    normalized = _digest_bound_audit(
-        audit,
-        schema=RESERVE_RED_TEAM_SCHEMA,
-        label="reserve red-team audit",
-        measurement_contract_digest=measurement_contract_digest,
+    candidate_digest = _canonical_digest(candidate)
+    ceilings = {
+        component: gates["reserve_skill"]["components"][component]["value"]
+        for component in GATE_COMPONENTS["reserve_skill"]
+    }
+    proportional = sorted(
+        (row for row in controls if row["control"] == "proportional_reserve"),
+        key=lambda row: row["world"],
     )
+    promoted = dict(candidate)
+    promoted.update({
+        "accepted": True,
+        "blockers": [],
+        "candidate_source_digest_sha256": candidate_digest,
+        "measurement_contract_digest_sha256": measurement_contract_digest,
+        "acceptance_evidence": {
+            "reserve_skill_component_ceilings": ceilings,
+            "reference_evidence_ids": sorted(
+                row["evidence_id"] for row in references
+            ),
+            "proportional_reserve_evidence_ids": sorted(
+                row["evidence_id"] for row in proportional
+            ),
+            "red_team_audit_digest_sha256": red_team["digest_sha256"],
+        },
+    })
+    promoted["digest_sha256"] = _canonical_digest(promoted)
+    return promoted
+
+
+def _red_team_r2(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or not math.isfinite(float(value)) or float(value) > 1.0:
+        raise EvidenceError(f"{label} must be finite and no greater than one")
+    return float(value)
+
+
+def _validate_red_team_headline(value: Any, label: str) -> None:
+    if not isinstance(value, Mapping) or set(value) != {"q95", "es95", "headline_max"}:
+        raise EvidenceError(f"{label} fields differ")
+    q95 = _red_team_r2(value.get("q95"), f"{label} q95")
+    es95 = _red_team_r2(value.get("es95"), f"{label} ES95")
+    headline = _red_team_r2(value.get("headline_max"), f"{label} headline")
+    if not math.isclose(headline, max(q95, es95), rel_tol=1e-12, abs_tol=1e-15):
+        raise EvidenceError(f"{label} headline does not recompute")
+
+
+def _validate_red_team_models(value: Any, regions: int, label: str) -> None:
+    if not isinstance(value, Mapping) or set(value) != {"q95", "es95"}:
+        raise EvidenceError(f"{label} model groups differ")
+    for outcome in ("q95", "es95"):
+        rows = value.get(outcome)
+        if not isinstance(rows, list) or len(rows) != regions:
+            raise EvidenceError(f"{label} {outcome} model count differs")
+        for index, row in enumerate(rows):
+            if not isinstance(row, Mapping) or set(row) != {
+                "region", "intercept", "reserve_total_coefficient"
+            } or row.get("region") != index:
+                raise EvidenceError(f"{label} {outcome} model fields differ")
+            for field in ("intercept", "reserve_total_coefficient"):
+                number = row.get(field)
+                if isinstance(number, bool) or not isinstance(number, (int, float)) \
+                        or not math.isfinite(float(number)):
+                    raise EvidenceError(f"{label} {outcome} model is non-finite")
+
+
+def _expected_red_team_inputs(
+    entries: Sequence[Mapping[str, Any]], worlds: Sequence[str], label: str
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for world in worlds:
+        candidates = {
+            _canonical_digest(row["binding"]["packet_input_sha256"]):
+            row["binding"]["packet_input_sha256"]
+            for row in entries if row["world"] == world
+        }
+        if len(candidates) != 1:
+            raise EvidenceError(
+                f"{label} {world} reports do not bind one common packet input"
+            )
+        result.append({
+            "world": world,
+            "file_sha256": next(iter(candidates.values())),
+        })
+    return result
+
+
+def _expected_public_reserve_quantities(
+    entries: Sequence[Mapping[str, Any]], worlds: Sequence[str], label: str
+) -> list[dict[str, Any]]:
+    """Recover one verifier-computed public reserve rule per world."""
+
+    result: list[dict[str, Any]] = []
+    for world in worlds:
+        candidates = {
+            _canonical_digest(receipt): receipt
+            for row in entries if row["world"] == world
+            for receipt in [_reserve_rule_evidence(row["report"])]
+        }
+        if len(candidates) != 1:
+            raise EvidenceError(
+                f"{label} {world} reports do not bind one public reserve rule"
+            )
+        receipt = next(iter(candidates.values()))
+        result.append({
+            "world": world,
+            "latest_year_total_exposure": receipt["exposure_person_years"],
+            "reserve_total": receipt["reserve_total"],
+        })
+    return result
+
+
+def _validate_reserve_red_team_measurement(
+    audit: Mapping[str, Any] | None,
+    references: Sequence[Mapping[str, Any]],
+    diagnostics: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(audit, Mapping) or audit.get("schema") != RESERVE_RED_TEAM_SCHEMA:
+        raise EvidenceError(f"a complete {RESERVE_RED_TEAM_SCHEMA} measurement is required")
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("reserve red-team measurement must be finite JSON") from exc
+    if set(normalized) != RESERVE_RED_TEAM_MEASUREMENT_KEYS:
+        raise EvidenceError("reserve red-team measurement fields differ")
     if normalized.get("independent_unit") != "world" \
             or normalized.get("world_counts") \
             != {"development": 12, "qualification": 6, "total": 18} \
@@ -998,12 +1627,66 @@ def _validate_reserve_red_team_audit(
             or normalized.get("primary_measure") \
             != "qualification incremental regional R2 over development region means":
         raise EvidenceError("reserve red-team design differs from the registered measurement")
+    regions = normalized.get("regions_per_world")
+    if isinstance(regions, bool) or not isinstance(regions, int) or regions <= 0:
+        raise EvidenceError("reserve red-team regions_per_world must be positive")
+    if normalized.get("files_read_per_world") != [
+        "participant/contract.json",
+        "participant/experience_history.csv",
+        "retained/continuation_liabilities.npz:liability",
+    ]:
+        raise EvidenceError("reserve red-team file list differs")
+    if normalized.get("tail_definition") != {
+        "level": 0.95,
+        "quantile_rank": "ceil(level * members), one-indexed",
+        "expected_shortfall": (
+            "mean of all members at or above the quantile, ties included"
+        ),
+    }:
+        raise EvidenceError("reserve red-team tail definition differs")
+    if not isinstance(normalized.get("interpretation"), str) \
+            or not normalized["interpretation"].strip():
+        raise EvidenceError("reserve red-team interpretation is missing")
+
+    source = normalized.get("measurement_source")
+    source_path = Path(__file__).resolve().parents[1] / "scripts/red_team_reserve_total.py"
+    expected_source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    if not isinstance(source, Mapping) or set(source) != {"file", "sha256"} \
+            or source.get("file") != "scripts/red_team_reserve_total.py" \
+            or source.get("sha256") != expected_source_digest:
+        raise EvidenceError("reserve red-team measurement source differs")
+
+    bindings = normalized.get("input_bindings")
+    expected_bindings = {
+        "development": _expected_red_team_inputs(
+            diagnostics, DEVELOPMENT_WORLDS, "development"
+        ),
+        "qualification": _expected_red_team_inputs(
+            references, QUALIFICATION_WORLDS, "qualification"
+        ),
+    }
+    if not isinstance(bindings, Mapping) or set(bindings) != set(expected_bindings) \
+            or bindings != expected_bindings:
+        raise EvidenceError(
+            "reserve red-team packet inputs differ from authenticated verifier evidence"
+        )
+
     quantities = normalized.get("public_quantities")
-    if not isinstance(quantities, Mapping):
+    if not isinstance(quantities, Mapping) or set(quantities) != {
+        "development", "qualification"
+    }:
         raise EvidenceError("reserve red-team public quantities are missing")
     expected_names = {
         "development": list(DEVELOPMENT_WORLDS),
         "qualification": list(QUALIFICATION_WORLDS),
+    }
+    expected_quantities = {
+        "development": _expected_public_reserve_quantities(
+            diagnostics, DEVELOPMENT_WORLDS, "development"
+        ),
+        "qualification": _expected_public_reserve_quantities(
+            references, QUALIFICATION_WORLDS, "qualification"
+        ),
     }
     for regime, names in expected_names.items():
         rows = quantities.get(regime)
@@ -1013,6 +1696,10 @@ def _validate_reserve_red_team_audit(
                 or [row.get("world") for row in rows] != names:
             raise EvidenceError(f"reserve red-team {regime} worlds differ")
         for row in rows:
+            if set(row) != {
+                "world", "latest_year_total_exposure", "reserve_total"
+            }:
+                raise EvidenceError(f"reserve red-team {regime} quantity fields differ")
             _audit_number(
                 row.get("latest_year_total_exposure"),
                 f"reserve red-team {regime} exposure",
@@ -1020,25 +1707,93 @@ def _validate_reserve_red_team_audit(
             _audit_number(
                 row.get("reserve_total"), f"reserve red-team {regime} total"
             )
-    primary = normalized.get(
-        "qualification_incremental_regional_r2_over_region_means"
+        for observed, expected in zip(rows, expected_quantities[regime], strict=True):
+            if not math.isclose(
+                float(observed["latest_year_total_exposure"]),
+                float(expected["latest_year_total_exposure"]),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            ) or not math.isclose(
+                float(observed["reserve_total"]),
+                float(expected["reserve_total"]),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            ):
+                raise EvidenceError(
+                    f"reserve red-team {regime} public quantities differ from "
+                    "verifier evidence"
+                )
+    _validate_red_team_models(
+        normalized.get("development_regional_models"),
+        regions,
+        "reserve red-team development",
     )
-    if not isinstance(primary, Mapping):
-        raise EvidenceError("reserve red-team primary measurement is missing")
-    for field in ("q95", "es95", "headline_max"):
-        value = primary.get(field)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) \
-                or not math.isfinite(float(value)):
-            raise EvidenceError("reserve red-team primary measurement is non-finite")
-    expected_headline = max(float(primary["q95"]), float(primary["es95"]))
-    if not math.isclose(
-        float(primary["headline_max"]), expected_headline, rel_tol=1e-12, abs_tol=1e-15
-    ):
-        raise EvidenceError("reserve red-team headline does not recompute")
+    predictive = normalized.get("qualification_predictive_regional_r2")
+    if not isinstance(predictive, Mapping) or set(predictive) != {
+        "q95", "es95", "per_region"
+    }:
+        raise EvidenceError("reserve red-team predictive R2 fields differ")
+    _red_team_r2(predictive.get("q95"), "reserve red-team predictive q95")
+    _red_team_r2(predictive.get("es95"), "reserve red-team predictive ES95")
+    per_region = predictive.get("per_region")
+    if not isinstance(per_region, Mapping) or set(per_region) != {"q95", "es95"}:
+        raise EvidenceError("reserve red-team per-region R2 fields differ")
+    for outcome in ("q95", "es95"):
+        values = per_region.get(outcome)
+        if not isinstance(values, list) or len(values) != regions:
+            raise EvidenceError("reserve red-team per-region R2 count differs")
+        for value in values:
+            if value is not None:
+                _red_team_r2(value, "reserve red-team per-region R2")
+    _validate_red_team_headline(
+        normalized.get("qualification_incremental_regional_r2_over_region_means"),
+        "reserve red-team primary measurement",
+    )
+    descriptive = normalized.get("descriptive_pooled_regional_r2")
+    if not isinstance(descriptive, Mapping) or set(descriptive) != {
+        "q95", "es95", "headline_max", "models"
+    }:
+        raise EvidenceError("reserve red-team descriptive R2 fields differ")
+    _validate_red_team_headline(
+        {key: descriptive.get(key) for key in ("q95", "es95", "headline_max")},
+        "reserve red-team descriptive measurement",
+    )
+    _validate_red_team_models(
+        descriptive.get("models"), regions, "reserve red-team pooled"
+    )
+    aggregate = normalized.get("world_aggregate_tail_r2")
+    if not isinstance(aggregate, Mapping) or set(aggregate) != {
+        "qualification_predictive", "descriptive_pooled"
+    }:
+        raise EvidenceError("reserve red-team aggregate R2 fields differ")
+    for key in ("qualification_predictive", "descriptive_pooled"):
+        _validate_red_team_headline(
+            aggregate.get(key), f"reserve red-team aggregate {key}"
+        )
     return normalized
 
 
-def _validate_reserve_qualification_audit(
+def _bind_reserve_red_team_measurement(
+    measurement: Mapping[str, Any],
+    references: Sequence[Mapping[str, Any]],
+    diagnostics: Sequence[Mapping[str, Any]],
+    measurement_contract_digest: str,
+) -> dict[str, Any]:
+    bound = dict(measurement)
+    bound["measurement_contract_digest_sha256"] = measurement_contract_digest
+    bound["evidence_cross_binding"] = {
+        "qualification_reference_evidence_ids": sorted(
+            row["evidence_id"] for row in references
+        ),
+        "development_diagnostic_evidence_ids": sorted(
+            row["evidence_id"] for row in diagnostics
+        ),
+    }
+    bound["digest_sha256"] = _canonical_digest(bound)
+    return bound
+
+
+def _build_reserve_qualification_audit(
     audit: Mapping[str, Any] | None,
     references: Sequence[Mapping[str, Any]],
     controls: Sequence[Mapping[str, Any]],
@@ -1047,95 +1802,66 @@ def _validate_reserve_qualification_audit(
     calibration: Mapping[str, Any],
     red_team: Mapping[str, Any],
 ) -> dict[str, Any]:
-    normalized = _digest_bound_audit(
+    ceilings = {
+        component: gates["reserve_skill"]["components"][component]["value"]
+        for component in GATE_COMPONENTS["reserve_skill"]
+    }
+
+    def result_row(source: Mapping[str, Any], identity_field: str) -> dict[str, Any]:
+        receipt = source["reserve_q95_feasibility"]
+        return {
+            identity_field: source[identity_field],
+            "world": source["world"],
+            "evidence_id": source["evidence_id"],
+            "q95_feasible": receipt["feasible"],
+            "reserve_skill_pass": all(
+                source["metrics"]["reserve_skill"][component] <= ceilings[component]
+                for component in GATE_COMPONENTS["reserve_skill"]
+            ),
+            **{
+                field: receipt[field]
+                for field in (
+                    "q95_sum", "allocation_sum", "reserve_total",
+                    "total_minus_q95_sum",
+                )
+            },
+        }
+
+    proportional = sorted(
+        (row for row in controls if row["control"] == "proportional_reserve"),
+        key=lambda row: row["world"],
+    )
+    generated = {
+        "schema": RESERVE_QUALIFICATION_SCHEMA,
+        "measurement_contract_digest_sha256": measurement_contract_digest,
+        "reference_lines": list(REFERENCE_LINES),
+        "qualification_worlds": list(QUALIFICATION_WORLDS),
+        "calibration_audit_digest_sha256": calibration["digest_sha256"],
+        "red_team_audit_digest_sha256": red_team["digest_sha256"],
+        "reference_results": [
+            result_row(row, "reference_line")
+            for row in sorted(
+                references, key=lambda row: (row["reference_line"], row["world"])
+            )
+        ],
+        "proportional_reserve_results": [
+            result_row(row, "control") for row in proportional
+        ],
+    }
+    generated["digest_sha256"] = _canonical_digest(generated)
+    if audit is None:
+        return generated
+    supplied = _digest_bound_audit(
         audit,
         schema=RESERVE_QUALIFICATION_SCHEMA,
         label="reserve qualification audit",
         measurement_contract_digest=measurement_contract_digest,
     )
-    if normalized.get("reference_lines") != list(REFERENCE_LINES) \
-            or normalized.get("qualification_worlds") != list(QUALIFICATION_WORLDS) \
-            or normalized.get("calibration_audit_digest_sha256") \
-            != calibration["digest_sha256"] \
-            or normalized.get("red_team_audit_digest_sha256") \
-            != red_team["digest_sha256"]:
-        raise EvidenceError("reserve qualification audit binding differs")
-
-    def check_rows(
-        rows: Any,
-        expected: Mapping[tuple[str, str], Mapping[str, Any]],
-        *,
-        identity_field: str,
-        expected_skill_pass: bool,
-    ) -> None:
-        if not isinstance(rows, list) or len(rows) != len(expected):
-            raise EvidenceError("reserve qualification result count differs")
-        observed: set[tuple[str, str]] = set()
-        ceiling = gates["reserve_skill"]["components"]["skill_loss"]["value"]
-        expected_keys = {
-            identity_field, "world", "evidence_id", "q95_feasible",
-            "reserve_skill_pass", "q95_sum", "allocation_sum", "reserve_total",
-            "total_minus_q95_sum",
-        }
-        for row in rows:
-            if not isinstance(row, Mapping) or set(row) != expected_keys:
-                raise EvidenceError("reserve qualification result fields differ")
-            identity = _identifier(
-                row.get(identity_field),
-                f"reserve qualification {identity_field}",
-            )
-            world = _identifier(row.get("world"), "reserve qualification world")
-            if row.get(identity_field) != identity or row.get("world") != world:
-                raise EvidenceError("reserve qualification identities are not canonical")
-            key = (identity, world)
-            if key not in expected or key in observed:
-                raise EvidenceError("reserve qualification identities differ")
-            source = expected[key]
-            receipt = source["reserve_q95_feasibility"]
-            if row.get("evidence_id") != source["evidence_id"] \
-                    or row.get("q95_feasible") is not True \
-                    or row.get("reserve_skill_pass") is not expected_skill_pass:
-                raise EvidenceError("reserve qualification outcome differs")
-            for field in (
-                "q95_sum", "allocation_sum", "reserve_total", "total_minus_q95_sum"
-            ):
-                value = _audit_number(
-                    row.get(field), f"reserve qualification {field}"
-                )
-                if not math.isclose(
-                    value, float(receipt[field]), rel_tol=1e-12, abs_tol=1e-9
-                ):
-                    raise EvidenceError("reserve qualification feasibility value differs")
-            observed.add(key)
-            actual_skill_pass = (
-                source["metrics"]["reserve_skill"]["skill_loss"] <= ceiling
-            )
-            if actual_skill_pass is not expected_skill_pass:
-                raise EvidenceError("reserve qualification skill result differs from the bars")
-        if observed != set(expected):
-            raise EvidenceError("reserve qualification results are incomplete")
-
-    references_by_key = {
-        (row["reference_line"], row["world"]): row for row in references
-    }
-    proportional_by_key = {
-        (row["control"], row["world"]): row
-        for row in controls
-        if row["control"] == "proportional_reserve"
-    }
-    check_rows(
-        normalized.get("reference_results"),
-        references_by_key,
-        identity_field="reference_line",
-        expected_skill_pass=True,
-    )
-    check_rows(
-        normalized.get("proportional_reserve_results"),
-        proportional_by_key,
-        identity_field="control",
-        expected_skill_pass=False,
-    )
-    return normalized
+    if supplied != generated:
+        raise EvidenceError(
+            "supplied reserve qualification audit differs from the deterministic audit"
+        )
+    return supplied
 
 
 def _valid_shock_ranges(value: Any) -> bool:
@@ -1150,9 +1876,215 @@ def _valid_shock_ranges(value: Any) -> bool:
     )
 
 
+def _validate_mortality_identification_audit(
+    audit: Mapping[str, Any] | None,
+    references: Sequence[Mapping[str, Any]],
+    regime_audit: Mapping[str, Any],
+    worlds: Sequence[str],
+) -> dict[str, Any]:
+    """Validate measured P4 mortality evidence without frozen v9 world values."""
+
+    if not isinstance(audit, Mapping) \
+            or audit.get("schema") != MORTALITY_IDENTIFICATION_AUDIT_SCHEMA:
+        raise EvidenceError(
+            f"a complete {MORTALITY_IDENTIFICATION_AUDIT_SCHEMA} report is required"
+        )
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError("mortality identification audit must be finite JSON") from exc
+    recorded_digest = normalized.pop("digest_sha256", None)
+    if not isinstance(recorded_digest, str) \
+            or recorded_digest != _canonical_digest(normalized):
+        raise EvidenceError("mortality identification audit digest differs from its content")
+    if normalized.get("supports_gate") != "tail_calibration" \
+            or normalized.get("qualification_worlds") != list(worlds):
+        raise EvidenceError("mortality identification audit design differs from the freeze")
+    source = normalized.get("measurement_source")
+    source_path = Path(__file__).resolve().parents[1] / "meridia/methods/phase_three.py"
+    try:
+        source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise EvidenceError("mortality identification measurement source is unavailable") \
+            from exc
+    if not isinstance(source, Mapping) or set(source) != {"file", "sha256", "function"} \
+            or source.get("file") != "meridia/methods/phase_three.py" \
+            or source.get("function") != "mortality_gap_decomposition" \
+            or source.get("sha256") != source_digest:
+        raise EvidenceError("mortality identification measurement source differs")
+
+    regime_bindings = {
+        row.get("world"): row
+        for row in regime_audit.get("world_bindings", [])
+        if isinstance(row, Mapping)
+    }
+    reference_by_world: defaultdict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for reference in references:
+        reference_by_world[reference["world"]].append(reference)
+    rows = normalized.get("worlds")
+    if not isinstance(rows, list) or len(rows) != len(worlds) \
+            or [row.get("world") for row in rows if isinstance(row, Mapping)] != list(worlds):
+        raise EvidenceError("mortality identification audit needs qual-0 through qual-5")
+    decomposition_fields = {
+        "hidden_mortality_improvement",
+        "trend_active_during_public_experience_window",
+        "trend_starts_only_after_public_window",
+        "trend_application",
+        "history_mortality_rate",
+        "horizon_mortality_rate",
+        "observed_horizon_to_history_ratio",
+        "trend_only_horizon_to_history_ratio",
+        "residual_observed_to_trend_ratio",
+        "publication_lag_months",
+        "last_exposure_midpoint_to_snapshot_months",
+        "publication_lag_trend_factor",
+        "last_exposure_midpoint_to_snapshot_trend_factor",
+        "history_mortality_shock_years",
+        "lag_mortality_shock_years",
+        "designated_horizon_mortality_shock_years",
+        "continuation_shocks_redrawn_per_member",
+    }
+    decompositions = {}
+    for row in rows:
+        if not isinstance(row, Mapping) or set(row) != {
+            "world", "packet_manifest_digest_sha256", "packet_input_sha256",
+            "reference_evidence_ids", "shock_redraw_evidence", "decomposition",
+        }:
+            raise EvidenceError("mortality identification world binding is invalid")
+        world = row["world"]
+        regime_binding = regime_bindings.get(world)
+        if not isinstance(regime_binding, Mapping) \
+                or row.get("packet_manifest_digest_sha256") \
+                != regime_binding.get("packet_manifest_digest_sha256"):
+            raise EvidenceError(f"{world}: mortality audit packet manifest is not cross-bound")
+        inputs = row.get("packet_input_sha256")
+        if not isinstance(inputs, Mapping) or set(inputs) != set(RED_TEAM_INPUT_FILES) \
+                or any(not isinstance(value, str) or len(value) != 64
+                       or any(character not in "0123456789abcdef" for character in value)
+                       for value in inputs.values()):
+            raise EvidenceError(f"{world}: mortality audit packet inputs are invalid")
+        references_for_world = reference_by_world[world]
+        expected_ids = {
+            reference["reference_line"]: reference["evidence_id"]
+            for reference in references_for_world
+        }
+        if row.get("reference_evidence_ids") != expected_ids:
+            raise EvidenceError(f"{world}: mortality audit reference IDs differ")
+        if any(reference["binding"]["packet_input_sha256"] != inputs
+               for reference in references_for_world):
+            raise EvidenceError(f"{world}: mortality audit packet inputs are not cross-bound")
+        shock = row.get("shock_redraw_evidence")
+        try:
+            from meridia.packet import _validate_shock_redraw_evidence
+
+            runtime = _validate_shock_redraw_evidence(
+                shock.get("runtime_evidence") if isinstance(shock, Mapping) else None
+            )
+        except (ImportError, TypeError, ValueError) as exc:
+            raise EvidenceError(f"{world}: mortality shock redraw evidence is invalid") \
+                from exc
+        if not isinstance(shock, Mapping) or set(shock) != {
+            "schema", "runtime_evidence_file_sha256", "liability_archive_sha256",
+            "runtime_evidence",
+        } or shock.get("schema") != SHOCK_REDRAW_REPORT_SCHEMA \
+                or shock.get("liability_archive_sha256") \
+                != inputs["retained/continuation_liabilities.npz"] \
+                or any(
+                    reference["binding"][
+                        "continuation_shock_redraw_evidence_digest_sha256"
+                    ] != _canonical_digest(shock)
+                    or reference["binding"]["continuation_shock_redraw_file_sha256"]
+                    != shock.get("runtime_evidence_file_sha256")
+                    or reference["binding"]["continuation_source_law_sha256"]
+                    != runtime["continuation_source_law_sha256"]
+                    for reference in references_for_world
+                ) \
+                or runtime["redrawn_member_count"] != runtime["member_count"] \
+                or runtime["distinct_future_schedule_count"] <= 1 \
+                or not 0 < runtime["future_shock_year_count"] \
+                < runtime["future_year_opportunity_count"] \
+                or runtime["future_mortality_spike_year_count"] <= 0:
+            raise EvidenceError(
+                f"{world}: mortality shock redraw evidence is not cross-bound"
+            )
+        decomposition = row.get("decomposition")
+        if not isinstance(decomposition, Mapping) or set(decomposition) != decomposition_fields:
+            raise EvidenceError(f"{world}: mortality decomposition fields differ")
+        _audit_number(
+            decomposition.get("hidden_mortality_improvement"),
+            f"{world}: hidden_mortality_improvement",
+            low=-1.0,
+            high=1.0,
+        )
+        for field in (
+            "history_mortality_rate",
+            "horizon_mortality_rate", "observed_horizon_to_history_ratio",
+            "trend_only_horizon_to_history_ratio",
+            "residual_observed_to_trend_ratio", "publication_lag_trend_factor",
+            "last_exposure_midpoint_to_snapshot_trend_factor",
+        ):
+            _audit_number(decomposition.get(field), f"{world}: {field}")
+        if decomposition.get("trend_active_during_public_experience_window") is not True \
+                or decomposition.get("trend_starts_only_after_public_window") is not False \
+                or decomposition.get("trend_application") \
+                != "all event months relative to the snapshot tick" \
+                or decomposition.get("publication_lag_months") != 12 \
+                or decomposition.get("last_exposure_midpoint_to_snapshot_months") != 18 \
+                or decomposition.get("continuation_shocks_redrawn_per_member") is not True:
+            raise EvidenceError(f"{world}: mortality timing evidence differs")
+        for field in (
+            "history_mortality_shock_years", "lag_mortality_shock_years",
+            "designated_horizon_mortality_shock_years",
+        ):
+            years = decomposition.get(field)
+            if not isinstance(years, list) \
+                    or any(isinstance(year, bool) or not isinstance(year, int)
+                           or year < 0 for year in years) \
+                    or len(years) != len(set(years)):
+                raise EvidenceError(f"{world}: mortality shock years are invalid")
+        decompositions[world] = decomposition
+
+    summary = normalized.get("summary")
+    if not isinstance(summary, Mapping) or set(summary) != {
+        "trend_active_during_public_experience_window",
+        "trend_starts_only_after_publication",
+        "publication_lag_months",
+        "publication_lag_trend_effect_percent_range",
+        "shock_annual_probability",
+        "continuation_shocks_redrawn_per_member",
+    }:
+        raise EvidenceError("mortality identification summary fields differ")
+    lag_effects = [
+        100.0 * (float(row["publication_lag_trend_factor"]) - 1.0)
+        for row in decompositions.values()
+    ]
+    observed_range = summary.get("publication_lag_trend_effect_percent_range")
+    if not isinstance(observed_range, list) or len(observed_range) != 2:
+        raise EvidenceError("mortality identification lag-effect range is invalid")
+    observed_range_values = [
+        _audit_number(value, "mortality identification lag-effect range", low=-1e9)
+        for value in observed_range
+    ]
+    if summary.get("trend_active_during_public_experience_window") is not True \
+            or summary.get("trend_starts_only_after_publication") is not False \
+            or summary.get("publication_lag_months") != [12] \
+            or not all(math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
+                       for actual, expected in zip(
+                           observed_range_values,
+                           [min(lag_effects), max(lag_effects)],
+                           strict=True,
+                       )) \
+            or summary.get("shock_annual_probability") != 0.20 \
+            or summary.get("continuation_shocks_redrawn_per_member") is not True:
+        raise EvidenceError("mortality identification summary does not recompute")
+    normalized["digest_sha256"] = recorded_digest
+    return normalized
+
+
 def _validate_elder_audit(audit: Mapping[str, Any] | None,
                           references: Sequence[Mapping[str, Any]],
-                          lines: Sequence[str], worlds: Sequence[str]) -> dict[str, Any]:
+                          lines: Sequence[str], worlds: Sequence[str],
+                          mortality_audit: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(audit, Mapping) or audit.get("schema") != ELDER_AUDIT_SCHEMA:
         raise EvidenceError(f"a complete {ELDER_AUDIT_SCHEMA} report is required")
     try:
@@ -1177,6 +2109,8 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
         raise EvidenceError("elder audit git_commit must be a hexadecimal commit id")
     if before_line not in lines or after_line not in lines or before_line == after_line:
         raise EvidenceError("elder audit lines are absent from the reference design")
+    if before_line != "A" or after_line != "C":
+        raise EvidenceError("elder audit must compare reference line A with elder line C")
     after_digests = {
         row["binding"]["method_digest_sha256"] for row in references
         if row["reference_line"] == after_line
@@ -1208,6 +2142,9 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
     reference_by_key = {
         (row["reference_line"], row["world"]): row for row in references
     }
+    mortality_by_world = {
+        row["world"]: row["decomposition"] for row in mortality_audit["worlds"]
+    }
     before_errors: list[float] = []
     after_errors: list[float] = []
     for row in rows:
@@ -1223,6 +2160,18 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
             raise EvidenceError(f"{world}: elder exposure error definition differs")
         before_error = _audit_number(exposure.get("before"), f"{world}: before exposure error")
         after_error = _audit_number(exposure.get("after"), f"{world}: after exposure error")
+        before_elder = before_reference["binding"].get("elder_reference_evidence")
+        after_elder = after_reference["binding"].get("elder_reference_evidence")
+        if not isinstance(before_elder, Mapping) or not isinstance(after_elder, Mapping):
+            raise EvidenceError(f"{world}: elder audit lacks authenticated reference detail")
+        before_states = {
+            item["state"]: item
+            for item in before_elder["state_65_plus_person_years"]
+        }
+        after_states = {
+            item["state"]: item
+            for item in after_elder["state_65_plus_person_years"]
+        }
         state_rows = row.get("state_65_plus_person_years")
         if not isinstance(state_rows, list) or len(state_rows) != 6 \
                 or {item.get("state") for item in state_rows
@@ -1232,11 +2181,30 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
         before_numerator = 0.0
         after_numerator = 0.0
         for item in state_rows:
+            state = item.get("state")
             sealed = _audit_number(item.get("sealed"), f"{world}: sealed exposure")
             submitted_before = _audit_number(
                 item.get("submitted_before"), f"{world}: before exposure")
             submitted_after = _audit_number(
                 item.get("submitted_after"), f"{world}: after exposure")
+            expected_before = before_states[state]
+            expected_after = after_states[state]
+            if not math.isclose(
+                sealed, expected_before["sealed_person_years"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                sealed, expected_after["sealed_person_years"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                submitted_before, expected_before["submitted_person_years"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                submitted_after, expected_after["submitted_person_years"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ):
+                raise EvidenceError(
+                    f"{world}: elder exposure values differ from authenticated reports"
+                )
             denominator += sealed
             before_numerator += abs(submitted_before - sealed)
             after_numerator += abs(submitted_after - sealed)
@@ -1251,9 +2219,36 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
                 or {item.get("region") for item in liability
                     if isinstance(item, Mapping)} != set(range(6)):
             raise EvidenceError(f"{world}: liability mean rows are incomplete")
+        before_liability = {
+            item["region"]: item
+            for item in before_elder["liability_mean_by_region"]
+        }
+        after_liability = {
+            item["region"]: item
+            for item in after_elder["liability_mean_by_region"]
+        }
         for item in liability:
             for field in ("submitted_before", "submitted_after", "sealed"):
                 _audit_number(item.get(field), f"{world}: liability {field}")
+            region = item.get("region")
+            expected_before = before_liability[region]
+            expected_after = after_liability[region]
+            if not math.isclose(
+                item["sealed"], expected_before["sealed"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                item["sealed"], expected_after["sealed"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                item["submitted_before"], expected_before["submitted"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ) or not math.isclose(
+                item["submitted_after"], expected_after["submitted"],
+                rel_tol=1e-12, abs_tol=1e-9,
+            ):
+                raise EvidenceError(
+                    f"{world}: liability values differ from authenticated reports"
+                )
         exceedance = row.get("pooled_exceedance_deviation")
         if not isinstance(exceedance, Mapping) \
                 or exceedance.get("definition") != POOLED_EXCEEDANCE_DEFINITION:
@@ -1275,41 +2270,11 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
         decomposition = row.get("mortality_gap_decomposition")
         if not isinstance(decomposition, Mapping):
             raise EvidenceError(f"{world}: mortality decomposition is missing")
-        for field in ("history_mortality_rate", "horizon_mortality_rate"):
-            _audit_number(decomposition.get(field), f"{world}: {field}", low=0.0)
-        expected_decomposition = MORTALITY_IDENTIFICATION_BASE["per_world"][world]
-        rounded_checks = (
-            ("observed_horizon_to_history_ratio", "horizon_history_ratio", 3),
-            ("trend_only_horizon_to_history_ratio", "trend_only_ratio", 3),
-            ("residual_observed_to_trend_ratio", "residual_ratio", 3),
-            ("publication_lag_trend_factor", "lag_trend_factor", 4),
-        )
-        for actual_field, expected_field, digits in rounded_checks:
-            actual = _audit_number(
-                decomposition.get(actual_field), f"{world}: {actual_field}", low=0.0)
-            if round(actual, digits) != round(
-                float(expected_decomposition[expected_field]), digits
-            ):
-                raise EvidenceError(f"{world}: mortality decomposition differs")
-        if decomposition.get("trend_active_during_public_experience_window") is not True \
-                or decomposition.get("trend_starts_only_after_public_window") is not False \
-                or decomposition.get("publication_lag_months") != 12 \
-                or decomposition.get("last_exposure_midpoint_to_snapshot_months") != 18 \
-                or decomposition.get("continuation_shocks_redrawn_per_member") is not True:
-            raise EvidenceError(f"{world}: mortality timing evidence differs")
-        shock_fields = (
-            ("history_mortality_shock_years", "history"),
-            ("lag_mortality_shock_years", "lag"),
-            ("designated_horizon_mortality_shock_years", "horizon"),
-        )
-        for field, expected_field in shock_fields:
-            years = decomposition.get(field)
-            if not isinstance(years, list) or len(years) \
-                    != expected_decomposition["mortality_spike_years"][expected_field] \
-                    or len(years) != len(set(years)) \
-                    or any(isinstance(year, bool) or not isinstance(year, int)
-                           for year in years):
-                raise EvidenceError(f"{world}: mortality shock years are invalid")
+        if _canonical_digest(decomposition) \
+                != _canonical_digest(mortality_by_world.get(world)):
+            raise EvidenceError(
+                f"{world}: elder mortality decomposition differs from measured P4 evidence"
+            )
         before_errors.append(before_error)
         after_errors.append(after_error)
     if statistics.median(after_errors) >= 10.0:
@@ -1336,6 +2301,51 @@ def _validate_regime_identifiability_audit(
             raise EvidenceError(f"{label} must be in [-1, 1]")
         return number
 
+    def observed_ranges(value: Any, label: str) -> dict[str, list[float]]:
+        if not isinstance(value, Mapping) \
+                or set(value) != {"pooled", "development", "hidden"}:
+            raise EvidenceError(
+                f"{label} must contain pooled, development, and hidden ranges"
+            )
+        ranges: dict[str, list[float]] = {}
+        for family in ("pooled", "development", "hidden"):
+            pair = value[family]
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise EvidenceError(f"{label} {family} range must contain two values")
+            low = _audit_number(
+                pair[0], f"{label} {family} minimum", low=-math.inf
+            )
+            high = _audit_number(
+                pair[1], f"{label} {family} maximum", low=-math.inf
+            )
+            if low > high:
+                raise EvidenceError(f"{label} {family} range is reversed")
+            ranges[family] = [low, high]
+        union = [
+            min(ranges["development"][0], ranges["hidden"][0]),
+            max(ranges["development"][1], ranges["hidden"][1]),
+        ]
+        if ranges["pooled"] != union:
+            raise EvidenceError(
+                f"{label} pooled range is not the union of its two regimes"
+            )
+        return ranges
+
+    def require_inside(
+        observed: list[float],
+        envelope: tuple[float, float],
+        label: str,
+    ) -> None:
+        tolerance = 1e-12
+        if not (
+            envelope[0] - tolerance <= observed[0] <= observed[1]
+            <= envelope[1] + tolerance
+        ):
+            raise EvidenceError(
+                f"{label} {observed} lies outside registered envelope "
+                f"{list(envelope)}"
+            )
+
     if not isinstance(audit, Mapping) \
             or audit.get("schema") != REGIME_IDENTIFIABILITY_SCHEMA:
         raise EvidenceError(f"a complete {REGIME_IDENTIFIABILITY_SCHEMA} report is required")
@@ -1343,6 +2353,12 @@ def _validate_regime_identifiability_audit(
         normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
     except (TypeError, ValueError) as exc:
         raise EvidenceError("regime identifiability audit must be finite JSON") from exc
+    if set(normalized) != {
+        "schema", "anchor_correlation_threshold", "world_count", "world_bindings",
+        "measurement_rows_digest_sha256", "generator_source_digest_sha256",
+        "generator_policy", "axes", "digest_sha256",
+    }:
+        raise EvidenceError("regime identifiability audit fields differ from schema v2")
     recorded_digest = normalized.pop("digest_sha256", None)
     if not isinstance(recorded_digest, str) \
             or recorded_digest != _canonical_digest(normalized):
@@ -1354,6 +2370,19 @@ def _validate_regime_identifiability_audit(
             or not _sha256(normalized.get("generator_source_digest_sha256"),
                            "generator_source_digest_sha256"):
         raise EvidenceError("regime identifiability audit design differs from the freeze")
+    source_root = Path(__file__).resolve().parents[1]
+    try:
+        expected_source_digest = _canonical_digest([
+            {
+                "path": relative,
+                "sha256": hashlib.sha256((source_root / relative).read_bytes()).hexdigest(),
+            }
+            for relative in IDENTIFIABILITY_SOURCE_FILES
+        ])
+    except OSError as exc:
+        raise EvidenceError("identifiability generator source is unavailable") from exc
+    if normalized.get("generator_source_digest_sha256") != expected_source_digest:
+        raise EvidenceError("identifiability generator source digest differs")
     bindings = normalized.get("world_bindings")
     expected_worlds = {
         **{f"dev-{index:02d}": "development" for index in range(12)},
@@ -1363,7 +2392,10 @@ def _validate_regime_identifiability_audit(
         raise EvidenceError("regime identifiability audit needs twelve development and six qualification worlds")
     seen: dict[str, str] = {}
     for binding in bindings:
-        if not isinstance(binding, Mapping):
+        if not isinstance(binding, Mapping) or set(binding) != {
+            "world", "regime", "participant_digest_sha256",
+            "packet_manifest_digest_sha256",
+        }:
             raise EvidenceError("regime identifiability world bindings must be objects")
         world = _identifier(binding.get("world"), "identifiability world")
         regime = _identifier(binding.get("regime"), f"{world} regime")
@@ -1387,7 +2419,15 @@ def _validate_regime_identifiability_audit(
         raise EvidenceError("regime identifiability audit must contain all six axes")
     for axis in REGIME_AXES:
         record = axes[axis]
-        if not isinstance(record, Mapping):
+        if not isinstance(record, Mapping) or set(record) != {
+            "statistic", "expected_sign", "signed_rank_correlation",
+            "within_regime_signed_rank_correlation", "correlation_target",
+            "realized_mechanism_definition", "axis_intensity_range_observed",
+            "realized_mechanism_range_observed",
+            "registered_realized_mechanism_envelopes",
+            "anchor_correlation_qualified", "disposition", "development_range",
+            "hidden_generation_range", "hidden_out_of_band_allowed",
+        }:
             raise EvidenceError(f"{axis}: identifiability record must be an object")
         signed = correlation(
             record.get("signed_rank_correlation"),
@@ -1395,33 +2435,70 @@ def _validate_regime_identifiability_audit(
         )
         qualified = signed > ANCHOR_CORRELATION_THRESHOLD
         within = record.get("within_regime_signed_rank_correlation")
-        observed = record.get("intensity_range_observed")
         _identifier(record.get("statistic"), f"{axis}: statistic")
         if record.get("expected_sign") != REGIME_EXPECTED_SIGNS[axis] \
                 or not isinstance(within, Mapping) or set(within) != {"development", "hidden"} \
-                or not isinstance(observed, list) or len(observed) != 2 \
                 or record.get("anchor_correlation_qualified") is not qualified \
+                or record.get("correlation_target") != "realized_mechanism" \
+                or record.get("realized_mechanism_definition") \
+                != REALIZED_MECHANISM_DEFINITIONS[axis] \
                 or record.get("development_range") != list(DEVELOPMENT_AXIS_RANGES[axis]):
             raise EvidenceError(f"{axis}: identifiability measurement is invalid")
         for regime, value in within.items():
             correlation(value, f"{axis}: {regime} signed rank correlation")
-        observed_low = _audit_number(
-            observed[0], f"{axis}: observed intensity minimum",
-            low=PUBLIC_AXIS_RANGES[axis][0], high=PUBLIC_AXIS_RANGES[axis][1],
+        axis_intensity_ranges = observed_ranges(
+            record.get("axis_intensity_range_observed"),
+            f"{axis}: raw axis intensity",
         )
-        observed_high = _audit_number(
-            observed[1], f"{axis}: observed intensity maximum",
-            low=PUBLIC_AXIS_RANGES[axis][0], high=PUBLIC_AXIS_RANGES[axis][1],
+        realized_mechanism_ranges = observed_ranges(
+            record.get("realized_mechanism_range_observed"),
+            f"{axis}: realized mechanism",
         )
-        if observed_low > observed_high:
-            raise EvidenceError(f"{axis}: observed intensity range is reversed")
+        expected_realized_envelopes = {
+            family: list(bounds)
+            for family, bounds in REALIZED_MECHANISM_ENVELOPES[axis].items()
+        }
+        if record.get("registered_realized_mechanism_envelopes") \
+                != expected_realized_envelopes:
+            raise EvidenceError(
+                f"{axis}: realized mechanism envelopes differ from registration"
+            )
+        require_inside(
+            axis_intensity_ranges["development"],
+            DEVELOPMENT_AXIS_RANGES[axis],
+            f"{axis}: development raw axis intensity",
+        )
+        require_inside(
+            axis_intensity_ranges["pooled"],
+            PUBLIC_AXIS_RANGES[axis],
+            f"{axis}: pooled raw axis intensity",
+        )
+        require_inside(
+            realized_mechanism_ranges["development"],
+            REALIZED_MECHANISM_ENVELOPES[axis]["development"],
+            f"{axis}: development realized mechanism",
+        )
+        require_inside(
+            realized_mechanism_ranges["pooled"],
+            REALIZED_MECHANISM_ENVELOPES[axis]["public"],
+            f"{axis}: pooled realized mechanism",
+        )
         if axis in HIDDEN_IN_BAND_AXES:
             low, high = DEVELOPMENT_AXIS_RANGES[axis]
             if record.get("disposition") != "constrained_to_development_range" \
                     or record.get("hidden_out_of_band_allowed") is not False \
-                    or record.get("hidden_generation_range") != [low, high] \
-                    or not low <= observed_low <= observed_high <= high:
+                    or record.get("hidden_generation_range") != [low, high]:
                 raise EvidenceError(f"{axis}: unanchored axis is not held in range")
+            require_inside(
+                axis_intensity_ranges["hidden"],
+                DEVELOPMENT_AXIS_RANGES[axis],
+                f"{axis}: hidden raw axis intensity",
+            )
+            require_inside(
+                realized_mechanism_ranges["hidden"],
+                REALIZED_MECHANISM_ENVELOPES[axis]["development"],
+                f"{axis}: hidden realized mechanism",
+            )
         else:
             if not qualified \
                     or record.get("disposition") != "participant_anchor" \
@@ -1429,6 +2506,16 @@ def _validate_regime_identifiability_audit(
                     or record.get("hidden_generation_range") \
                     != list(PUBLIC_AXIS_RANGES[axis]):
                 raise EvidenceError(f"{axis}: extrapolated axis lacks a 0.4 participant trace")
+            require_inside(
+                axis_intensity_ranges["hidden"],
+                PUBLIC_AXIS_RANGES[axis],
+                f"{axis}: hidden raw axis intensity",
+            )
+            require_inside(
+                realized_mechanism_ranges["hidden"],
+                REALIZED_MECHANISM_ENVELOPES[axis]["public"],
+                f"{axis}: hidden realized mechanism",
+            )
     normalized["digest_sha256"] = recorded_digest
     return normalized
 
@@ -1641,17 +2728,12 @@ def _check_reference_design(references: list[dict[str, Any]],
             f"each reference-line and world pair needs exactly "
             f"{REPLICATES_PER_LINE_WORLD} paired deterministic replicates"
         )
-    if len(replicates) < MIN_P99_SAMPLE_COUNT:
+    per_line = per_pair * len(worlds)
+    if per_line < MIN_P99_SAMPLE_COUNT:
         raise EvidenceError(
-            f"at least {MIN_P99_SAMPLE_COUNT} balanced replicate reports are needed "
-            "to resolve an empirical one-percent tail"
-        )
-    loo_training_count = per_pair * len(lines) * (len(worlds) - 1)
-    if loo_training_count < MIN_P99_SAMPLE_COUNT:
-        raise EvidenceError(
-            f"each leave-one-world-out training fold needs at least "
-            f"{MIN_P99_SAMPLE_COUNT} balanced replicate reports; found "
-            f"{loo_training_count}"
+            f"each reference line needs at least {MIN_P99_SAMPLE_COUNT} independent "
+            f"replicate reports to resolve an empirical one-percent tail; found "
+            f"{per_line}"
         )
     for pair, rows in replicate_groups.items():
         ids = [row["replicate_id"] for row in rows]
@@ -1678,27 +2760,85 @@ def _calibrate_components(references: list[dict[str, Any]],
                           eligible_cells_by_world: Mapping[str, list[Any]],
                           eligibility_audit_by_world: Mapping[str, dict[str, Any]]) \
         -> dict[str, Any]:
+    """Calibrate each composite jointly, independently within each reference line.
+
+    Each metric is a dimensionless loss and has a frozen normalizer.  A replicate's gate
+    severity is the maximum normalized component loss.  The empirical p99 is taken over
+    the 102 independent reports for each line, then the largest of the three line p99s is
+    the common gate ceiling.  Thus no line is hidden by pooling and component multiplicity
+    cannot inflate the registered one-percent gate-level false-fail rate.
+    """
+
     gates: dict[str, Any] = {}
     for gate, components in GATE_COMPONENTS.items():
+        normalizers = GATE_COMPONENT_NORMALIZERS[gate]
+        line_rows: dict[str, list[dict[str, Any]]] = {
+            line: sorted(
+                (row for row in replicates if row["reference_line"] == line),
+                key=lambda row: (row["world"], row["replicate_id"]),
+            )
+            for line in lines
+        }
+        sample_count_per_line = len(worlds) * REPLICATES_PER_LINE_WORLD
+        if any(len(rows) != sample_count_per_line for rows in line_rows.values()):
+            raise EvidenceError(
+                f"{gate}: per-line replicate counts differ from the registered design"
+            )
+
+        severity_rows: dict[str, list[dict[str, Any]]] = {}
+        line_p99: dict[str, float] = {}
+        for line, rows in line_rows.items():
+            observed: list[dict[str, Any]] = []
+            for row in rows:
+                component_values = {
+                    component: row["metrics"][gate][component]
+                    for component in components
+                }
+                component_severities = {
+                    component: component_values[component] / normalizers[component]
+                    for component in components
+                }
+                observed.append({
+                    "reference_line": line,
+                    "world": row["world"],
+                    "replicate_id": row["replicate_id"],
+                    "evidence_id": row["evidence_id"],
+                    "component_values": component_values,
+                    "component_severities": component_severities,
+                    "severity": max(component_severities.values()),
+                })
+            severity_rows[line] = observed
+            line_p99[line] = empirical_p99([row["severity"] for row in observed])
+
+        severity_ceiling = max(line_p99.values())
+        rank = math.ceil(QUANTILE * sample_count_per_line)
+        line_calibration: dict[str, Any] = {}
+        for line in lines:
+            observed = severity_rows[line]
+            failed = sum(row["severity"] > severity_ceiling for row in observed)
+            evidence_ids = sorted(row["evidence_id"] for row in observed)
+            line_calibration[line] = {
+                "severity_p99": line_p99[line],
+                "sample_count": sample_count_per_line,
+                "order_statistic_rank": rank,
+                "false_fail_count": failed,
+                "false_fail_rate": failed / sample_count_per_line,
+                "quantile_witnesses": [
+                    row for row in observed if row["severity"] == line_p99[line]
+                ],
+                "replicate_evidence_ids": evidence_ids,
+                "replicate_evidence_digest_sha256": hashlib.sha256(
+                    "\n".join(evidence_ids).encode("utf-8")
+                ).hexdigest(),
+            }
+
         component_records: dict[str, Any] = {}
         for component in components:
-            values = [entry["metrics"][gate][component] for entry in replicates]
-            value = empirical_p99(values)
-            in_sample_exceedances = sum(observation > value for observation in values)
-            achieved_rate, achieved_count, held_out = _leave_one_world_out_component_rate(
-                replicates, gate, component, worlds
-            )
-            quantile_witnesses = [
-                {
-                    "reference_line": entry["reference_line"],
-                    "world": entry["world"],
-                    "replicate_id": entry["replicate_id"],
-                    "evidence_id": entry["evidence_id"],
-                    "value": entry["metrics"][gate][component],
-                }
-                for entry in replicates
-                if entry["metrics"][gate][component] == value
-            ]
+            normalizer = normalizers[component]
+            _, attainable_high = COMPONENT_RANGES[(gate, component)]
+            value = severity_ceiling * normalizer
+            if attainable_high is not None:
+                value = min(value, attainable_high)
             reference_witnesses = [
                 {
                     "reference_line": entry["reference_line"],
@@ -1719,20 +2859,57 @@ def _calibrate_components(references: list[dict[str, Any]],
                 "value": value,
                 "direction": "ceiling",
                 "range": list(COMPONENT_RANGES[(gate, component)]),
+                "normalizer": normalizer,
+                "calibration_method": "derived-from-joint-gate-max-severity",
                 "quantile": QUANTILE,
-                "order_statistic_rank": math.ceil(QUANTILE * len(values)),
                 "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
-                "achieved_false_fail_rate": achieved_rate,
-                "achieved_false_fail_count": achieved_count,
-                "achieved_rate_method": "leave-one-qualification-world-out",
-                "leave_one_world_out": held_out,
-                "in_sample_false_fail_rate": in_sample_exceedances / len(values),
-                "in_sample_false_fail_count": in_sample_exceedances,
-                "sample_count": len(values),
+                "sample_count": len(replicates),
+                "sample_count_per_reference_line": sample_count_per_line,
+                "order_statistic_rank_per_reference_line": rank,
                 "worlds": worlds,
                 "witnesses": lines,
                 "reference_witnesses": reference_witnesses,
-                "quantile_witnesses": quantile_witnesses,
+                "empirical_p99_by_reference_line": {
+                    line: empirical_p99([
+                        row["component_values"][component]
+                        for row in severity_rows[line]
+                    ])
+                    for line in lines
+                },
+                "observed_range_by_reference_line": {
+                    line: [
+                        min(row["component_values"][component]
+                            for row in severity_rows[line]),
+                        max(row["component_values"][component]
+                            for row in severity_rows[line]),
+                    ]
+                    for line in lines
+                },
+                "component_quantile_witnesses_by_reference_line": {
+                    line: [
+                        {
+                            "reference_line": row["reference_line"],
+                            "world": row["world"],
+                            "replicate_id": row["replicate_id"],
+                            "evidence_id": row["evidence_id"],
+                            "value": row["component_values"][component],
+                        }
+                        for row in severity_rows[line]
+                        if row["component_values"][component]
+                        == empirical_p99([
+                            item["component_values"][component]
+                            for item in severity_rows[line]
+                        ])
+                    ]
+                    for line in lines
+                },
+                "component_exceedance_rate_at_joint_ceiling_by_reference_line": {
+                    line: sum(
+                        row["component_values"][component] > value
+                        for row in severity_rows[line]
+                    ) / sample_count_per_line
+                    for line in lines
+                },
                 "supporting_controls": [],
                 "component_exceedance_controls": [],
                 "replicate_evidence_ids": evidence_ids,
@@ -1752,39 +2929,22 @@ def _calibrate_components(references: list[dict[str, Any]],
                     "band_audit_by_world": dict(eligibility_audit_by_world),
                 }
             component_records[component] = record
-        gates[gate] = {"components": component_records, "supporting_controls": []}
-    return gates
-
-
-def _leave_one_world_out_component_rate(
-    replicates: list[dict[str, Any]], gate: str, component: str, worlds: Sequence[str]
-) -> tuple[float, int, dict[str, Any]]:
-    """Evaluate each world's reports under a p99 learned without that world."""
-
-    failed = 0
-    tested = 0
-    records: dict[str, Any] = {}
-    for held_world in worlds:
-        training = [
-            row["metrics"][gate][component]
-            for row in replicates if row["world"] != held_world
-        ]
-        testing = [
-            row["metrics"][gate][component]
-            for row in replicates if row["world"] == held_world
-        ]
-        ceiling = empirical_p99(training)
-        misses = sum(value > ceiling for value in testing)
-        failed += misses
-        tested += len(testing)
-        records[held_world] = {
-            "training_sample_count": len(training),
-            "test_sample_count": len(testing),
-            "ceiling": ceiling,
-            "false_fail_count": misses,
-            "false_fail_rate": misses / len(testing),
+        gates[gate] = {
+            "calibration_method": "per-reference-line-joint-max-severity",
+            "normalizers": dict(normalizers),
+            "severity_ceiling": severity_ceiling,
+            "quantile": QUANTILE,
+            "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
+            "sample_count_per_reference_line": sample_count_per_line,
+            "order_statistic_rank_per_reference_line": rank,
+            "ceiling_witness_lines": [
+                line for line in lines if line_p99[line] == severity_ceiling
+            ],
+            "reference_line_calibration": line_calibration,
+            "components": component_records,
+            "supporting_controls": [],
         }
-    return failed / tested, failed, records
+    return gates
 
 
 def _validated_control_registry(
@@ -1985,45 +3145,6 @@ def _attach_control_separation(
     }
 
 
-def _gate_false_fail_rates(replicates: list[dict[str, Any]],
-                           gates: Mapping[str, Any],
-                           worlds: Sequence[str]) -> tuple[dict[str, float], dict[str, Any]]:
-    """Leave one world out and fail a composite when any component exceeds."""
-
-    rates: dict[str, float] = {}
-    detail: dict[str, Any] = {}
-    for gate, components in GATE_COMPONENTS.items():
-        failed = 0
-        tested = 0
-        held_out: dict[str, Any] = {}
-        for held_world in worlds:
-            training = [row for row in replicates if row["world"] != held_world]
-            testing = [row for row in replicates if row["world"] == held_world]
-            ceilings = {
-                component: empirical_p99([
-                    row["metrics"][gate][component] for row in training
-                ])
-                for component in components
-            }
-            misses = sum(
-                any(row["metrics"][gate][component] > ceilings[component]
-                    for component in components)
-                for row in testing
-            )
-            failed += misses
-            tested += len(testing)
-            held_out[held_world] = {
-                "training_sample_count": len(training),
-                "test_sample_count": len(testing),
-                "component_ceilings": ceilings,
-                "false_fail_count": misses,
-                "false_fail_rate": misses / len(testing),
-            }
-        rates[gate] = failed / tested
-        detail[gate] = held_out
-    return rates, detail
-
-
 def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
                   graded_world_count: int) -> dict[str, Any]:
     target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
@@ -2040,8 +3161,10 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
         "graded_world_count": graded_world_count,
         "target_marginal_product": target_product,
         "achieved_marginal_rate_product": None,
+        "achieved_marginal_rate_product_by_reference_line": {},
         "achieved_false_fail_rates": {},
-        "mortality_identification_evidence": mortality_identification_evidence(),
+        "achieved_false_fail_rates_by_reference_line": {},
+        "mortality_identification_evidence": None,
         "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
     }
 
@@ -2053,6 +3176,7 @@ def calibrate_composite_bars(
     *,
     development_diagnostic_reports: Sequence[Mapping[str, Any]] = (),
     elder_reconstruction_audit: Mapping[str, Any] | None = None,
+    mortality_identification_audit: Mapping[str, Any] | None = None,
     regime_identifiability_audit: Mapping[str, Any] | None = None,
     reserve_qualification_audit: Mapping[str, Any] | None = None,
     reserve_calibration_audit: Mapping[str, Any] | None = None,
@@ -2125,11 +3249,14 @@ def calibrate_composite_bars(
         measurement_contract_digest = references[0]["binding"][
             "measurement_contract_digest_sha256"
         ]
-        elder_audit = _validate_elder_audit(
-            elder_reconstruction_audit, references, lines, worlds
-        )
         regime_audit = _validate_regime_identifiability_audit(
             regime_identifiability_audit
+        )
+        mortality_audit = _validate_mortality_identification_audit(
+            mortality_identification_audit, references, regime_audit, worlds
+        )
+        elder_audit = _validate_elder_audit(
+            elder_reconstruction_audit, references, lines, worlds, mortality_audit
         )
         eligible_cells_by_world, eligibility_audit_by_world = _validated_eligible_cells(
             references, lines, worlds
@@ -2138,20 +3265,14 @@ def calibrate_composite_bars(
             references, replicates, lines, worlds, eligible_cells_by_world,
             eligibility_audit_by_world,
         )
-        reserve_calibration = _validate_reserve_calibration_audit(
-            reserve_calibration_audit, references, measurement_contract_digest
+        reserve_red_team_measurement = _validate_reserve_red_team_measurement(
+            reserve_red_team_audit, references, diagnostics
         )
-        reserve_red_team = _validate_reserve_red_team_audit(
-            reserve_red_team_audit, measurement_contract_digest
-        )
-        reserve_qualification = _validate_reserve_qualification_audit(
-            reserve_qualification_audit,
+        reserve_calibration_candidate = _validate_reserve_calibration_candidate(
+            reserve_calibration_audit,
             references,
             controls,
             gates,
-            measurement_contract_digest,
-            reserve_calibration,
-            reserve_red_team,
         )
     except EvidenceError as exc:
         return _empty_result(
@@ -2198,23 +3319,76 @@ def calibrate_composite_bars(
             )
         )
 
-    gate_rates, gate_rate_detail = _gate_false_fail_rates(replicates, gates, worlds)
+    gate_rates_by_line = {
+        line: {
+            gate: gates[gate]["reference_line_calibration"][line][
+                "false_fail_rate"
+            ]
+            for gate in GATE_COMPONENTS
+        }
+        for line in lines
+    }
+    gate_rates = {
+        gate: max(gate_rates_by_line[line][gate] for line in lines)
+        for gate in GATE_COMPONENTS
+    }
     unattainable = [
-        gate for gate, rate in gate_rates.items()
+        f"{line}/{gate}"
+        for line in lines
+        for gate, rate in gate_rates_by_line[line].items()
         if rate > TARGET_FALSE_FAIL_RATE + 1e-15
     ]
     if unattainable:
         blockers.append(
-            "leave-one-world-out false-fail rate exceeds one percent for: "
+            "per-reference-line joint gate false-fail rate exceeds one percent for: "
             + ", ".join(unattainable)
         )
     target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
         len(GATE_COMPONENTS) * graded_world_count
     )
-    achieved_product = math.prod(
-        (1.0 - gate_rates[gate]) ** graded_world_count for gate in GATE_COMPONENTS
-    )
-    return {
+    achieved_products_by_line = {
+        line: math.prod(
+            (1.0 - gate_rates_by_line[line][gate]) ** graded_world_count
+            for gate in GATE_COMPONENTS
+        )
+        for line in lines
+    }
+    achieved_product = min(achieved_products_by_line.values())
+    reserve_audits: dict[str, Any] | None = None
+    if not blockers:
+        try:
+            reserve_red_team = _bind_reserve_red_team_measurement(
+                reserve_red_team_measurement,
+                references,
+                diagnostics,
+                measurement_contract_digest,
+            )
+            reserve_calibration = _promote_reserve_calibration_candidate(
+                reserve_calibration_candidate,
+                references,
+                controls,
+                gates,
+                measurement_contract_digest,
+                reserve_red_team,
+            )
+            reserve_qualification = _build_reserve_qualification_audit(
+                reserve_qualification_audit,
+                references,
+                controls,
+                gates,
+                measurement_contract_digest,
+                reserve_calibration,
+                reserve_red_team,
+            )
+            reserve_audits = {
+                "qualification": reserve_qualification,
+                "calibration": reserve_calibration,
+                "red_team": reserve_red_team,
+            }
+        except EvidenceError as exc:
+            blockers.append(str(exc))
+
+    result = {
         "schema": SCHEMA,
         "frozen": not blockers,
         "gates": gates,
@@ -2241,21 +3415,24 @@ def calibrate_composite_bars(
         "development_diagnostics": development_diagnostics,
         "elder_reconstruction_audit": elder_audit,
         "regime_identifiability_audit": regime_audit,
-        "reserve_audits": {
-            "qualification": reserve_qualification,
-            "calibration": reserve_calibration,
-            "red_team": reserve_red_team,
-        },
         "reference_failures": reference_failures,
         "control_support": control_support,
         "achieved_false_fail_rates": gate_rates,
-        "achieved_false_fail_rate_method": "leave-one-qualification-world-out",
-        "leave_one_world_out_gate_results": gate_rate_detail,
+        "achieved_false_fail_rates_by_reference_line": gate_rates_by_line,
+        "achieved_false_fail_rate_method": (
+            "per-reference-line joint max-severity empirical p99"
+        ),
         "target_marginal_product": target_product,
         "achieved_marginal_rate_product": achieved_product,
-        "mortality_identification_evidence": mortality_identification_evidence(),
+        "achieved_marginal_rate_product_by_reference_line": (
+            achieved_products_by_line
+        ),
+        "mortality_identification_evidence": mortality_audit,
         "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
     }
+    if reserve_audits is not None and not blockers:
+        result["reserve_audits"] = reserve_audits
+    return result
 
 
 freeze_composite_bars = calibrate_composite_bars
@@ -2309,32 +3486,44 @@ def _append_mortality_identification(lines: list[str], bars: Mapping[str, Any]) 
     evidence = bars.get("mortality_identification_evidence")
     if not isinstance(evidence, Mapping):
         return
-    trend = evidence.get("trend", {})
-    lag = evidence.get("publication_lag", {})
-    shock = evidence.get("shock_process", {})
+    summary = evidence.get("summary", {})
+    lag_range = summary.get("publication_lag_trend_effect_percent_range")
+    if not isinstance(lag_range, list) or len(lag_range) != 2:
+        lag_range = ["missing", "missing"]
+    source = evidence.get("measurement_source", {})
     lines.extend([
         "## Mortality identification evidence for the tail gate",
         "",
-        "- mortality improvement is active throughout public experience years "
-        + ", ".join(str(value) for value in trend.get("public_experience_years", []))
-        + "; it does not start only after publication",
-        f"- the {lag.get('months')}-month lag trend effect ranges from "
-        f"{lag.get('trend_effect_percent_range', ['missing'])[0]}% to "
-        f"{lag.get('trend_effect_percent_range', ['missing', 'missing'])[-1]}%",
+        "- mortality improvement is active throughout the public experience window: "
+        + str(bool(summary.get(
+            "trend_active_during_public_experience_window"
+        ))).lower(),
+        "- mortality improvement starts only after publication: "
+        + str(bool(summary.get("trend_starts_only_after_publication"))).lower(),
+        f"- the observed publication lags {summary.get('publication_lag_months')} "
+        f"month(s) have trend effects from {lag_range[0]}% to {lag_range[1]}%",
         f"- the public shock process has annual probability "
-        f"{shock.get('annual_probability')}; expected mortality-spike years per "
-        f"five-year horizon are {shock.get('expected_mortality_spike_years_per_five_year_horizon')}",
+        f"{summary.get('shock_annual_probability')}",
         "- every continuation redraws the public shock process independently: "
-        + str(bool(shock.get("redrawn_independently_in_every_continuation"))).lower(),
-        f"- generator source digest: `{evidence.get('generator_source_digest_sha256')}`",
-        f"- diagnostic digest: `{evidence.get('diagnostic_digest_sha256')}`",
+        + str(bool(summary.get(
+            "continuation_shocks_redrawn_per_member"
+        ))).lower(),
+        f"- measurement source: {source.get('file')}::{source.get('function')} "
+        f"(`{source.get('sha256')}`)",
+        f"- audit digest: `{evidence.get('digest_sha256')}`",
     ])
-    for world, record in evidence.get("per_world", {}).items():
+    for row in evidence.get("worlds", []):
+        if not isinstance(row, Mapping):
+            continue
+        record = row.get("decomposition", {})
         lines.append(
-            f"- {world}: horizon/history {record.get('horizon_history_ratio')}, "
-            f"trend-only {record.get('trend_only_ratio')}, residual "
-            f"{record.get('residual_ratio')}, lag factor {record.get('lag_trend_factor')}, "
-            f"horizon shock years {record.get('all_shock_years_in_horizon')}"
+            f"- {row.get('world')}: horizon/history "
+            f"{record.get('observed_horizon_to_history_ratio')}, trend-only "
+            f"{record.get('trend_only_horizon_to_history_ratio')}, residual "
+            f"{record.get('residual_observed_to_trend_ratio')}, lag factor "
+            f"{record.get('publication_lag_trend_factor')}, designated horizon "
+            f"mortality shock years "
+            f"{record.get('designated_horizon_mortality_shock_years')}"
         )
     lines.append("")
 
@@ -2439,7 +3628,7 @@ def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> Non
                 if isinstance(feasibility, Mapping):
                     lines.append(
                         f"      q95 sum {feasibility.get('q95_sum')}; reserve total "
-                        f"{feasibility.get('reserve_total')}; q95 feasibility margin "
+                        f"{feasibility.get('reserve_total')}; q95 diagnostic margin "
                         f"{feasibility.get('total_minus_q95_sum')}; feasible "
                         f"{str(bool(feasibility.get('feasible'))).lower()}"
                     )
@@ -2490,7 +3679,9 @@ def _append_regime_identifiability(lines: list[str], bars: Mapping[str, Any]) ->
                 f"{record.get('signed_rank_correlation')}; disposition "
                 f"{record.get('disposition')}; development range "
                 f"{record.get('development_range')}; hidden generation range "
-                f"{record.get('hidden_generation_range')}"
+                f"{record.get('hidden_generation_range')}; raw axis observed "
+                f"{record.get('axis_intensity_range_observed')}; realized mechanism "
+                f"observed {record.get('realized_mechanism_range_observed')}"
             )
     lines.extend([
         f"- audit digest: `{audit.get('digest_sha256')}`",
@@ -2553,10 +3744,17 @@ def _append_reference_gate_results(
             for row in witnesses
             if isinstance(row, Mapping)
         }
-    rate = bars.get("achieved_false_fail_rates", {}).get(gate)
-    rendered_rate = f"{float(rate):.6%}" \
-        if isinstance(rate, (int, float)) and not isinstance(rate, bool) else "missing"
-    lines.append(f"  reference results at false-fail rate {rendered_rate}:")
+    rates = bars.get("achieved_false_fail_rates_by_reference_line", {})
+    rendered_rates = ", ".join(
+        f"{line} {float(rates.get(line, {}).get(gate)):.6%}"
+        for line in bars.get("reference_lines", [])
+        if isinstance(rates.get(line, {}).get(gate), (int, float))
+        and not isinstance(rates.get(line, {}).get(gate), bool)
+    )
+    lines.append(
+        "  reference results at per-line joint false-fail rates "
+        f"{rendered_rates or 'missing'}:"
+    )
     for line in bars.get("reference_lines", []):
         for world in bars.get("qualification_worlds", []):
             pair = (line, world)
@@ -2592,8 +3790,17 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
             record = gates[gate]
             lines.append(f"- {gate}")
             lines.append(
-                "  gate-union leave-one-world-out false-fail rate: "
-                f"{float(bars['achieved_false_fail_rates'][gate]):.6%}"
+                "  joint per-reference-line false-fail rates: "
+                + ", ".join(
+                    f"{line} "
+                    f"{float(bars['achieved_false_fail_rates_by_reference_line'][line][gate]):.6%}"
+                    for line in bars["reference_lines"]
+                )
+            )
+            lines.append(
+                f"  joint max-severity p99 ceiling: {record['severity_ceiling']:.12g}; "
+                f"rank {record['order_statistic_rank_per_reference_line']} of "
+                f"{record['sample_count_per_reference_line']} per line"
             )
             lines.append(
                 "  supporting controls: "
@@ -2606,12 +3813,16 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
                     f"    value: {bar['value']:.12g}",
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
+                    f"    fixed normalizer: {bar['normalizer']:.12g}",
                     f"    worlds: {', '.join(bar['worlds'])}",
                     f"    witnesses: {', '.join(bar['witnesses'])}",
-                    f"    p99 rank: {bar['order_statistic_rank']} of "
-                    f"{bar['sample_count']}",
-                    "    component leave-one-world-out false-fail rate: "
-                    f"{bar['achieved_false_fail_rate']:.6%}",
+                    "    diagnostic component p99 by line: "
+                    + ", ".join(
+                        f"{line} {float(value):.12g}"
+                        for line, value in bar[
+                            "empirical_p99_by_reference_line"
+                        ].items()
+                    ),
                 ])
                 eligible = bar.get("eligible_cells")
                 if isinstance(eligible, Mapping):
@@ -2638,9 +3849,13 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
     )
     achieved = bars.get("achieved_marginal_rate_product")
     lines.append(
-        "- achieved conditional marginal-rate product: "
+        "- conservative achieved conditional marginal-rate product: "
         + ("unavailable" if achieved is None else f"{float(achieved):.6f}")
     )
+    for line, value in bars.get(
+        "achieved_marginal_rate_product_by_reference_line", {}
+    ).items():
+        lines.append(f"- {line} achieved conditional marginal-rate product: {value:.6f}")
     for caveat in bars.get("caveats", []):
         lines.append(f"- {caveat}")
     return "\n".join(lines) + "\n"
@@ -2650,8 +3865,11 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     lines = [
         "# Provenance of the version-four composite bars",
         "",
-        "Every component ceiling is the exact empirical p99 order statistic of the",
-        "deterministic replicate reports identified inside that component record.",
+        "Each gate ceiling is the maximum of the three reference-line empirical p99",
+        "order statistics of per-row max severity under fixed component normalizers.",
+        "Each line contributes 102 independent deterministic replicate reports; lines",
+        "are never pooled for the one-percent claim. Component records preserve their",
+        "own empirical diagnostics but do not make marginal false-fail claims.",
         "Final witness reports are checked against the bars but are not resampled.",
         "Scientific controls must pass the deterministic hard checks before a failure",
         "can support a gate.",
@@ -2679,8 +3897,17 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
             record = gates[gate]
             lines.append(f"- {gate}")
             lines.append(
-                "  gate-union leave-one-world-out false-fail rate: "
-                f"{float(bars['achieved_false_fail_rates'][gate]):.6%}"
+                "  joint per-reference-line false-fail rates: "
+                + ", ".join(
+                    f"{line} "
+                    f"{float(bars['achieved_false_fail_rates_by_reference_line'][line][gate]):.6%}"
+                    for line in bars["reference_lines"]
+                )
+            )
+            lines.append(
+                f"  joint max-severity p99 ceiling: {record['severity_ceiling']:.12g}; "
+                f"rank {record['order_statistic_rank_per_reference_line']} of "
+                f"{record['sample_count_per_reference_line']} per line"
             )
             lines.append(
                 "  supporting controls: "
@@ -2693,12 +3920,16 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                     f"    value: {bar['value']:.12g}",
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
+                    f"    fixed normalizer: {bar['normalizer']:.12g}",
                     f"    worlds: {', '.join(bar['worlds'])}",
                     f"    witnesses: {', '.join(bar['witnesses'])}",
-                    f"    p99 rank: {bar['order_statistic_rank']} of "
-                    f"{bar['sample_count']}",
-                    "    component leave-one-world-out false-fail rate: "
-                    f"{bar['achieved_false_fail_rate']:.6%}",
+                    "    diagnostic component p99 by line: "
+                    + ", ".join(
+                        f"{line} {float(value):.12g}"
+                        for line, value in bar[
+                            "empirical_p99_by_reference_line"
+                        ].items()
+                    ),
                     "    replicate evidence digest: `"
                     f"{bar['replicate_evidence_digest_sha256']}`",
                 ])
@@ -2725,9 +3956,13 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     )
     achieved = bars.get("achieved_marginal_rate_product")
     lines.append(
-        "- achieved conditional marginal-rate product: "
+        "- conservative achieved conditional marginal-rate product: "
         + ("unavailable" if achieved is None else f"{float(achieved):.6f}")
     )
+    for line, value in bars.get(
+        "achieved_marginal_rate_product_by_reference_line", {}
+    ).items():
+        lines.append(f"- {line} achieved conditional marginal-rate product: {value:.6f}")
     lines.extend(["", CORRELATION_CAVEAT, "", FINITE_WORLD_CAVEAT, ""])
     return "\n".join(lines)
 
@@ -2744,12 +3979,25 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--elder-audit",
                         help="machine-readable elder reconstruction qualification report")
     parser.add_argument(
+        "--mortality-identification-audit",
+        help="measured, packet-bound P4 mortality identification report",
+    )
+    parser.add_argument(
         "--regime-identifiability-audit",
         help="machine-readable participant-trace and hidden-axis policy report",
     )
-    parser.add_argument("--reserve-qualification-audit")
-    parser.add_argument("--reserve-calibration-audit")
-    parser.add_argument("--reserve-red-team-audit")
+    parser.add_argument(
+        "--reserve-qualification-audit",
+        help="optional digest-bound audit; it must equal the audit generated from reports",
+    )
+    parser.add_argument(
+        "--reserve-calibration-audit",
+        help="unaccepted candidate emitted by calibrate_reserve_rate.py",
+    )
+    parser.add_argument(
+        "--reserve-red-team-audit",
+        help="raw held-out reserve-total red-team measurement",
+    )
     parser.add_argument("--qualification-world-count", type=int,
                         default=EXPECTED_QUALIFICATION_WORLDS)
     parser.add_argument("--graded-world-count", type=int, default=GRADED_WORLD_COUNT)
@@ -2769,6 +4017,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     controls: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
     elder_audit: dict[str, Any] | None = None
+    mortality_audit: dict[str, Any] | None = None
     regime_audit: dict[str, Any] | None = None
     reserve_qualification_audit: dict[str, Any] | None = None
     reserve_calibration_audit: dict[str, Any] | None = None
@@ -2787,6 +4036,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "exactly one elder_reconstruction_audit object may be supplied"
                     )
                 elder_audit = dict(embedded_audit)
+            embedded_mortality_audit = payload.get("mortality_identification_audit")
+            if embedded_mortality_audit is not None:
+                if mortality_audit is not None \
+                        or not isinstance(embedded_mortality_audit, Mapping):
+                    raise EvidenceError(
+                        "exactly one mortality_identification_audit object may be supplied"
+                    )
+                mortality_audit = dict(embedded_mortality_audit)
             embedded_regime_audit = payload.get("regime_identifiability_audit")
             if embedded_regime_audit is not None:
                 if regime_audit is not None \
@@ -2840,6 +4097,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not isinstance(payload, Mapping):
                 raise EvidenceError("regime identifiability audit must be a JSON object")
             regime_audit = dict(payload)
+        if args.mortality_identification_audit:
+            if mortality_audit is not None:
+                raise EvidenceError(
+                    "mortality identification audit was supplied more than once"
+                )
+            payload = json.loads(Path(args.mortality_identification_audit).read_text())
+            if not isinstance(payload, Mapping):
+                raise EvidenceError("mortality identification audit must be a JSON object")
+            mortality_audit = dict(payload)
         for argument, current, label in (
             (args.reserve_qualification_audit, reserve_qualification_audit,
              "reserve qualification audit"),
@@ -2867,6 +4133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             controls,
             development_diagnostic_reports=diagnostics,
             elder_reconstruction_audit=elder_audit,
+            mortality_identification_audit=mortality_audit,
             regime_identifiability_audit=regime_audit,
             reserve_qualification_audit=reserve_qualification_audit,
             reserve_calibration_audit=reserve_calibration_audit,
@@ -2893,6 +4160,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "bars.json").write_text(json.dumps(bars, indent=2, sort_keys=True) + "\n")
+    reserve_audits = bars.get("reserve_audits")
+    standalone_audits = {
+        "reserve_calibration_accepted.json": "calibration",
+        "reserve_qualification_audit.json": "qualification",
+    }
+    for filename, key in standalone_audits.items():
+        path = out / filename
+        audit = reserve_audits.get(key) \
+            if bars.get("frozen") is True and isinstance(reserve_audits, Mapping) \
+            else None
+        if isinstance(audit, Mapping):
+            path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n")
+        elif path.exists():
+            path.unlink()
     (out / "freeze_report.txt").write_text(render_freeze_report(bars))
     (out / "PROVENANCE.md").write_text(render_provenance(bars))
     print(render_freeze_report(bars), end="")

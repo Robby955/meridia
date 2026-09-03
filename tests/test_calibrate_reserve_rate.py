@@ -7,6 +7,7 @@ from pathlib import Path
 from scripts.calibrate_reserve_rate import (
     EXPERIENCE_COLUMNS,
     MANIFEST_SCHEMA,
+    PENDING_BLOCKERS,
     calibrate,
     main,
 )
@@ -84,7 +85,7 @@ def test_candidate_is_the_smallest_registered_rate_covering_every_reference(tmp_
     assert result["rate_per_person_year"] == 4.0
     assert min(row["candidate_margin"] for row in result["evidence"]) >= 0.0
     assert result["accepted"] is False
-    assert len(result["blockers"]) == 3
+    assert result["blockers"] == list(PENDING_BLOCKERS)
 
 
 def test_missing_pair_and_forbidden_path_fail_closed(tmp_path):

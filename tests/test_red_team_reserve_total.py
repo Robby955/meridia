@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -127,6 +128,23 @@ def test_development_fit_predicts_qualification_and_reports_public_inputs(tmp_pa
     assert result["tail_definition"]["quantile_rank"].startswith("ceil")
     assert "world.json" not in " ".join(result["files_read_per_world"])
     assert result["reserve_total_public_rule_verified"] is True
+    source = Path(__file__).resolve().parents[1] / "scripts/red_team_reserve_total.py"
+    assert result["measurement_source"] == {
+        "file": "scripts/red_team_reserve_total.py",
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+    roots = {"development": development, "qualification": qualification}
+    for regime, rows in result["input_bindings"].items():
+        for row in rows:
+            world = roots[regime] / row["world"]
+            assert row["file_sha256"] == {
+                relative: hashlib.sha256((world / relative).read_bytes()).hexdigest()
+                for relative in (
+                    "participant/contract.json",
+                    "participant/experience_history.csv",
+                    "retained/continuation_liabilities.npz",
+                )
+            }
 
 
 def test_json_cli_output_contains_the_headline(tmp_path, capsys):

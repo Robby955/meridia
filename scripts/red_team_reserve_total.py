@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -40,6 +41,12 @@ EXPERIENCE_COLUMNS = (
 TAIL_LEVEL = 0.95
 DEVELOPMENT_WORLD_NAMES = tuple(f"dev-{index:02d}" for index in range(12))
 QUALIFICATION_WORLD_NAMES = tuple(f"qual-{index}" for index in range(6))
+INPUT_FILES = (
+    "participant/contract.json",
+    "participant/experience_history.csv",
+    "retained/continuation_liabilities.npz",
+)
+MEASUREMENT_SOURCE = "scripts/red_team_reserve_total.py"
 
 
 class MeasurementError(ValueError):
@@ -53,6 +60,7 @@ class WorldMeasurement:
     latest_year_exposure: float
     q95: np.ndarray
     es95: np.ndarray
+    input_sha256: dict[str, str]
 
 
 def _safe_path(path: Path) -> Path:
@@ -79,6 +87,10 @@ def _required_file(world: Path, relative: str) -> Path:
     if not safe.is_file():
         raise MeasurementError(f"{world.name}: missing required {relative}")
     return safe
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _worlds(root: Path, names: Sequence[str], label: str) -> list[Path]:
@@ -330,7 +342,12 @@ def read_world(world: Path) -> WorldMeasurement:
     latest_year, exposure = _latest_year_exposure(world, n_states)
     _validate_total_rule(contract, reserve_total, latest_year, exposure, world.name)
     q95, es95 = _liability_tail(world, n_states)
-    return WorldMeasurement(world.name, reserve_total, exposure, q95, es95)
+    input_sha256 = {
+        name: _file_sha256(_required_file(world, name)) for name in INPUT_FILES
+    }
+    return WorldMeasurement(
+        world.name, reserve_total, exposure, q95, es95, input_sha256
+    )
 
 
 def _stack(worlds: Sequence[WorldMeasurement], outcome: str) -> np.ndarray:
@@ -455,6 +472,13 @@ def _public_rows(worlds: Sequence[WorldMeasurement]) -> list[dict[str, float | s
     ]
 
 
+def _input_rows(worlds: Sequence[WorldMeasurement]) -> list[dict[str, Any]]:
+    return [
+        {"world": world.name, "file_sha256": dict(world.input_sha256)}
+        for world in worlds
+    ]
+
+
 def run_measurement(development_root: Path, qualification_root: Path) -> dict[str, Any]:
     """Run the preregistered development fit and qualification evaluation."""
     development = [read_world(path) for path in _worlds(
@@ -508,6 +532,14 @@ def run_measurement(development_root: Path, qualification_root: Path) -> dict[st
 
     return {
         "schema": "meridia.reserve-total-red-team.v1",
+        "measurement_source": {
+            "file": MEASUREMENT_SOURCE,
+            "sha256": _file_sha256(Path(__file__).resolve()),
+        },
+        "input_bindings": {
+            "development": _input_rows(development),
+            "qualification": _input_rows(qualification),
+        },
         "independent_unit": "world",
         "world_counts": {"development": 12, "qualification": 6, "total": 18},
         "regions_per_world": region_counts.pop(),

@@ -35,6 +35,11 @@ MANIFEST_SCHEMA = "meridia.reserve-rate-evidence.v1"
 QUALIFICATION_WORLD_NAMES = tuple(f"qual-{index}" for index in range(6))
 TAIL_SLACK_SHARE = 0.25
 RATE_GRID = 1.0
+PENDING_BLOCKERS = (
+    "rerun every reference at the candidate rate and clear reserve skill",
+    "show the proportional reserve control failing at the candidate rate",
+    "record the held-out reserve-total red-team measurement",
+)
 EXPERIENCE_COLUMNS = (
     "year", "age_band", "sex", "state", "exposure", "deaths",
     "qualifying_events", "net_migration",
@@ -236,11 +241,7 @@ def calibrate(entries: Sequence[Mapping[str, Any]], *,
         "schema": SCHEMA,
         "candidate": True,
         "accepted": False,
-        "blockers": [
-            "rerun every reference at the candidate rate and clear reserve skill",
-            "show the proportional reserve control failing at the candidate rate",
-            "record the held-out reserve-total red-team measurement",
-        ],
+        "blockers": list(PENDING_BLOCKERS),
         "rate_per_person_year": rate,
         "rate_grid": grid,
         "tail_slack_share": slack,
