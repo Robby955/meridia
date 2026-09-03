@@ -1584,6 +1584,11 @@ def _validate_packet_group(
     names = [path.name for path in resolved]
     if len(set(names)) != len(names):
         raise ValueError(f"phase-three {label} world names must be distinct")
+    parents = {path.parent for path in resolved}
+    if len(parents) != 1:
+        raise ValueError(
+            f"phase-three {label} packets must share one resolved parent"
+        )
     if expected_count == 12 and development:
         expected_names = {f"dev-{index:02d}" for index in range(12)}
         if set(names) != expected_names or any(
@@ -1607,6 +1612,17 @@ def _validate_packet_group(
     return resolved
 
 
+def _validate_shared_worlds_root(
+    development_packets: list[Path], qualification_packets: list[Path]
+) -> None:
+    development_parent = development_packets[0].parent
+    qualification_parent = qualification_packets[0].parent
+    if development_parent.parent != qualification_parent.parent:
+        raise ValueError(
+            "phase-three development and qualification packets must share one worlds root"
+        )
+
+
 def measure_elder_reconstruction(
     development_packets: list[Path],
     qualification_packets: list[Path],
@@ -1618,6 +1634,7 @@ def measure_elder_reconstruction(
     """Run only A and the cohort-component third line for the elder audit."""
     development_packets = _validate_packet_group(development_packets, 12, True)
     qualification_packets = _validate_packet_group(qualification_packets, 6, False)
+    _validate_shared_worlds_root(development_packets, qualification_packets)
     out_dir = _prepare_output_dir(out_dir)
     contract = _measurement_contract(
         development_packets, qualification_packets, Path(bars_path), params
@@ -1726,6 +1743,7 @@ def measure(
     """Run and record every phase-three comparison in a restartable output tree."""
     development_packets = _validate_packet_group(development_packets, 12, True)
     qualification_packets = _validate_packet_group(qualification_packets, 6, False)
+    _validate_shared_worlds_root(development_packets, qualification_packets)
     out_dir = _prepare_output_dir(out_dir)
     _bind_measurement_output(
         out_dir,

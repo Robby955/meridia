@@ -72,6 +72,26 @@ def test_full_packet_sets_require_canonical_parent_and_names(tmp_path):
         phase_three._validate_packet_group(qualification, 6, False)
 
 
+def test_full_packet_sets_reject_mixed_build_roots(tmp_path):
+    qualification = [
+        _packet(
+            tmp_path
+            / ("build-a" if index < 3 else "build-b")
+            / "qualification"
+            / f"qual-{index}",
+            False,
+        )
+        for index in range(6)
+    ]
+    with pytest.raises(ValueError, match="share one resolved parent"):
+        phase_three._validate_packet_group(qualification, 6, False)
+
+    development = [tmp_path / "build-a" / "development" / f"dev-{index:02d}" for index in range(12)]
+    qualification = [tmp_path / "build-b" / "qualification" / f"qual-{index}" for index in range(6)]
+    with pytest.raises(ValueError, match="share one worlds root"):
+        phase_three._validate_shared_worlds_root(development, qualification)
+
+
 def test_nonempty_unbound_measurement_output_is_refused(tmp_path):
     out = tmp_path / "measurement"
     out.mkdir()
