@@ -34,6 +34,7 @@ def _packet(path: Path, development: bool) -> Path:
 def _summary(*, hard_check_pass: bool, failed=()) -> dict:
     return {
         "hard_check_pass": hard_check_pass,
+        "gate_evaluation_complete": hard_check_pass,
         "failed_composites": list(failed),
         "reserve": {
             "J": 1.0,
@@ -289,19 +290,110 @@ def test_bound_bars_reject_changed_bytes(tmp_path):
         phase_three._load_bound_bars(output_root, contract_sha256, bars)
 
 
+def test_measurement_mode_requires_either_raw_or_frozen_bars(tmp_path):
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    assert phase_three._validate_measurement_mode(None, True) is None
+    assert phase_three._validate_measurement_mode(bars, False) == bars
+    with pytest.raises(ValueError, match="cannot be combined"):
+        phase_three._validate_measurement_mode(bars, True)
+    with pytest.raises(ValueError, match="requires --bars"):
+        phase_three._validate_measurement_mode(None, False)
+
+
 def test_gate_metrics_are_json_safe():
+    gates = {
+        name: {"pass": True, "evaluated": True, "reasons": []}
+        for name in phase_three.COMPOSITE_FAMILIES
+    }
     summary = phase_three.summarize_report(
         {
             "pass": True,
+            "hard_pass": True,
             "reasons": [],
             "metrics": {"error": np.asarray([0.1, 0.2])},
             "rate_metrics": {"eligible": np.int64(12)},
+            "composite_metrics": {"release_accuracy": {"error": np.float64(0.2)}},
+            "gate_results": gates,
+            "eligibility_evidence": {"cells": np.asarray([500.0])},
+            "evidence": {"schema": "v4", "digest": "a" * 64},
             "reserve": {"feasible": True, "skill": np.float64(0.5)},
         }
     )
     encoded = json.dumps(summary)
     assert '"error": [0.1, 0.2]' in encoded
     assert '"eligible": 12' in encoded
+    assert summary["gate_evaluation_complete"] is True
+    assert summary["failed_composites"] == []
+    assert summary["eligibility_evidence"] == {"cells": [500.0]}
+    assert len(summary["verifier_evidence_id"]) == 64
+
+
+def test_raw_pre_freeze_calls_the_verifier_without_bars_and_retains_fields(
+    monkeypatch, tmp_path
+):
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    submission = tmp_path / "submission"
+    submission.mkdir()
+    observed = []
+    raw_gates = {
+        name: {
+            "pass": False,
+            "evaluated": False,
+            "reasons": ["frozen bars not supplied"],
+        }
+        for name in phase_three.COMPOSITE_FAMILIES
+    }
+    evidence = {"schema": "meridia.v4.verifier-evidence.v1", "digest": "b" * 64}
+
+    def verify(packet_dir, submission_dir, bars):
+        observed.append((packet_dir, submission_dir, bars))
+        return {
+            "pass": False,
+            "hard_pass": True,
+            "reasons": ["bars: no frozen composite bar receipt was supplied"],
+            "metrics": {"persons": {"p95": 0.1}},
+            "projection_metrics": {"persons": {"p95": 0.2}},
+            "rate_metrics": {"mortality": {"p95": 0.3}},
+            "composite_metrics": {
+                "release_accuracy": {"p95_relative_error": 0.1}
+            },
+            "gate_results": raw_gates,
+            "eligibility_evidence": {"scored_cells": 72},
+            "reserve_rule_evidence": {"valid": True},
+            "reserve_rule_errors": [],
+            "reserve": {"feasible": True, "skill": 0.4},
+            "evidence": evidence,
+        }
+
+    monkeypatch.setattr(phase_three, "verify_submission", verify)
+    monkeypatch.setattr(phase_three, "regional_liability_means", lambda *args: [])
+    monkeypatch.setattr(
+        phase_three, "elder_state_exposure_survival", lambda *args: {"states": []}
+    )
+    monkeypatch.setattr(
+        phase_three,
+        "sealed_exceedance_audit",
+        lambda *args: {"pooled_exceedance_deviation": 0.2},
+    )
+
+    scored = phase_three._score(packet, submission, None, True)
+    assert observed == [(packet, submission, None)]
+    assert scored["measurement_mode"] == phase_three.RAW_PRE_FREEZE_MODE
+    assert scored["hard_pass"] is True
+    assert scored["composite_metrics"] == {
+        "release_accuracy": {"p95_relative_error": 0.1}
+    }
+    assert scored["gate_results"] == raw_gates
+    assert scored["gate_evaluation_complete"] is False
+    assert scored["composite_pass"] is None
+    assert scored["failed_composites"] is None
+    assert scored["eligibility_evidence"] == {"scored_cells": 72}
+    assert scored["reserve"] == {"feasible": True, "skill": 0.4}
+    assert scored["evidence"] == evidence
+    with pytest.raises(ValueError, match="must not receive bars"):
+        phase_three._score(packet, submission, {}, True)
 
 
 def test_packet_inventory_rejects_a_symlinked_side_directory(tmp_path):
@@ -343,19 +435,25 @@ def test_packet_inventory_rejects_an_omitted_nested_directory_symlink(tmp_path):
         phase_three._verified_packet_files(packet)
 
 
-def test_final_evidence_binds_optional_totals_file(tmp_path):
-    packet = tmp_path / "packet"
-    packet.mkdir()
-    (packet / "manifest.json").write_text("{}\n")
+def test_phase_three_requires_the_exact_v4_three_file_surface(tmp_path):
     submission = tmp_path / "submission"
     submission.mkdir()
     for name in phase_three.SUBMISSION_FILES:
         (submission / name).write_text(f"{name}\n")
 
-    without_totals = phase_three._final_evidence_wrapper(packet, submission, {})
+    assert phase_three.SUBMISSION_FILES == tuple(phase_three.V4_SUBMISSION_COLUMNS)
+    assert set(phase_three._submission_hashes(submission)) == {
+        "release.csv",
+        "projection.csv",
+        "reserve.csv",
+    }
     (submission / "totals.csv").write_text("kind,count\ncounty,1\n")
-    with_totals = phase_three._final_evidence_wrapper(packet, submission, {})
-    assert without_totals["evidence_id"] != with_totals["evidence_id"]
+    with pytest.raises(ValueError, match=r"unexpected \['totals.csv'\]"):
+        phase_three._submission_hashes(submission)
+    (submission / "totals.csv").unlink()
+    (submission / "detailed.csv").write_text("county,count\n0,1\n")
+    with pytest.raises(ValueError, match=r"unexpected \['detailed.csv'\]"):
+        phase_three._submission_hashes(submission)
 
 
 def test_method_run_restart_requires_a_matching_receipt(monkeypatch, tmp_path):
@@ -537,7 +635,10 @@ def test_hard_invalid_score_skips_truth_audits(monkeypatch, tmp_path):
         "verify_submission",
         lambda *args, **kwargs: {
             "pass": False,
+            "hard_pass": False,
             "reasons": ["file set: unexpected [], missing ['reserve.csv']"],
+            "composite_metrics": {},
+            "gate_results": {},
             "reserve": {"feasible": False},
         },
     )
@@ -547,7 +648,7 @@ def test_hard_invalid_score_skips_truth_audits(monkeypatch, tmp_path):
 
     monkeypatch.setattr(phase_three, "regional_liability_means", should_not_run)
     monkeypatch.setattr(phase_three, "elder_state_exposure_survival", should_not_run)
-    scored = phase_three._score(packet, submission, {}, True)
+    scored = phase_three._score(packet, submission, None, True)
     assert scored["hard_check_pass"] is False
     assert scored["truth_audit_status"] == "unavailable_due_to_hard_check_failure"
     assert scored["regional_liability_means"] is None
@@ -566,12 +667,13 @@ def test_verifier_parse_exception_becomes_a_bound_hard_failure(monkeypatch, tmp_
         "verify_submission",
         lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("missing column")),
     )
-    scored = phase_three._score(packet, submission, {}, True)
+    scored = phase_three._score(packet, submission, None, True)
     assert scored["hard_check_pass"] is False
     assert scored["hard_check_failures"] == [
         "schema: verifier raised while parsing the submission: ValueError: missing column"
     ]
-    assert len(scored["evidence"]["evidence_id"]) == 64
+    assert scored["evidence"] == {}
+    assert scored["verifier_evidence_id"] is None
 
 
 def test_method_and_deletion_comparisons_are_indeterminate_when_hard_invalid():
@@ -624,7 +726,7 @@ def test_elder_audit_writes_exact_six_world_schema(monkeypatch, tmp_path):
         def line(evidence_id, estimate):
             return {
                 "hard_check_pass": True,
-                "evidence": {"evidence_id": evidence_id},
+                "verifier_evidence_id": evidence_id,
                 "state_65_plus": {
                     "states": [
                         {

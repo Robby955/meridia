@@ -465,6 +465,9 @@ def test_deletion_switches_and_five_composite_mapping(packet, tmp_path):
         "reserve_allocation",
     )
     assert len(controls.QUALIFICATION_CONTROLS) == 22
+    assert set(controls.DECOMPOSITION_CONTROLS).isdisjoint(
+        controls.QUALIFICATION_CONTROLS
+    )
     assert set(controls.QUALIFICATION_CONTROLS) == set(
         controls.CONTROL_TARGET_COMPOSITES
     )
@@ -490,19 +493,22 @@ def test_deletion_switches_and_five_composite_mapping(packet, tmp_path):
     )
 
     report = {
-        "reasons": [
-            "exposure: person_years_exposure/state percentile error 0.4 > 0.2",
-            "accuracy: persons/county worst error 0.4 > 0.2",
-            "projection interval score: persons/all 0.4 > 0.2",
-            "tail: pooled exceedance deviation 0.4 > 0.2",
-            "reserve: skill -0.2 < 0.1",
-            "schema: 1 violation(s)",
-            "disclosure utility: 0.400 of the releasable cells published < 0.5",
-        ]
+        "pass": False,
+        "hard_pass": True,
+        "reasons": ["structured composite gates failed"],
+        "gate_results": {
+            name: {"pass": False, "evaluated": True, "reasons": ["over bar"]}
+            for name in phase_three.COMPOSITE_FAMILIES
+        },
+        "composite_metrics": {
+            name: {"component": 0.4} for name in phase_three.COMPOSITE_FAMILIES
+        },
+        "reserve": {"feasible": True},
     }
-    failed, ignored = phase_three.failed_composites(report)
-    assert failed == list(phase_three.COMPOSITE_FAMILIES)
-    assert len(ignored) == 1
-    assert phase_three.hard_check_failures(report) == ["schema: 1 violation(s)"]
+    summary = phase_three.summarize_report(report)
+    assert summary["failed_composites"] == list(phase_three.COMPOSITE_FAMILIES)
+    assert summary["hard_check_failures"] == []
+    assert summary["gate_results"] == report["gate_results"]
+    assert summary["composite_metrics"] == report["composite_metrics"]
     with pytest.raises(ValueError, match="must be distinct"):
         phase_three._validate_packet_group([packet] * 6, 6, False)

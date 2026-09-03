@@ -1,8 +1,8 @@
 """Phase-three measurements for controls, decomposition, and the third line.
 
-This module never calibrates a submitted tail from the public reserve total. It keeps
-the current four-file writer for compatibility, but disclosure and detailed-table
-reasons are excluded from the retained five-composite report.
+This module never calibrates a submitted tail from the public reserve total. Version
+four has exactly three submitted files. Raw pre-freeze measurements retain the
+verifier's structured component metrics without manufacturing gate verdicts.
 """
 
 from __future__ import annotations
@@ -18,6 +18,19 @@ from typing import Callable
 
 import numpy as np
 
+try:
+    from ..actuarial import V4_SUBMISSION_COLUMNS
+except ImportError:  # Removed when this lane follows the verifier contract commit.
+    from ..actuarial import RATE_EXTRA_COLUMNS, RESERVE_COLUMNS
+    from ..release import RELEASE_COLUMNS
+
+    V4_SUBMISSION_COLUMNS = {
+        "release.csv": RELEASE_COLUMNS[:3]
+        + RATE_EXTRA_COLUMNS
+        + RELEASE_COLUMNS[3:],
+        "projection.csv": RELEASE_COLUMNS,
+        "reserve.csv": RESERVE_COLUMNS,
+    }
 from ..verify import verify_submission
 from . import actuarial_reference as AR
 from . import bayesian as B
@@ -25,6 +38,7 @@ from . import controls
 from . import design_based as A
 from . import third_reference as C
 from .common import load_packet
+from .resampling import REFERENCE_METHOD_SEEDS
 
 
 COMPOSITE_FAMILIES = (
@@ -34,26 +48,13 @@ COMPOSITE_FAMILIES = (
     "tail_calibration",
     "reserve_skill",
 )
-RATE_NAMES = ("person_years_exposure", "mortality_rate", "qualifying_event_rate")
-CURRENTLY_IGNORED_PREFIXES = (
-    "disclosure:",
-    "disclosure utility:",
-    "detailed accuracy:",
-)
-HARD_CHECK_PREFIXES = (
-    "file set:",
-    "schema:",
-    "additivity:",
-    "projection schema:",
-    "projection additivity:",
-    "rate schema:",
-    "reserve schema:",
-    "reserve: infeasible",
-)
-SUBMISSION_FILES = ("release.csv", "projection.csv", "detailed.csv", "reserve.csv")
-OPTIONAL_SUBMISSION_FILES = ("totals.csv",)
+SUBMISSION_FILES = tuple(V4_SUBMISSION_COLUMNS)
 CALIBRATION_RECEIPT_SCHEMA = "meridia-phase-three-calibration-receipts-v1"
 RUN_RECEIPT_SCHEMA = "meridia-phase-three-method-run-receipt-v1"
+RAW_PRE_FREEZE_MODE = "raw_pre_freeze"
+FROZEN_EVALUATION_MODE = "frozen_evaluation"
+SHARED_SIMULATION_SEED = AR.SimulationParams().seed
+SHARED_ACTUARIAL_LAYER_SEED = AR.LayerParams().seed
 
 
 @dataclass(frozen=True)
@@ -170,8 +171,10 @@ def _verified_packet_files(packet: Path) -> dict[str, str]:
 def _measurement_contract(
     development_packets: list[Path],
     qualification_packets: list[Path],
-    bars_path: Path,
+    bars_path: Path | None,
     params: MeasurementParams,
+    *,
+    raw_pre_freeze: bool = False,
 ) -> dict:
     repo_root = Path(__file__).resolve().parents[2]
     sources = sorted((repo_root / "meridia").rglob("*.py"))
@@ -197,7 +200,10 @@ def _measurement_contract(
         "packet_contract_sha256": contract_sha256,
         "packet_manifest_sha256": manifest_sha256,
         "packet_file_sha256": packet_files,
-        "bars_sha256": _sha256(bars_path),
+        "measurement_mode": (
+            RAW_PRE_FREEZE_MODE if raw_pre_freeze else FROZEN_EVALUATION_MODE
+        ),
+        "bars_sha256": None if bars_path is None else _sha256(bars_path),
         "params": asdict(params),
         "composites": list(COMPOSITE_FAMILIES),
         "source_sha256": {
@@ -476,66 +482,6 @@ def _verify_bound_inputs(bound_inputs: dict[Path, str] | None) -> None:
             raise ValueError(f"bound method input changed: {path.name}")
 
 
-def reason_composite(reason: str) -> str | None:
-    """Map one current verifier reason to one retained composite family."""
-    text = str(reason).strip().lower()
-    if text.startswith(CURRENTLY_IGNORED_PREFIXES + HARD_CHECK_PREFIXES):
-        return None
-    if text.startswith(("exposure:", "rate:")):
-        return "exposures_and_rates"
-    if text.startswith("coverage:") and any(name in text for name in RATE_NAMES):
-        return "exposures_and_rates"
-    if text.startswith(("tail:",)):
-        return "tail_calibration"
-    if text.startswith("reserve:"):
-        return "reserve_skill"
-    if text.startswith(
-        (
-            "coverage:",
-            "interval score:",
-            "projection coverage:",
-            "projection interval score:",
-        )
-    ):
-        return "interval_quality"
-    if text.startswith(
-        (
-            "accuracy:",
-            "projection accuracy:",
-        )
-    ):
-        return "release_accuracy"
-    if text.startswith("bars:"):
-        raise ValueError(
-            f"cannot classify a report that did not use frozen bars: {reason}"
-        )
-    raise ValueError(f"unmapped verifier reason: {reason}")
-
-
-def failed_composites(report: dict) -> tuple[list[str], list[str]]:
-    """Return retained failures and current detailed-stage reasons separately."""
-    failed, ignored = set(), []
-    for reason in report.get("reasons", []):
-        text = str(reason).strip().lower()
-        if text.startswith(HARD_CHECK_PREFIXES):
-            continue
-        composite = reason_composite(reason)
-        if composite is None:
-            ignored.append(str(reason))
-        else:
-            failed.add(composite)
-    return [name for name in COMPOSITE_FAMILIES if name in failed], ignored
-
-
-def hard_check_failures(report: dict) -> list[str]:
-    """Return structural reasons that are not scientific composite evidence."""
-    return [
-        str(reason)
-        for reason in report.get("reasons", [])
-        if str(reason).strip().lower().startswith(HARD_CHECK_PREFIXES)
-    ]
-
-
 def _finite(value, default: float | None = None) -> float | None:
     try:
         number = float(value)
@@ -557,26 +503,71 @@ def _json_safe(value):
     return value
 
 
+def _structured_gate_summary(report: dict) -> tuple[dict, bool, list[str] | None]:
+    """Read gate outcomes only from the verifier's structured V4 fields."""
+    raw = report.get("gate_results")
+    gates = _json_safe(raw) if isinstance(raw, dict) else {}
+    complete = bool(gates) and set(gates) == set(COMPOSITE_FAMILIES) and all(
+        isinstance(gates[name], dict) and gates[name].get("evaluated") is True
+        for name in COMPOSITE_FAMILIES
+    )
+    failed = None
+    if complete:
+        failed = [
+            name
+            for name in COMPOSITE_FAMILIES
+            if gates[name].get("pass") is not True
+        ]
+    return gates, complete, failed
+
+
+def _structured_evidence_id(evidence: object) -> str | None:
+    """Digest the exact verifier evidence object without wrapping or reclassifying it."""
+    if not isinstance(evidence, dict) or not evidence:
+        return None
+    encoded = json.dumps(
+        _json_safe(evidence), sort_keys=True, separators=(",", ":")
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def summarize_report(report: dict) -> dict:
-    """Small JSON-safe gate and reserve summary used by every measurement row."""
-    failed, ignored = failed_composites(report)
-    hard = hard_check_failures(report)
+    """Retain the structured V4 verifier report used by every measurement row."""
+    gate_results, gate_complete, failed = _structured_gate_summary(report)
+    hard_pass = report.get("hard_pass") is True
+    reasons = [str(reason) for reason in report.get("reasons", [])]
     reserve = report.get("reserve") or {}
     return {
-        "composite_pass": not failed,
+        "composite_pass": None if not gate_complete else not failed,
         "failed_composites": failed,
-        "hard_check_pass": not hard,
-        "hard_check_failures": hard,
+        "gate_evaluation_complete": gate_complete,
+        "hard_pass": hard_pass,
+        "hard_check_pass": hard_pass,
+        "hard_check_failures": [] if hard_pass else reasons,
         "current_verifier_pass": bool(report.get("pass", False)),
-        "ignored_current_stage_reasons": ignored,
-        "raw_reasons": [str(reason) for reason in report.get("reasons", [])],
+        "raw_reasons": reasons,
+        "composite_metrics": _json_safe(report.get("composite_metrics") or {}),
+        "gate_results": gate_results,
+        "eligibility_evidence": _json_safe(
+            report.get("eligibility_evidence") or {}
+        ),
+        "reserve_rule_evidence": _json_safe(
+            report.get("reserve_rule_evidence") or {}
+        ),
+        "reserve_rule_errors": _json_safe(report.get("reserve_rule_errors") or []),
+        "evidence": _json_safe(report.get("evidence") or {}),
+        "verifier_evidence_id": _structured_evidence_id(report.get("evidence")),
+        "metrics": _json_safe(report.get("metrics") or {}),
+        "projection_metrics": _json_safe(report.get("projection_metrics") or {}),
+        "rate_metrics": _json_safe(report.get("rate_metrics") or {}),
         "gate_metrics": {
             "release": _json_safe(report.get("metrics") or {}),
             "projection": _json_safe(report.get("projection_metrics") or {}),
             "rates": _json_safe(report.get("rate_metrics") or {}),
             "reserve": _json_safe(reserve),
         },
-        "reserve": {
+        "reserve": _json_safe(reserve),
+        "reserve_summary": {
             "feasible": bool(reserve.get("feasible", False)),
             "J": _finite(reserve.get("J")),
             "J_baseline": _finite(reserve.get("J_baseline")),
@@ -1228,8 +1219,8 @@ def _audit_world(packet: Path, before: dict, after: dict) -> dict:
     ]
     base = {
         "world": packet.name,
-        "before_report_evidence_id": before["evidence"]["evidence_id"],
-        "after_report_evidence_id": after["evidence"]["evidence_id"],
+        "before_report_evidence_id": before["verifier_evidence_id"],
+        "after_report_evidence_id": after["verifier_evidence_id"],
         "mortality_gap_decomposition": mortality_gap_decomposition(packet),
         "eligibility": elder_eligibility_audit(packet),
     }
@@ -1400,7 +1391,7 @@ def write_elder_reconstruction_audit(
 
 
 def _submission_hashes(submission: Path) -> dict[str, str]:
-    """Hash every flat submission file without following linked entries."""
+    """Hash the exact three-file V4 submission without following linked entries."""
     submission = Path(submission)
     if submission.is_symlink() or not submission.is_dir():
         raise ValueError("method submission must be a real directory")
@@ -1412,7 +1403,14 @@ def _submission_hashes(submission: Path) -> dict[str, str]:
     nested = sorted(path.name for path in entries if not path.is_file())
     if nested:
         raise ValueError(f"method submission contains nested entries: {nested}")
-    return {name: _sha256(submission / name) for name in present}
+    missing = sorted(set(SUBMISSION_FILES) - set(present))
+    unexpected = sorted(set(present) - set(SUBMISSION_FILES))
+    if missing or unexpected:
+        raise ValueError(
+            f"method submission file set differs from V4; "
+            f"missing {missing}, unexpected {unexpected}"
+        )
+    return {name: _sha256(submission / name) for name in SUBMISSION_FILES}
 
 
 def _run_receipt_path(output_root: Path, submission: Path) -> Path:
@@ -1499,56 +1497,38 @@ def _validate_run_receipt(
     return True
 
 
-def _final_evidence_wrapper(packet: Path, submission: Path, bars: dict) -> dict:
-    submission = Path(submission)
-    if submission.is_symlink() or not submission.is_dir():
-        raise ValueError("evidence submission must be a real directory")
-    entries = list(submission.iterdir())
-    linked = sorted(path.name for path in entries if path.is_symlink())
-    if linked:
-        raise ValueError(f"evidence submission contains symlinks: {linked}")
-    present = sorted(path.name for path in entries if path.is_file())
-    nested = sorted(path.name for path in entries if not path.is_file())
-    accepted = set(SUBMISSION_FILES + OPTIONAL_SUBMISSION_FILES)
-    missing = sorted(set(SUBMISSION_FILES) - set(present))
-    unexpected = sorted((set(present) - accepted) | set(nested))
-    submission_sha256 = {name: _sha256(submission / name) for name in present}
-    _, manifest_path = _read_packet_manifest(packet)
-    payload = {
-        "packet": str(Path(packet).resolve()),
-        "packet_manifest_sha256": _sha256(manifest_path),
-        "submission": str(submission.resolve()),
-        "submission_sha256": submission_sha256,
-        "missing_required_submission_files": missing,
-        "unexpected_submission_files": unexpected,
-        "bars": bars,
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    evidence_id = hashlib.sha256(encoded).hexdigest()
-    return {
-        "report_class": "final_control_measurement",
-        "evidence_id": evidence_id,
-        "replicate_id": f"final-{evidence_id[:20]}",
-        "eligible_for_freeze_calibration": False,
-    }
-
-
-def _score(packet: Path, submission: Path, bars: dict, allow_unfrozen: bool) -> dict:
+def _score(
+    packet: Path,
+    submission: Path,
+    bars: dict | None,
+    raw_pre_freeze: bool,
+) -> dict:
+    """Score against frozen bars, or obtain explicitly ungated raw V4 metrics."""
+    if raw_pre_freeze and bars is not None:
+        raise ValueError("raw pre-freeze scoring must not receive bars")
+    if not raw_pre_freeze and bars is None:
+        raise ValueError("frozen evaluation scoring requires bars")
     try:
-        report = verify_submission(
-            packet, submission, bars, allow_unfrozen=allow_unfrozen
-        )
+        report = verify_submission(packet, submission, None if raw_pre_freeze else bars)
     except (OSError, ValueError, KeyError) as error:
         report = {
             "pass": False,
+            "hard_pass": False,
             "reasons": [
                 "schema: verifier raised while parsing the submission: "
                 f"{type(error).__name__}: {error}"
             ],
+            "composite_metrics": {},
+            "gate_results": {},
             "reserve": {"feasible": False},
+            "eligibility_evidence": {},
+            "reserve_rule_evidence": {},
+            "evidence": {},
         }
     summary = summarize_report(report)
-    evidence = _final_evidence_wrapper(packet, submission, bars)
+    summary["measurement_mode"] = (
+        RAW_PRE_FREEZE_MODE if raw_pre_freeze else FROZEN_EVALUATION_MODE
+    )
     if not summary["hard_check_pass"]:
         return summary | {
             "truth_audit_status": "unavailable_due_to_hard_check_failure",
@@ -1556,7 +1536,6 @@ def _score(packet: Path, submission: Path, bars: dict, allow_unfrozen: bool) -> 
             "regional_level_within_one_tail_width": None,
             "state_65_plus": None,
             "sealed_exceedance": None,
-            "evidence": evidence,
         }
     regional = regional_liability_means(packet, submission)
     return summary | {
@@ -1567,7 +1546,6 @@ def _score(packet: Path, submission: Path, bars: dict, allow_unfrozen: bool) -> 
         ),
         "state_65_plus": elder_state_exposure_survival(packet, submission, bars),
         "sealed_exceedance": sealed_exceedance_audit(packet, submission),
-        "evidence": _final_evidence_wrapper(packet, submission, bars),
     }
 
 
@@ -1575,8 +1553,8 @@ def _run_once(
     packet: Path,
     submission: Path,
     runner: Callable[[Path], object],
-    bars: dict,
-    allow_unfrozen: bool,
+    bars: dict | None,
+    raw_pre_freeze: bool,
     output_root: Path,
     measurement_contract_sha256: str,
     run_spec: dict,
@@ -1604,7 +1582,7 @@ def _run_once(
         measurement_contract_sha256,
         run_spec,
     ):
-        scored = _score(packet, submission, bars, allow_unfrozen)
+        scored = _score(packet, submission, bars, raw_pre_freeze)
         if not _validate_run_receipt(
             output_root,
             packet,
@@ -1636,7 +1614,7 @@ def _run_once(
         receipt,
         "method run receipt",
     )
-    scored = _score(packet, submission, bars, allow_unfrozen)
+    scored = _score(packet, submission, bars, raw_pre_freeze)
     if not _validate_run_receipt(
         output_root,
         packet,
@@ -1665,6 +1643,23 @@ def _comparison(third: dict, reference_a: dict, reference_b: dict) -> dict:
             "valid": False,
             "status": "indeterminate_due_to_hard_check_failure",
             "hard_invalid": hard_invalid,
+            "composites": {},
+        }
+    ungated = [
+        label
+        for label, report in (
+            ("third", third),
+            ("A", reference_a),
+            ("B", reference_b),
+        )
+        if report.get("gate_evaluation_complete") is not True
+    ]
+    if ungated:
+        return {
+            "valid": False,
+            "status": "not_evaluated_pre_freeze",
+            "hard_invalid": [],
+            "ungated": ungated,
             "composites": {},
         }
 
@@ -1708,6 +1703,24 @@ def _reserve_change(reference: dict, deletion: dict) -> dict:
             "valid": False,
             "status": "indeterminate_due_to_hard_check_failure",
             "hard_invalid": hard_invalid,
+            "failed_composites_changed": None,
+            "J_delta": None,
+            "skill_delta": None,
+            "mean_quantile_score_delta": None,
+            "mean_shortfall_error_delta": None,
+            "changed": None,
+        }
+    ungated = [
+        label
+        for label, report in (("A", reference), ("deletion", deletion))
+        if report.get("gate_evaluation_complete") is not True
+    ]
+    if ungated:
+        return {
+            "valid": False,
+            "status": "not_evaluated_pre_freeze",
+            "hard_invalid": [],
+            "ungated": ungated,
             "failed_composites_changed": None,
             "J_delta": None,
             "skill_delta": None,
@@ -1792,21 +1805,54 @@ def _validate_shared_worlds_root(
         )
 
 
+def _validate_measurement_mode(
+    bars_path: Path | None, raw_pre_freeze: bool
+) -> Path | None:
+    """Require an explicit choice between ungated metrics and frozen evaluation."""
+    if raw_pre_freeze:
+        if bars_path is not None:
+            raise ValueError("--raw-pre-freeze cannot be combined with --bars")
+        return None
+    if bars_path is None:
+        raise ValueError("frozen evaluation requires --bars")
+    return Path(bars_path)
+
+
+def _shared_reference_layer(simulation_paths: int) -> AR.LayerParams:
+    """Build the fixed A/B layer across the legacy and final V4 method APIs."""
+    kwargs = {
+        "simulation": AR.SimulationParams(
+            n_paths=simulation_paths, seed=SHARED_SIMULATION_SEED
+        ),
+        "seed": SHARED_ACTUARIAL_LAYER_SEED,
+    }
+    # The final V4 API removes tail-to-total fitting. Until the verifier contract is
+    # merged into this lane, explicitly turn that legacy field off.
+    if "calibrate_tail_to_total" in AR.LayerParams.__dataclass_fields__:
+        kwargs["calibrate_tail_to_total"] = False
+    return AR.LayerParams(**kwargs)
+
+
 def measure_elder_reconstruction(
     development_packets: list[Path],
     qualification_packets: list[Path],
     out_dir: Path,
-    bars_path: Path,
+    bars_path: Path | None,
     params: MeasurementParams = MeasurementParams(),
-    allow_unfrozen: bool = False,
+    raw_pre_freeze: bool = False,
 ) -> dict:
     """Run only A and the cohort-component third line for the elder audit."""
     development_packets = _validate_packet_group(development_packets, 12, True)
     qualification_packets = _validate_packet_group(qualification_packets, 6, False)
     _validate_shared_worlds_root(development_packets, qualification_packets)
+    bars_path = _validate_measurement_mode(bars_path, raw_pre_freeze)
     out_dir = _prepare_output_dir(out_dir)
     contract = _measurement_contract(
-        development_packets, qualification_packets, Path(bars_path), params
+        development_packets,
+        qualification_packets,
+        bars_path,
+        params,
+        raw_pre_freeze=raw_pre_freeze,
     )
     contract["measurement_scope"] = "elder_reconstruction_before_after"
     _bind_measurement_output(out_dir, contract)
@@ -1814,9 +1860,13 @@ def measure_elder_reconstruction(
     _verify_bound_packet_group(
         out_dir, contract_sha256, development_packets + qualification_packets
     )
-    bars = _load_bound_bars(out_dir, contract_sha256, Path(bars_path))
-    if bars.get("frozen") is not True and not allow_unfrozen:
-        raise ValueError("elder measurement requires frozen bars or --allow-unfrozen")
+    bars = (
+        None
+        if raw_pre_freeze
+        else _load_bound_bars(out_dir, contract_sha256, bars_path)
+    )
+    if bars is not None and bars.get("frozen") is not True:
+        raise ValueError("elder measurement requires a completed frozen bar set")
     calibration_a = _ensure_bound_calibration_artifact(
         out_dir,
         "A",
@@ -1827,12 +1877,13 @@ def measure_elder_reconstruction(
     calibration_a_sha256 = _bound_calibration_sha256(
         out_dir, contract_sha256, "A", calibration_a
     )
-    shared_layer = AR.LayerParams(
-        simulation=AR.SimulationParams(n_paths=params.simulation_paths),
-        calibrate_tail_to_total=False,
-    )
+    shared_layer = _shared_reference_layer(params.simulation_paths)
     report = {
         "report_class": "elder_reconstruction_before_after",
+        "measurement_mode": (
+            RAW_PRE_FREEZE_MODE if raw_pre_freeze else FROZEN_EVALUATION_MODE
+        ),
+        "reference_method_seeds": dict(REFERENCE_METHOD_SEEDS),
         "qualification": {},
         "reserve_total_used_for_tail_calibration": False,
     }
@@ -1847,21 +1898,24 @@ def measure_elder_reconstruction(
                 o,
                 A.MethodParams(
                     bootstrap_replicates=params.bootstrap_replicates,
+                    seed=REFERENCE_METHOD_SEEDS["A"],
                     calibration_path=str(calibration_a),
                     actuarial="on",
                     actuarial_params=shared_layer,
                 ),
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
                 "method": "A",
                 "bootstrap_replicates": params.bootstrap_replicates,
+                "method_seed": REFERENCE_METHOD_SEEDS["A"],
                 "simulation_paths": params.simulation_paths,
+                "simulation_seed": SHARED_SIMULATION_SEED,
+                "actuarial_layer_seed": SHARED_ACTUARIAL_LAYER_SEED,
                 "calibration_sha256": calibration_a_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_a: calibration_a_sha256},
         )
@@ -1875,20 +1929,21 @@ def measure_elder_reconstruction(
                     bootstrap_replicates=params.bootstrap_replicates,
                     linkage_bootstraps=params.linkage_bootstraps,
                     simulation_paths=params.simulation_paths,
+                    seed=REFERENCE_METHOD_SEEDS["C"],
                     calibration_path=str(calibration_a),
                 ),
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
                 "method": "third_cohort_component",
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "linkage_bootstraps": params.linkage_bootstraps,
+                "method_seed": REFERENCE_METHOD_SEEDS["C"],
                 "simulation_paths": params.simulation_paths,
                 "calibration_sha256": calibration_a_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_a: calibration_a_sha256},
         )
@@ -1917,27 +1972,44 @@ def measure(
     development_packets: list[Path],
     qualification_packets: list[Path],
     out_dir: Path,
-    bars_path: Path,
+    bars_path: Path | None,
     params: MeasurementParams = MeasurementParams(),
-    allow_unfrozen: bool = False,
+    raw_pre_freeze: bool = False,
 ) -> dict:
     """Run and record every phase-three comparison in a restartable output tree."""
+    diagnostic_overlap = set(controls.DECOMPOSITION_CONTROLS) & set(
+        controls.QUALIFICATION_CONTROLS
+    )
+    if diagnostic_overlap:
+        raise RuntimeError(
+            f"oracle diagnostics may not be qualification controls: "
+            f"{sorted(diagnostic_overlap)}"
+        )
     development_packets = _validate_packet_group(development_packets, 12, True)
     qualification_packets = _validate_packet_group(qualification_packets, 6, False)
     _validate_shared_worlds_root(development_packets, qualification_packets)
+    bars_path = _validate_measurement_mode(bars_path, raw_pre_freeze)
     out_dir = _prepare_output_dir(out_dir)
     _bind_measurement_output(
         out_dir,
         _measurement_contract(
-            development_packets, qualification_packets, Path(bars_path), params
+            development_packets,
+            qualification_packets,
+            bars_path,
+            params,
+            raw_pre_freeze=raw_pre_freeze,
         ),
     )
     contract_sha256 = _measurement_contract_sha256(out_dir)
     _verify_bound_packet_group(
         out_dir, contract_sha256, development_packets + qualification_packets
     )
-    bars = _load_bound_bars(out_dir, contract_sha256, Path(bars_path))
-    if bars.get("frozen") is not True and not allow_unfrozen:
+    bars = (
+        None
+        if raw_pre_freeze
+        else _load_bound_bars(out_dir, contract_sha256, bars_path)
+    )
+    if bars is not None and bars.get("frozen") is not True:
         raise ValueError("phase-three measurements require a completed frozen bar set")
     calibration_a = _ensure_bound_calibration_artifact(
         out_dir,
@@ -1950,11 +2022,12 @@ def measure(
         out_dir, contract_sha256, "A", calibration_a
     )
 
-    shared_layer = AR.LayerParams(
-        simulation=AR.SimulationParams(n_paths=params.simulation_paths),
-        calibrate_tail_to_total=False,
-    )
+    shared_layer = _shared_reference_layer(params.simulation_paths)
     report = {
+        "measurement_mode": (
+            RAW_PRE_FREEZE_MODE if raw_pre_freeze else FROZEN_EVALUATION_MODE
+        ),
+        "reference_method_seeds": dict(REFERENCE_METHOD_SEEDS),
         "composites": list(COMPOSITE_FAMILIES),
         "reserve_total_used_for_tail_calibration": False,
         "qualification": {},
@@ -1967,6 +2040,12 @@ def measure(
         "control_hard_failures": {},
         "control_targets": dict(controls.CONTROL_TARGET_COMPOSITES),
         "qualification_control_names": list(controls.QUALIFICATION_CONTROLS),
+        "oracle_diagnostics": {
+            "scope": "development_only",
+            "names": list(controls.DECOMPOSITION_CONTROLS),
+            "expected_reports": 2 * len(development_packets),
+            "included_in_qualification_controls": False,
+        },
         "control_target_results": {},
         "gate_control_deletion_candidates": [],
         "gate_retention": {},
@@ -1991,7 +2070,7 @@ def measure(
                     simulation_paths=params.simulation_paths,
                 ),
                 bars,
-                allow_unfrozen,
+                raw_pre_freeze,
                 out_dir,
                 contract_sha256,
                 {
@@ -1999,7 +2078,6 @@ def measure(
                     "bootstrap_replicates": params.bootstrap_replicates,
                     "simulation_paths": params.simulation_paths,
                     "calibration_sha256": calibration_a_sha256,
-                    "calibrate_tail_to_total": False,
                 },
                 {calibration_a: calibration_a_sha256},
             )
@@ -2038,21 +2116,24 @@ def measure(
                 o,
                 A.MethodParams(
                     bootstrap_replicates=params.bootstrap_replicates,
+                    seed=REFERENCE_METHOD_SEEDS["A"],
                     calibration_path=str(calibration_a),
                     actuarial="on",
                     actuarial_params=shared_layer,
                 ),
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
                 "method": "A",
                 "bootstrap_replicates": params.bootstrap_replicates,
+                "method_seed": REFERENCE_METHOD_SEEDS["A"],
                 "simulation_paths": params.simulation_paths,
+                "simulation_seed": SHARED_SIMULATION_SEED,
+                "actuarial_layer_seed": SHARED_ACTUARIAL_LAYER_SEED,
                 "calibration_sha256": calibration_a_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_a: calibration_a_sha256},
         )
@@ -2070,7 +2151,7 @@ def measure(
                 )
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
@@ -2078,7 +2159,6 @@ def measure(
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "simulation_paths": params.simulation_paths,
                 "calibration_sha256": calibration_a_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_a: calibration_a_sha256},
         )
@@ -2092,22 +2172,25 @@ def measure(
                 B.MethodParams(
                     sweeps=params.bayesian_sweeps,
                     burn_in=params.bayesian_sweeps // 4,
+                    seed=REFERENCE_METHOD_SEEDS["B"],
                     calibration_path=str(calibration_b),
                     actuarial="on",
                     actuarial_params=shared_layer,
                 ),
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
                 "method": "B",
                 "sweeps": params.bayesian_sweeps,
                 "burn_in": params.bayesian_sweeps // 4,
+                "method_seed": REFERENCE_METHOD_SEEDS["B"],
                 "simulation_paths": params.simulation_paths,
+                "simulation_seed": SHARED_SIMULATION_SEED,
+                "actuarial_layer_seed": SHARED_ACTUARIAL_LAYER_SEED,
                 "calibration_sha256": calibration_b_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_b: calibration_b_sha256},
         )
@@ -2121,20 +2204,21 @@ def measure(
                     bootstrap_replicates=params.bootstrap_replicates,
                     linkage_bootstraps=params.linkage_bootstraps,
                     simulation_paths=params.simulation_paths,
+                    seed=REFERENCE_METHOD_SEEDS["C"],
                     calibration_path=str(calibration_a),
                 ),
             ),
             bars,
-            allow_unfrozen,
+            raw_pre_freeze,
             out_dir,
             contract_sha256,
             {
                 "method": "third_cohort_component",
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "linkage_bootstraps": params.linkage_bootstraps,
+                "method_seed": REFERENCE_METHOD_SEEDS["C"],
                 "simulation_paths": params.simulation_paths,
                 "calibration_sha256": calibration_a_sha256,
-                "calibrate_tail_to_total": False,
             },
             {calibration_a: calibration_a_sha256},
         )
@@ -2151,14 +2235,13 @@ def measure(
                     simulation_paths=params.simulation_paths,
                 ),
                 bars,
-                allow_unfrozen,
+                raw_pre_freeze,
                 out_dir,
                 contract_sha256,
                 {
                     "method": f"control/{name}",
                     "simulation_paths": params.simulation_paths,
                     "calibration_sha256": calibration_a_sha256,
-                    "calibrate_tail_to_total": False,
                     "target_composite": controls.CONTROL_TARGET_COMPOSITES[name],
                 },
                 {calibration_a: calibration_a_sha256},
@@ -2181,7 +2264,7 @@ def measure(
                     )
                 ),
                 bars,
-                allow_unfrozen,
+                raw_pre_freeze,
                 out_dir,
                 contract_sha256,
                 {
@@ -2189,7 +2272,6 @@ def measure(
                     "bootstrap_replicates": params.bootstrap_replicates,
                     "simulation_paths": params.simulation_paths,
                     "calibration_sha256": calibration_a_sha256,
-                    "calibrate_tail_to_total": False,
                 },
                 {calibration_a: calibration_a_sha256},
             )
@@ -2251,6 +2333,11 @@ def measure(
         )
 
     for name in controls.DELETION_CONTROLS:
+        if raw_pre_freeze:
+            report["deletion_indeterminate"][name] = [
+                "not_evaluated_pre_freeze"
+            ]
+            continue
         hard_invalid = []
         changes = []
         for packet in qualification_packets:
@@ -2303,12 +2390,13 @@ def measure(
                 "controls" if name in controls.ALL_CONTROLS else "deletions"
             )
             row = report["qualification"][world][collection][name]
-            target_failed = target in row["failed_composites"]
+            failures = row["failed_composites"]
+            target_failed = None if failures is None else target in failures
             if not row["hard_check_pass"]:
                 hard_invalid.append(world)
-            elif target_failed:
+            elif target_failed is True:
                 failed_target.append(world)
-            else:
+            elif target_failed is False:
                 passed_target.append(world)
             worlds[world] = {
                 "hard_check_pass": row["hard_check_pass"],
@@ -2317,14 +2405,16 @@ def measure(
                 "failed_composites": row["failed_composites"],
                 "other_failed_composites": [
                     family
-                    for family in row["failed_composites"]
+                    for family in (failures or [])
                     if family != target
                 ],
                 "exact_gate_metrics": row["gate_metrics"],
-                "evidence_id": row["evidence"]["evidence_id"],
+                "evidence_id": row["verifier_evidence_id"],
             }
         status = (
-            "indeterminate_due_to_hard_check_failure"
+            "not_evaluated_pre_freeze"
+            if raw_pre_freeze
+            else "indeterminate_due_to_hard_check_failure"
             if hard_invalid
             else "deletion_candidate"
             if passed_target
@@ -2377,10 +2467,14 @@ def measure(
             == "indeterminate_due_to_hard_check_failure"
         ]
         report["gate_retention"][family] = {
-            "status": "retain"
+            "status": "not_evaluated_pre_freeze"
+            if raw_pre_freeze
+            else "retain"
             if len(retained) == len(registered)
             else "blocked_by_control_evidence",
-            "retain": len(retained) == len(registered),
+            "retain": None
+            if raw_pre_freeze
+            else len(retained) == len(registered),
             "registered_controls": registered,
             "retained_controls": retained,
             "deletion_candidates": candidates,
@@ -2409,13 +2503,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev", nargs="+", required=True)
     parser.add_argument("--qualification", nargs="+", required=True)
-    parser.add_argument("--bars", required=True)
+    parser.add_argument("--bars")
     parser.add_argument("--out", required=True)
     parser.add_argument("--bootstrap", type=int, default=100)
     parser.add_argument("--sweeps", type=int, default=400)
     parser.add_argument("--simulation-paths", type=int, default=2048)
     parser.add_argument("--linkage-bootstraps", type=int, default=12)
-    parser.add_argument("--allow-unfrozen", action="store_true")
+    parser.add_argument("--raw-pre-freeze", action="store_true")
     parser.add_argument("--elder-only", action="store_true")
     args = parser.parse_args(argv)
     runner = measure_elder_reconstruction if args.elder_only else measure
@@ -2423,11 +2517,11 @@ def main(argv: list[str] | None = None) -> int:
         [Path(path) for path in args.dev],
         [Path(path) for path in args.qualification],
         Path(args.out),
-        Path(args.bars),
+        None if args.bars is None else Path(args.bars),
         MeasurementParams(
             args.bootstrap, args.sweeps, args.simulation_paths, args.linkage_bootstraps
         ),
-        allow_unfrozen=args.allow_unfrozen,
+        raw_pre_freeze=args.raw_pre_freeze,
     )
     if args.elder_only:
         summary = {
