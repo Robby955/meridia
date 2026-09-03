@@ -7,7 +7,7 @@ Thirteen synthetic worlds ship with this task. One is sealed and scored, twelve 
 for method development.
 
 - `/data/hidden/participant/` is the sealed one. It carries two household-survey
-  snapshots, four imperfect person and business registers (population, business, income,
+  snapshots, four imperfect registers (population, business, income,
   health), preliminary and revised benchmark totals under `sources/`, five years of
   aggregate demographic experience in `experience_history.csv`, a geography table, and
   `contract.json`. Registers drop rows, repeat them, report them late, and link them
@@ -23,15 +23,15 @@ has to leave `/data` untouched, and may write nothing else.
 
 No person key crosses a register boundary. A person row gives two name tokens,
 `given_code` and `family_code`, a birth tick, and a sex, and every register restates all
-four with errors of its own. The vocabularies are small and heavy tailed, so one token
+four with register-specific errors. The vocabularies are small and heavy tailed, so one token
 pair covers many people. Repeats are close but never identical, and each register fixes
-an address as of its own reference date.
+an address at its reference date.
 
 Six quantities settle once per world: population coverage, health coverage, the county
 miscoding rate, the wage unit of the register, and the two survey axes, response and
 measurement. The twelve open worlds settle inside a published band. The sealed one
-settles outside it along axes that stay undisclosed, so a calibration carried over
-unchanged will miss. Benchmark totals come from an independent production line whose
+settles outside it along axes that stay undisclosed, so a fixed calibration will miss.
+Benchmark totals come from an independent production line whose
 bias persists, rounded to hundreds.
 
 `contract.json` publishes the obligation and its formula, the discount rate, the
