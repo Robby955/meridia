@@ -91,7 +91,7 @@ import numpy as np
 from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, SEX_LABELS
 from . import actuarial_reference as AR
 from . import design_based as A
-from .common import COUNT_ITEMS, load_packet, write_submission
+from .common import COUNT_ITEMS, load_packet
 
 CONTROLS = (
     "register_only",
@@ -1297,6 +1297,61 @@ def _actuarial_control(
         )
 
 
+def _run_structural_base(
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None,
+    simulation_paths: int | None,
+) -> dict:
+    """Write the strong V4 rate and reserve blocks without public-total tail fitting."""
+    simulation = AR.SimulationParams()
+    if simulation_paths is not None:
+        simulation = replace(simulation, n_paths=simulation_paths)
+    return A.run(
+        packet_dir,
+        out_dir,
+        A.MethodParams(
+            bootstrap_replicates=60,
+            calibration_path=calibration_path,
+            actuarial="on",
+            actuarial_params=AR.LayerParams(
+                simulation=simulation,
+                calibrate_tail_to_total=False,
+            ),
+        ),
+    )
+
+
+def _overlay_core_rows(
+    out_dir: Path, release_rows: list[dict], projection_rows: list[dict]
+) -> None:
+    """Replace only core rows and retain the structural base's V4 rate block."""
+    import pandas as pd
+
+    out_dir = Path(out_dir)
+    submitted_release = pd.read_csv(out_dir / "release.csv")
+    submitted_projection = pd.read_csv(out_dir / "projection.csv")
+    rate_rows = submitted_release[
+        submitted_release["estimand"].isin(AR.RATE_ESTIMANDS)
+    ]
+    core = pd.DataFrame(release_rows)
+    for column in submitted_release.columns:
+        if column not in core:
+            core[column] = "" if column in AR.RATE_EXTRA_COLUMNS else np.nan
+    combined = pd.concat(
+        [core[list(submitted_release.columns)], rate_rows], ignore_index=True
+    )
+    combined.to_csv(out_dir / "release.csv", index=False)
+
+    projection = pd.DataFrame(projection_rows)
+    for column in submitted_projection.columns:
+        if column not in projection:
+            projection[column] = ""
+    projection[list(submitted_projection.columns)].to_csv(
+        out_dir / "projection.csv", index=False
+    )
+
+
 def run(
     name: str,
     packet_dir: Path,
@@ -1321,24 +1376,11 @@ def run(
     tick = int(contract["ticks"]["revised"])
     horizon_months = int(contract["ticks"]["horizon"]) - tick
     budget = float(contract["allocation"]["budget"])
-    threshold = int(contract["disclosure_threshold"])
     out_dir = Path(out_dir)
 
     if name in ("inflated_intervals", "static_projection", "uniform_allocation", "exact_key_union"):
-        simulation = AR.SimulationParams()
-        if simulation_paths is not None:
-            simulation = replace(simulation, n_paths=simulation_paths)
-        base = A.run(
-            packet_dir,
-            out_dir,
-            A.MethodParams(
-                bootstrap_replicates=60,
-                calibration_path=calibration_path,
-                actuarial_params=AR.LayerParams(
-                    simulation=simulation,
-                    calibrate_tail_to_total=False,
-                ),
-            ),
+        base = _run_structural_base(
+            Path(packet_dir), out_dir, calibration_path, simulation_paths
         )
         import pandas as pd
         if name == "exact_key_union":
@@ -1350,20 +1392,53 @@ def run(
                 raise ValueError("exact_key_union needs the development fit stored in calibration A")
             rows = [r for r in base["release"] if r["estimand"] not in COUNT_ITEMS]
             rows += _exact_key_union_rows(data, tick, county_state, fit)
-            pd.DataFrame(rows).to_csv(out_dir / "release.csv", index=False)
+            submitted = pd.read_csv(out_dir / "release.csv")
+            frame = pd.DataFrame(rows)
+            for column in submitted.columns:
+                if column not in frame:
+                    frame[column] = "" if column in AR.RATE_EXTRA_COLUMNS else np.nan
+            frame[list(submitted.columns)].to_csv(out_dir / "release.csv", index=False)
         elif name == "inflated_intervals":
-            point = {(r["estimand"], r["level"], r["unit"]): r["estimate"] for r in base["release"]}
-            pd.DataFrame(_rows_with_relative_half(point, 0.40)).to_csv(out_dir / "release.csv", index=False)
+            rows = pd.read_csv(out_dir / "release.csv")
+            core = ~rows["estimand"].isin(AR.RATE_ESTIMANDS)
+            estimate = rows.loc[core, "estimate"].to_numpy(dtype=np.float64)
+            proportion = rows.loc[core, "estimand"].isin(
+                ("tertiary_share_25_plus", "low_income_household_share")
+            ).to_numpy()
+            half = np.where(proportion, 0.40, 0.40 * np.abs(estimate))
+            rows.loc[core, "lower"] = np.maximum(
+                estimate - half, 0.0
+            )
+            upper = estimate + half
+            upper[proportion] = np.minimum(upper[proportion], 1.0)
+            rows.loc[core, "upper"] = upper
+            rows.to_csv(out_dir / "release.csv", index=False)
         elif name == "static_projection":
-            pd.DataFrame(base["release"]).to_csv(out_dir / "projection.csv", index=False)
-        else:   # uniform_allocation: a strong forecast with the reserve split evenly
+            release = pd.read_csv(out_dir / "release.csv")
+            projection = pd.read_csv(out_dir / "projection.csv")
+            core = release[~release["estimand"].isin(AR.RATE_ESTIMANDS)].copy()
+            core[list(projection.columns)].to_csv(
+                out_dir / "projection.csv", index=False
+            )
+        else:   # equal reserve slack above every submitted regional floor
             reserve_path = out_dir / "reserve.csv"
             if reserve_path.exists():
                 rows = pd.read_csv(reserve_path)
                 total = float(data["contract"]["reserve"]["total"])
-                even = np.full(len(rows), total / len(rows))
-                even[-1] = total - float(even[:-1].sum())
-                rows["allocation"] = even
+                floor = rows["q95"].to_numpy(dtype=np.float64)
+                slack = total - float(floor.sum())
+                if slack < -1e-6:
+                    # The legacy contract built R from sealed q95 and ES. Once the
+                    # prohibited tail-to-total fit is removed, a participant forecast can
+                    # therefore file floors whose sum exceeds R. There is no feasible
+                    # uniform allocation in that state. Keep the complete filing and let
+                    # the hard feasibility check report the contract obstruction. New
+                    # exposure-rule packets must instead demonstrate non-negative slack.
+                    allocation = floor
+                else:
+                    allocation = floor + max(slack, 0.0) / len(rows)
+                    allocation[-1] = total - float(allocation[:-1].sum())
+                rows["allocation"] = allocation
                 rows.to_csv(reserve_path, index=False)
             else:
                 pd.DataFrame({"county": np.arange(n_counties),
@@ -1420,8 +1495,11 @@ def run(
     now = A.aggregate(county, county_state, stats, county["persons"])
     future = A.aggregate(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1)),
                          county_state, stats, county["persons"])
-    elders = np.maximum(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1))["elders_65_plus"], 0.0)
-    allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
-    write_submission(out_dir, _rows_with_relative_half(now, 0.01), _rows_with_relative_half(future, 0.02),
-                     register["cube"], 2.0 * threshold, allocation,
-                     deterministic_reserve_rows(contract, county_state, elders))
+    _run_structural_base(
+        Path(packet_dir), out_dir, calibration_path, simulation_paths
+    )
+    _overlay_core_rows(
+        out_dir,
+        _rows_with_relative_half(now, 0.01),
+        _rows_with_relative_half(future, 0.02),
+    )

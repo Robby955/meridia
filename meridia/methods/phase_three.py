@@ -131,6 +131,8 @@ def _verified_packet_files(packet: Path) -> dict[str, str]:
         side_path = packet / side
         if side_path.is_symlink():
             raise ValueError(f"packet {side} directory may not be a symlink")
+        if not side_path.is_dir():
+            raise ValueError(f"packet has no {side} directory: {packet}")
         root = side_path.resolve()
         if root.parent != packet:
             raise ValueError(f"packet {side} directory escapes the packet root")
@@ -186,7 +188,7 @@ def _measurement_contract(
         packet_files[key] = inventory
         manifest_sha256[key] = _sha256(manifest_path)
         contract_sha256[key] = inventory["participant/contract.json"]
-    return {
+    contract = {
         "schema": "meridia-phase-three-measurement-v1",
         "development_packets": [str(path.resolve()) for path in development_packets],
         "qualification_packets": [
@@ -203,6 +205,9 @@ def _measurement_contract(
         },
         "reserve_total_used_for_tail_calibration": False,
     }
+    for packet in packets:
+        _verify_packet_contract_entry(packet, contract)
+    return contract
 
 
 def _bind_measurement_output(out_dir: Path, contract: dict) -> None:
@@ -240,6 +245,91 @@ def _measurement_contract_sha256(out_dir: Path) -> str:
     if not contract_path.is_file():
         raise ValueError("measurement output has no bound measurement contract")
     return _sha256(contract_path)
+
+
+def _verify_packet_contract_entry(packet: Path, contract: dict) -> str:
+    """Recheck one packet against the exact inventory bound at run creation."""
+    packet = Path(packet).resolve()
+    key = str(packet)
+    try:
+        expected_files = contract["packet_file_sha256"][key]
+        expected_manifest = contract["packet_manifest_sha256"][key]
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"measurement contract does not bind packet: {packet}") from error
+    current_files = _verified_packet_files(packet)
+    _, manifest_path = _read_packet_manifest(packet)
+    current_manifest = _sha256(manifest_path)
+    if current_files != expected_files or current_manifest != expected_manifest:
+        raise ValueError(f"packet changed after measurement binding: {packet}")
+    return str(expected_manifest)
+
+
+def _load_bound_measurement_contract(
+    out_dir: Path, contract_sha256: str
+) -> dict:
+    out_dir = _prepare_output_dir(out_dir)
+    path = _assert_output_location(
+        out_dir, out_dir / "measurement_contract.json", "measurement contract"
+    )
+    if not path.is_file() or _sha256(path) != contract_sha256:
+        raise ValueError("measurement contract changed after it was bound")
+    try:
+        contract = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("measurement contract is incomplete or invalid") from error
+    if not isinstance(contract, dict):
+        raise ValueError("measurement contract is not a JSON object")
+    return contract
+
+
+def _load_bound_bars(
+    out_dir: Path, contract_sha256: str, bars_path: Path
+) -> dict:
+    """Parse exactly the regular bars bytes named by the measurement contract."""
+    contract = _load_bound_measurement_contract(out_dir, contract_sha256)
+    bars_path = Path(bars_path)
+    if bars_path.is_symlink() or not bars_path.is_file():
+        raise ValueError("bars must be a regular file")
+    try:
+        encoded = bars_path.read_bytes()
+    except OSError as error:
+        raise ValueError("bars could not be read") from error
+    digest = hashlib.sha256(encoded).hexdigest()
+    if digest != contract.get("bars_sha256"):
+        raise ValueError("bars changed after measurement binding")
+    try:
+        bars = json.loads(encoded)
+    except json.JSONDecodeError as error:
+        raise ValueError("bars are not valid JSON") from error
+    if not isinstance(bars, dict):
+        raise ValueError("bars are not a JSON object")
+    return bars
+
+
+def _verify_bound_packet(
+    out_dir: Path, contract_sha256: str, packet: Path
+) -> str:
+    contract = _load_bound_measurement_contract(out_dir, contract_sha256)
+    return _verify_packet_contract_entry(packet, contract)
+
+
+def _verify_bound_packet_group(
+    out_dir: Path, contract_sha256: str, packets: list[Path]
+) -> None:
+    contract = _load_bound_measurement_contract(out_dir, contract_sha256)
+    for packet in packets:
+        _verify_packet_contract_entry(packet, contract)
+
+
+def _bound_manifest_sha256(
+    out_dir: Path, contract_sha256: str, packet: Path
+) -> str:
+    contract = _load_bound_measurement_contract(out_dir, contract_sha256)
+    key = str(Path(packet).resolve())
+    try:
+        return str(contract["packet_manifest_sha256"][key])
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"measurement contract does not bind packet: {packet}") from error
 
 
 def _load_calibration_receipts(out_dir: Path, contract_sha256: str) -> dict:
@@ -349,6 +439,43 @@ def _ensure_calibration_artifact(
     return artifact
 
 
+def _ensure_bound_calibration_artifact(
+    out_dir: Path,
+    label: str,
+    generator: Callable[[Path], object],
+    contract_sha256: str,
+    packets: list[Path],
+) -> Path:
+    """Create or reuse a calibration only while every source packet stays bound."""
+    _verify_bound_packet_group(out_dir, contract_sha256, packets)
+    artifact = _ensure_calibration_artifact(out_dir, label, generator)
+    _verify_bound_packet_group(out_dir, contract_sha256, packets)
+    return artifact
+
+
+def _bound_calibration_sha256(
+    out_dir: Path, contract_sha256: str, label: str, artifact: Path
+) -> str:
+    """Return the receipt's digest after proving the artifact still matches it."""
+    receipt = _load_calibration_receipts(out_dir, contract_sha256)
+    recorded = receipt["artifacts"].get(label)
+    if not isinstance(recorded, dict) or recorded.get("file") != Path(artifact).name:
+        raise ValueError(f"calibration {label} has no bound artifact receipt")
+    digest = recorded.get("sha256")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError(f"calibration {label} receipt has no valid digest")
+    _verify_bound_inputs({Path(artifact): digest})
+    return digest
+
+
+def _verify_bound_inputs(bound_inputs: dict[Path, str] | None) -> None:
+    """Require auxiliary method inputs to retain their receipt-bound bytes."""
+    for path, expected in (bound_inputs or {}).items():
+        path = Path(path)
+        if path.is_symlink() or not path.is_file() or _sha256(path) != expected:
+            raise ValueError(f"bound method input changed: {path.name}")
+
+
 def reason_composite(reason: str) -> str | None:
     """Map one current verifier reason to one retained composite family."""
     text = str(reason).strip().lower()
@@ -417,6 +544,19 @@ def _finite(value, default: float | None = None) -> float | None:
     return number if math.isfinite(number) else default
 
 
+def _json_safe(value):
+    """Convert verifier numeric containers to deterministic JSON values."""
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 def summarize_report(report: dict) -> dict:
     """Small JSON-safe gate and reserve summary used by every measurement row."""
     failed, ignored = failed_composites(report)
@@ -431,10 +571,10 @@ def summarize_report(report: dict) -> dict:
         "ignored_current_stage_reasons": ignored,
         "raw_reasons": [str(reason) for reason in report.get("reasons", [])],
         "gate_metrics": {
-            "release": report.get("metrics") or {},
-            "projection": report.get("projection_metrics") or {},
-            "rates": report.get("rate_metrics") or {},
-            "reserve": reserve,
+            "release": _json_safe(report.get("metrics") or {}),
+            "projection": _json_safe(report.get("projection_metrics") or {}),
+            "rates": _json_safe(report.get("rate_metrics") or {}),
+            "reserve": _json_safe(reserve),
         },
         "reserve": {
             "feasible": bool(reserve.get("feasible", False)),
@@ -1316,13 +1456,15 @@ def _expected_run_receipt(
     measurement_contract_sha256: str,
     run_spec: dict,
 ) -> dict:
-    _, manifest_path = _read_packet_manifest(packet)
+    manifest_sha256 = _bound_manifest_sha256(
+        output_root, measurement_contract_sha256, packet
+    )
     normalized_spec = json.loads(json.dumps(run_spec, sort_keys=True))
     return {
         "schema": RUN_RECEIPT_SCHEMA,
         "measurement_contract_sha256": measurement_contract_sha256,
         "packet": str(Path(packet).resolve()),
-        "packet_manifest_sha256": _sha256(manifest_path),
+        "packet_manifest_sha256": manifest_sha256,
         "submission": str(Path(submission).resolve()),
         "run_spec": normalized_spec,
         "output_sha256": _submission_hashes(submission),
@@ -1438,8 +1580,11 @@ def _run_once(
     output_root: Path,
     measurement_contract_sha256: str,
     run_spec: dict,
+    bound_inputs: dict[Path, str] | None = None,
 ) -> dict:
     output_root = _prepare_output_dir(output_root)
+    _verify_bound_packet(output_root, measurement_contract_sha256, packet)
+    _verify_bound_inputs(bound_inputs)
     submission = _assert_output_location(
         output_root, submission, "method submission"
     )
@@ -1459,10 +1604,23 @@ def _run_once(
         measurement_contract_sha256,
         run_spec,
     ):
-        return _score(packet, submission, bars, allow_unfrozen)
+        scored = _score(packet, submission, bars, allow_unfrozen)
+        if not _validate_run_receipt(
+            output_root,
+            packet,
+            submission,
+            measurement_contract_sha256,
+            run_spec,
+        ):
+            raise ValueError("method run receipt disappeared during scoring")
+        _verify_bound_inputs(bound_inputs)
+        _verify_bound_packet(output_root, measurement_contract_sha256, packet)
+        return scored
     if submission.exists():
         raise ValueError(f"unreceipted method submission is present: {submission}")
     runner(stage)
+    _verify_bound_inputs(bound_inputs)
+    _verify_bound_packet(output_root, measurement_contract_sha256, packet)
     _submission_hashes(stage)
     stage.replace(submission)
     receipt = _expected_run_receipt(
@@ -1478,7 +1636,18 @@ def _run_once(
         receipt,
         "method run receipt",
     )
-    return _score(packet, submission, bars, allow_unfrozen)
+    scored = _score(packet, submission, bars, allow_unfrozen)
+    if not _validate_run_receipt(
+        output_root,
+        packet,
+        submission,
+        measurement_contract_sha256,
+        run_spec,
+    ):
+        raise ValueError("method run receipt disappeared during scoring")
+    _verify_bound_inputs(bound_inputs)
+    _verify_bound_packet(output_root, measurement_contract_sha256, packet)
+    return scored
 
 
 def _comparison(third: dict, reference_a: dict, reference_b: dict) -> dict:
@@ -1642,13 +1811,21 @@ def measure_elder_reconstruction(
     contract["measurement_scope"] = "elder_reconstruction_before_after"
     _bind_measurement_output(out_dir, contract)
     contract_sha256 = _measurement_contract_sha256(out_dir)
-    bars = json.loads(Path(bars_path).read_text())
+    _verify_bound_packet_group(
+        out_dir, contract_sha256, development_packets + qualification_packets
+    )
+    bars = _load_bound_bars(out_dir, contract_sha256, Path(bars_path))
     if bars.get("frozen") is not True and not allow_unfrozen:
         raise ValueError("elder measurement requires frozen bars or --allow-unfrozen")
-    calibration_a = _ensure_calibration_artifact(
+    calibration_a = _ensure_bound_calibration_artifact(
         out_dir,
         "A",
         lambda path: A.calibrate(development_packets, path),
+        contract_sha256,
+        development_packets,
+    )
+    calibration_a_sha256 = _bound_calibration_sha256(
+        out_dir, contract_sha256, "A", calibration_a
     )
     shared_layer = AR.LayerParams(
         simulation=AR.SimulationParams(n_paths=params.simulation_paths),
@@ -1683,9 +1860,10 @@ def measure_elder_reconstruction(
                 "method": "A",
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_a),
+                "calibration_sha256": calibration_a_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_a: calibration_a_sha256},
         )
         after = _run_once(
             packet,
@@ -1709,9 +1887,10 @@ def measure_elder_reconstruction(
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "linkage_bootstraps": params.linkage_bootstraps,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_a),
+                "calibration_sha256": calibration_a_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_a: calibration_a_sha256},
         )
         report["qualification"][packet.name] = {
             "methods": {"A": before, "third": after}
@@ -1719,7 +1898,9 @@ def measure_elder_reconstruction(
         _write_json_atomic(
             out_dir, report_path, report, "elder reconstruction measurements"
         )
+    _verify_bound_packet_group(out_dir, contract_sha256, qualification_packets)
     audit = write_elder_reconstruction_audit(report, qualification_packets, out_dir)
+    _verify_bound_packet_group(out_dir, contract_sha256, qualification_packets)
     report["elder_reconstruction_audit"] = {
         "json_path": audit["json_path"],
         "text_path": audit["text_path"],
@@ -1752,13 +1933,21 @@ def measure(
         ),
     )
     contract_sha256 = _measurement_contract_sha256(out_dir)
-    bars = json.loads(Path(bars_path).read_text())
+    _verify_bound_packet_group(
+        out_dir, contract_sha256, development_packets + qualification_packets
+    )
+    bars = _load_bound_bars(out_dir, contract_sha256, Path(bars_path))
     if bars.get("frozen") is not True and not allow_unfrozen:
         raise ValueError("phase-three measurements require a completed frozen bar set")
-    calibration_a = _ensure_calibration_artifact(
+    calibration_a = _ensure_bound_calibration_artifact(
         out_dir,
         "A",
         lambda path: A.calibrate(development_packets, path),
+        contract_sha256,
+        development_packets,
+    )
+    calibration_a_sha256 = _bound_calibration_sha256(
+        out_dir, contract_sha256, "A", calibration_a
     )
 
     shared_layer = AR.LayerParams(
@@ -1809,9 +1998,10 @@ def measure(
                     "method": f"decomposition/{name}",
                     "bootstrap_replicates": params.bootstrap_replicates,
                     "simulation_paths": params.simulation_paths,
-                    "calibration_sha256": _sha256(calibration_a),
+                    "calibration_sha256": calibration_a_sha256,
                     "calibrate_tail_to_total": False,
                 },
+                {calibration_a: calibration_a_sha256},
             )
         report["development_decomposition"][world] = rows
         _write_json_atomic(
@@ -1821,16 +2011,23 @@ def measure(
             "phase three measurements",
         )
 
-    calibration_b = _ensure_calibration_artifact(
+    calibration_b = _ensure_bound_calibration_artifact(
         out_dir,
         "B",
         lambda path: B.calibrate(development_packets, path),
+        contract_sha256,
+        development_packets,
+    )
+    calibration_b_sha256 = _bound_calibration_sha256(
+        out_dir, contract_sha256, "B", calibration_b
     )
 
     for packet in qualification_packets:
         world = packet.name
         root = out_dir / "qualification" / world
+        _verify_bound_packet(out_dir, contract_sha256, packet)
         participant_elder = participant_elder_identifiability(packet, bars)
+        _verify_bound_packet(out_dir, contract_sha256, packet)
         report["participant_elder_identifiability"][world] = participant_elder
         methods = {}
         methods["A"] = _run_once(
@@ -1854,9 +2051,10 @@ def measure(
                 "method": "A",
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_a),
+                "calibration_sha256": calibration_a_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_a: calibration_a_sha256},
         )
         reconstruction = _run_once(
             packet,
@@ -1879,9 +2077,10 @@ def measure(
                 "method": "deletion/reconstruction_uncertainty",
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_a),
+                "calibration_sha256": calibration_a_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_a: calibration_a_sha256},
         )
         reconstruction["change_from_A"] = _reserve_change(methods["A"], reconstruction)
         methods["B"] = _run_once(
@@ -1907,9 +2106,10 @@ def measure(
                 "sweeps": params.bayesian_sweeps,
                 "burn_in": params.bayesian_sweeps // 4,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_b),
+                "calibration_sha256": calibration_b_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_b: calibration_b_sha256},
         )
         methods["third"] = _run_once(
             packet,
@@ -1933,9 +2133,10 @@ def measure(
                 "bootstrap_replicates": params.bootstrap_replicates,
                 "linkage_bootstraps": params.linkage_bootstraps,
                 "simulation_paths": params.simulation_paths,
-                "calibration_sha256": _sha256(calibration_a),
+                "calibration_sha256": calibration_a_sha256,
                 "calibrate_tail_to_total": False,
             },
+            {calibration_a: calibration_a_sha256},
         )
         control_rows = {}
         for name in controls.ALL_CONTROLS:
@@ -1956,10 +2157,11 @@ def measure(
                 {
                     "method": f"control/{name}",
                     "simulation_paths": params.simulation_paths,
-                    "calibration_sha256": _sha256(calibration_a),
+                    "calibration_sha256": calibration_a_sha256,
                     "calibrate_tail_to_total": False,
                     "target_composite": controls.CONTROL_TARGET_COMPOSITES[name],
                 },
+                {calibration_a: calibration_a_sha256},
             )
         deletions = {"reconstruction_uncertainty": reconstruction}
         for name in controls.DELETION_CONTROLS:
@@ -1986,9 +2188,10 @@ def measure(
                     "method": f"deletion/{name}",
                     "bootstrap_replicates": params.bootstrap_replicates,
                     "simulation_paths": params.simulation_paths,
-                    "calibration_sha256": _sha256(calibration_a),
+                    "calibration_sha256": calibration_a_sha256,
                     "calibrate_tail_to_total": False,
                 },
+                {calibration_a: calibration_a_sha256},
             )
             deletion["change_from_A"] = _reserve_change(methods["A"], deletion)
             deletions[name] = deletion
@@ -2183,9 +2386,11 @@ def measure(
             "deletion_candidates": candidates,
             "hard_invalid_controls": indeterminate,
         }
+    _verify_bound_packet_group(out_dir, contract_sha256, qualification_packets)
     elder_audit = write_elder_reconstruction_audit(
         report, qualification_packets, out_dir
     )
+    _verify_bound_packet_group(out_dir, contract_sha256, qualification_packets)
     report["elder_reconstruction_audit"] = {
         "schema": elder_audit["payload"]["schema"],
         "json_path": elder_audit["json_path"],

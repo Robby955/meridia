@@ -1492,8 +1492,9 @@ mapping request for the integrated verifier is exact:
 - `reserve_skill`: expected uncovered obligation, regional shortfall, and allocation skill.
 
 No disclosure, detailed-table, or structural reason belongs to one of those composites. If
-every registered control passes a composite on every qualification world, that composite
-gate is removed from the phase-three surface.
+any registered control passes its target composite on even one qualification world, that
+control and gate pair becomes a deletion candidate with the exact metrics preserved. A bar
+is never loosened to make the pair separate.
 
 The qualification battery has twenty-two primary control and gate pairs. Every pair must
 be structurally valid and fail its target composite on all six qualification worlds. A
@@ -1566,3 +1567,22 @@ exceedance deviation, and the mortality trend, shock, and publication-lag decomp
 The shock record states the public 0.20 annual probability, independent redraws for every
 continuation member, and the mortality and admission ranges read from
 `participant/contract.json:shock_family`.
+
+The first exact 2,048-member run stopped after `qual-0` and is not evidence. Its current
+packet still uses the legacy sealed-tail-derived reserve total of 246,948,000. Method A
+filed raw regional q95 values summing to 275,429,461.51700795, an excess of
+28,481,461.517007947 or 11.533384 percent. The third line filed q95 values summing to
+274,314,919.55508286, an excess of 27,366,919.555082858 or 11.082058 percent. In each
+filing the allocation already equals its q95 floor, so no allocation can both stay above
+every floor and sum to the published total. Fitting those q95 values back to the total would
+reintroduce the sealed-tail leakage that phase three removes. The partial tree at
+`/Users/robsneiderman/Projects/meridia-v4-methods-p3-evidence-20260903` is preserved as a
+failed checkpoint; it contains no final elder audit. The exact run must restart in a fresh
+directory only after the exposure-rule reserve contract is integrated and the six packet
+worlds are rebuilt.
+
+Two generator axes also remain unresolved before that rebuild. Administrative completeness
+at +0.07 and missingness target dependence at -0.02 need either a participant-visible
+anchor above 0.4 or qualification and graded values constrained inside the development
+range. The current health anchor does not demonstrate that threshold. This methods lane
+makes no separation claim for either axis.

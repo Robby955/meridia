@@ -2,6 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from meridia.methods import phase_three
@@ -9,6 +10,7 @@ from meridia.methods import phase_three
 
 def _packet(path: Path, development: bool) -> Path:
     (path / "participant").mkdir(parents=True)
+    (path / "retained").mkdir()
     contract = path / "participant" / "contract.json"
     contract.write_text("{}\n")
     (path / "manifest.json").write_text(
@@ -40,6 +42,17 @@ def _summary(*, hard_check_pass: bool, failed=()) -> dict:
             "mean_shortfall_error": 3.0,
         },
     }
+
+
+def _rebind_manifest_file(packet: Path, side: str, name: str) -> None:
+    path = packet / side / name
+    manifest_path = packet / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest[side][name] = {
+        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    manifest_path.write_text(json.dumps(manifest) + "\n")
 
 
 def test_packet_validation_checks_the_resolved_path_before_reading(tmp_path):
@@ -103,7 +116,6 @@ def test_nonempty_unbound_measurement_output_is_refused(tmp_path):
 
 def test_measurement_contract_rejects_a_symlinked_contract_file(tmp_path):
     packet = _packet(tmp_path / "packet", True)
-    (packet / "retained").mkdir()
     contract = packet / "participant" / "contract.json"
     external = tmp_path / "contract.json"
     contract.rename(external)
@@ -199,6 +211,99 @@ def test_measurement_contract_hashes_every_meridia_python_source(tmp_path):
         )
 
 
+def test_method_run_rejects_packet_mutation_after_contract_binding(tmp_path):
+    packet = _packet(tmp_path / "packet", False)
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    output_root = tmp_path / "measurement"
+    output_root.mkdir()
+    contract = phase_three._measurement_contract(
+        [], [packet], bars, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
+
+    def runner(stage):
+        stage.mkdir(parents=True)
+        for name in phase_three.SUBMISSION_FILES:
+            (stage / name).write_text(f"{name}\n")
+        participant_contract = packet / "participant" / "contract.json"
+        participant_contract.write_text('{"changed": true}\n')
+        _rebind_manifest_file(packet, "participant", "contract.json")
+
+    with pytest.raises(ValueError, match="changed after measurement binding"):
+        phase_three._run_once(
+            packet,
+            output_root / "qualification" / "qual-0" / "A",
+            runner,
+            {},
+            True,
+            output_root,
+            contract_sha256,
+            {"method": "A"},
+        )
+
+
+def test_calibration_rejects_packet_mutation_during_generation(tmp_path):
+    packet = _packet(tmp_path / "packet", True)
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    output_root = tmp_path / "measurement"
+    output_root.mkdir()
+    contract = phase_three._measurement_contract(
+        [packet], [], bars, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
+
+    def generate(path):
+        path.write_text("{}\n")
+        participant_contract = packet / "participant" / "contract.json"
+        participant_contract.write_text('{"changed": true}\n')
+        _rebind_manifest_file(packet, "participant", "contract.json")
+
+    with pytest.raises(ValueError, match="changed after measurement binding"):
+        phase_three._ensure_bound_calibration_artifact(
+            output_root,
+            "A",
+            generate,
+            contract_sha256,
+            [packet],
+        )
+
+
+def test_bound_bars_reject_changed_bytes(tmp_path):
+    packet = _packet(tmp_path / "packet", False)
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    output_root = tmp_path / "measurement"
+    output_root.mkdir()
+    contract = phase_three._measurement_contract(
+        [], [packet], bars, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
+    bars.write_text('{"frozen": false}\n')
+
+    with pytest.raises(ValueError, match="bars changed after measurement binding"):
+        phase_three._load_bound_bars(output_root, contract_sha256, bars)
+
+
+def test_gate_metrics_are_json_safe():
+    summary = phase_three.summarize_report(
+        {
+            "pass": True,
+            "reasons": [],
+            "metrics": {"error": np.asarray([0.1, 0.2])},
+            "rate_metrics": {"eligible": np.int64(12)},
+            "reserve": {"feasible": True, "skill": np.float64(0.5)},
+        }
+    )
+    encoded = json.dumps(summary)
+    assert '"error": [0.1, 0.2]' in encoded
+    assert '"eligible": 12' in encoded
+
+
 def test_packet_inventory_rejects_a_symlinked_side_directory(tmp_path):
     packet = tmp_path / "packet"
     packet.mkdir()
@@ -227,7 +332,6 @@ def test_packet_inventory_rejects_a_symlinked_side_directory(tmp_path):
 
 def test_packet_inventory_rejects_an_omitted_nested_directory_symlink(tmp_path):
     packet = _packet(tmp_path / "packet", True)
-    (packet / "retained").mkdir()
     external = tmp_path / "external-sources"
     external.mkdir()
     (external / "survey.csv").write_text("value\n1\n")
@@ -258,6 +362,13 @@ def test_method_run_restart_requires_a_matching_receipt(monkeypatch, tmp_path):
     packet = _packet(tmp_path / "packet", False)
     output_root = tmp_path / "measurement"
     output_root.mkdir()
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    contract = phase_three._measurement_contract(
+        [], [packet], bars, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
     submission = output_root / "qualification" / "qual-0" / "A"
     calls = []
 
@@ -279,7 +390,7 @@ def test_method_run_restart_requires_a_matching_receipt(monkeypatch, tmp_path):
         {},
         True,
         output_root,
-        "a" * 64,
+        contract_sha256,
         {"method": "A", "bootstrap_replicates": 100},
     )
     assert phase_three._run_once(*arguments) == {"scored": True}
@@ -291,10 +402,102 @@ def test_method_run_restart_requires_a_matching_receipt(monkeypatch, tmp_path):
         phase_three._run_once(*arguments)
 
 
+@pytest.mark.parametrize("restart", [False, True])
+def test_method_run_rechecks_receipt_after_scoring(monkeypatch, tmp_path, restart):
+    packet = _packet(tmp_path / "packet", False)
+    bars_path = tmp_path / "bars.json"
+    bars_path.write_text('{"frozen": true}\n')
+    output_root = tmp_path / "measurement"
+    output_root.mkdir()
+    contract = phase_three._measurement_contract(
+        [], [packet], bars_path, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
+    submission = output_root / "qualification" / "qual-0" / "A"
+
+    def runner(stage):
+        stage.mkdir(parents=True)
+        for name in phase_three.SUBMISSION_FILES:
+            (stage / name).write_text(f"{name}\n")
+
+    arguments = (
+        packet,
+        submission,
+        runner,
+        {},
+        True,
+        output_root,
+        contract_sha256,
+        {"method": "A"},
+    )
+    if restart:
+        monkeypatch.setattr(phase_three, "_score", lambda *args: {"scored": True})
+        assert phase_three._run_once(*arguments) == {"scored": True}
+
+    def mutating_score(packet, submission, bars, allow_unfrozen):
+        (submission / "release.csv").write_text("changed during score\n")
+        return {"scored": True}
+
+    monkeypatch.setattr(phase_three, "_score", mutating_score)
+    with pytest.raises(ValueError, match="receipt or output"):
+        phase_three._run_once(*arguments)
+
+
+def test_method_run_rechecks_bound_calibration_after_runner(monkeypatch, tmp_path):
+    packet = _packet(tmp_path / "packet", False)
+    bars_path = tmp_path / "bars.json"
+    bars_path.write_text('{"frozen": true}\n')
+    output_root = tmp_path / "measurement"
+    output_root.mkdir()
+    contract = phase_three._measurement_contract(
+        [], [packet], bars_path, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
+    calibration = phase_three._ensure_bound_calibration_artifact(
+        output_root,
+        "A",
+        lambda path: path.write_text("{}\n"),
+        contract_sha256,
+        [packet],
+    )
+    calibration_sha256 = phase_three._bound_calibration_sha256(
+        output_root, contract_sha256, "A", calibration
+    )
+
+    def runner(stage):
+        stage.mkdir(parents=True)
+        for name in phase_three.SUBMISSION_FILES:
+            (stage / name).write_text(f"{name}\n")
+        calibration.write_text('{"changed": true}\n')
+
+    monkeypatch.setattr(phase_three, "_score", lambda *args: {"scored": True})
+    with pytest.raises(ValueError, match="bound method input changed"):
+        phase_three._run_once(
+            packet,
+            output_root / "qualification" / "qual-0" / "A",
+            runner,
+            {},
+            True,
+            output_root,
+            contract_sha256,
+            {"method": "A", "calibration_sha256": calibration_sha256},
+            {calibration: calibration_sha256},
+        )
+
+
 def test_method_run_refuses_an_unreceipted_linked_submission(monkeypatch, tmp_path):
     packet = _packet(tmp_path / "packet", False)
     output_root = tmp_path / "measurement"
     output_root.mkdir()
+    bars = tmp_path / "bars.json"
+    bars.write_text('{"frozen": true}\n')
+    contract = phase_three._measurement_contract(
+        [], [packet], bars, phase_three.MeasurementParams()
+    )
+    phase_three._bind_measurement_output(output_root, contract)
+    contract_sha256 = phase_three._measurement_contract_sha256(output_root)
     target = output_root / "copied-A"
     target.mkdir()
     for name in phase_three.SUBMISSION_FILES:
@@ -317,7 +520,7 @@ def test_method_run_refuses_an_unreceipted_linked_submission(monkeypatch, tmp_pa
             {},
             True,
             output_root,
-            "a" * 64,
+            contract_sha256,
             {"method": "third"},
         )
     assert called is False

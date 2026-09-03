@@ -1,10 +1,12 @@
 """Method B clears the hard gates from participant files alone; every control runs and
 writes a complete submission."""
 
+import json
 import shutil
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -71,11 +73,52 @@ def test_every_control_writes_a_complete_submission(packet, dev_packet, tmp_path
     if name == "exact_key_union":
         calibration = str(tmp_path / "calibration_A.json")
         design_based.calibrate([dev_packet], calibration)
-    controls.run(name, packet, out, calibration_path=calibration)
+    controls.run(
+        name,
+        packet,
+        out,
+        calibration_path=calibration,
+        simulation_paths=64,
+    )
     for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
         assert (out / file).exists(), (name, file)
     report = verify_submission(packet, out)
     assert report["schema_errors"] == [], (name, report["schema_errors"][:3])
+    assert report["rate_errors"] == [], (name, report["rate_errors"][:3])
+    assert report["reserve_errors"] == [], (name, report["reserve_errors"][:3])
+    reserve = pd.read_csv(out / "reserve.csv")
+    reserve_total = float(
+        json.loads((packet / "participant" / "contract.json").read_text())["reserve"][
+            "total"
+        ]
+    )
+    q95_total = float(reserve["q95"].sum())
+    if q95_total <= reserve_total + 1e-6:
+        assert report["reserve"]["feasible"], (name, report["reserve"])
+    else:
+        # This fixture still carries the legacy sealed-tail-derived total. Raw predictive
+        # q95 floors can exceed that total once tail-to-total fitting is correctly disabled,
+        # leaving no mathematically feasible allocation. The refrozen exposure-rule packets
+        # must take the branch above on every qualification world.
+        assert not report["reserve"]["feasible"], (name, report["reserve"])
+        assert any(
+            "allocations sum" in reason
+            or "below the region's own submitted q95" in reason
+            for reason in report["reserve"]["feasibility_reasons"]
+        )
+    if name == "inflated_intervals":
+        release = pd.read_csv(out / "release.csv")
+        proportion = release[
+            release["estimand"].isin(
+                ("tertiary_share_25_plus", "low_income_household_share")
+            )
+        ]
+        assert np.allclose(
+            proportion["lower"], np.maximum(proportion["estimate"] - 0.40, 0.0)
+        )
+        assert np.allclose(
+            proportion["upper"], np.minimum(proportion["estimate"] + 0.40, 1.0)
+        )
 
 
 def test_exact_key_union_control_reproduces_the_version_two_recipe(dev_packet, tmp_path):
