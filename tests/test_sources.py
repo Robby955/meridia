@@ -22,7 +22,10 @@ from meridia.hydrology import fill_depressions, flow_accumulation, flow_directio
 from meridia.identities import build_initial_identity_map
 from meridia.microdata import build_microdata
 from meridia.population import build_population, resource_outposts
-from meridia.sources import MECHANISM_BITS, PUBLIC_SCHEMAS, OBSERVED_SOURCES
+from meridia.sources import (BENCHMARK_BAND_LEVEL, BENCHMARK_ITEMS,
+                            BENCHMARK_SUBGROUP_ITEM, MECHANISM_BITS,
+                            N_BENCHMARK_BANDS, PUBLIC_SCHEMAS, OBSERVED_SOURCES,
+                            benchmark_bands, benchmark_values, draw_benchmark_bias)
 from meridia.sources import SourceParams, build_observed_sources
 from meridia.sources import participant_source_snapshots, validate_observed_sources
 from meridia.terrain import generate_elevation
@@ -611,3 +614,41 @@ def test_hidden_regime_changes_only_the_retained_rates_and_shifts_the_sources():
         np.nanmean(revised_b["income"]["employment_income_cents"])
     assert abs(np.log(ratio) - np.log(hidden_params.register_income_scale)) < 0.05
     validate_observed_sources(hidden, setup["history"], SEED, setup["admin"], setup["hospitals"])
+
+
+def test_the_benchmark_carries_a_subgroup_count_for_a_band_of_counties():
+    """Protocol section 3's benchmark count for a defined subgroup, on the gradient.
+
+    The bands cut the county payroll-per-adult rank into quartiles, which is the covariate
+    the coverage family keys off, so the register's shortfall against the published count
+    of a band is the completeness gradient rather than a quantity confounded with it.
+    """
+    rank = np.asarray([0.02, 0.24, 0.30, 0.51, 0.62, 0.77, 0.88, 0.99])
+    band = benchmark_bands(rank)
+    assert band.tolist() == [0, 0, 1, 2, 2, 3, 3, 3]
+    assert benchmark_bands(np.asarray([1.0]))[0] == N_BENCHMARK_BANDS - 1
+
+    truth = {}
+    for item in BENCHMARK_ITEMS:
+        truth[(item, "nation", 0)] = 8_000.0
+        for unit in range(2):
+            truth[(item, "state", unit)] = 4_000.0
+        for county in range(8):
+            truth[(item, "county", county)] = 1_000.0
+    bias = draw_benchmark_bias(31, 2)
+    assert bias["band"].shape == (N_BENCHMARK_BANDS,)
+
+    plain = benchmark_values(truth, bias, 2)
+    assert set(plain["level"]) == {"nation", "state"}
+    table = benchmark_values(truth, bias, 2, band)
+    assert set(table["level"]) == {"nation", "state", BENCHMARK_BAND_LEVEL}
+    subgroup = {int(u): int(v) for l, i, u, v in zip(table["level"], table["item"],
+                                                     table["unit"], table["value"])
+                if l == BENCHMARK_BAND_LEVEL and i == BENCHMARK_SUBGROUP_ITEM}
+    assert sorted(subgroup) == [0, 1, 2, 3]
+    # Two counties in band 0, one in band 1, two in band 2, three in band 3.
+    for unit, counties in ((0, 2), (1, 1), (2, 2), (3, 3)):
+        exact = 1_000.0 * counties
+        assert abs(np.log(subgroup[unit] / exact) - float(bias["band"][unit])) < 0.06
+    # The nation and state rows are untouched by the subgroup series.
+    assert plain["value"].tolist() == table["value"][:len(plain["value"])].tolist()
