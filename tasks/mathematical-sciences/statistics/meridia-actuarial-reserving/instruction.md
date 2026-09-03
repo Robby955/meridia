@@ -7,10 +7,10 @@ You receive records from thirteen sealed synthetic worlds.
 
 - `/data/hidden/participant/` holds two snapshots of a household survey, four imperfect
   person and business sources (population, business, income, health), the benchmark
-  files `sources/benchmark_preliminary.csv` and `sources/benchmark_revised.csv`, five
-  years of aggregate demographic experience in `experience_history.csv`, a geography
-  table, and `contract.json`. Records can be absent, duplicated, stale, or
-  inconsistently linked.
+  totals `/data/hidden/participant/sources/benchmark_preliminary.csv` and
+  `benchmark_revised.csv`, five years of aggregate demographic experience in
+  `experience_history.csv`, a geography table, and `contract.json`. Records can be
+  absent, duplicated, stale, or inconsistently linked.
 - `/data/development/world-1/participant/` through
   `/data/development/world-12/participant/` share that layout and add `truth/` for
   method development. The hidden world ships no truth.
@@ -68,7 +68,7 @@ must imply the same event count its counties imply. No cell whose true count lie
 strictly between zero and the published disclosure threshold may be published or be
 recoverable from what you publish.
 
-<!-- authoring/build_assets.py writes the reserve total below from the sealed world's contract.json at packaging time. A committed 0 is not a figure. -->
+<!-- The packaging step writes the reserve total below from the sealed world's contract.json. A committed 0 is not a figure. -->
 
 Allocations must be nonnegative, must be at least the region's own submitted `q95`, and
 must sum exactly to **0**.
