@@ -85,7 +85,7 @@ class ActuarialThresholds:
     mortality_stabilizer: float = 5.0e-4          # per person-year; to be frozen
     incidence_stabilizer: float = 5.0e-4          # per person-year; to be frozen
     # Section 7: which cells are gated, and how the cell errors are reduced.
-    exposure_eligibility_person_years: float = 4_000.0   # default floor, per band below
+    exposure_eligibility_person_years: float = 600.0     # the denominator rule, below
     rate_gate_percentile: float = 0.95                   # to be frozen
     exposure_error_ceiling: float = 0.15                 # to be frozen
     mortality_error_ceiling: float = 0.35                # to be frozen
@@ -97,6 +97,9 @@ class ActuarialThresholds:
     worst_region_quantile: float = 0.90                  # fixed by the protocol
     quantile_score_ceiling: float = 0.050                # to be frozen
     es_error_ceiling: float = 0.150                      # to be frozen
+    q95_width_error_ceiling: float = 0.500               # to be frozen
+    es95_width_error_ceiling: float = 0.500              # to be frozen
+    min_tail_width_fraction: float = 0.010               # fixed, guards the divisor
     # Section 9: the reserve construction and the decision gate.
     gamma: float = 0.25                                  # protocol range 0.20 to 0.30
     reserve_rounding_unit: float = 1_000.0               # public rounding rule
@@ -109,43 +112,75 @@ class ActuarialThresholds:
 PLACEHOLDER_THRESHOLDS = ActuarialThresholds()
 
 
-# Structural eligibility, per age band, in person-years over the scored window. Frozen
-# from the generator's own scale before any hidden world was built, and never revised
-# after seeing a submission.
+# Structural eligibility, derived from a published rule rather than set by hand.
 #
-# One flat floor was the version-four first pass and it was wrong. At the committed world
-# size a state by sex cell holds about 9,100 person-years at 18-44 and about 720 at 85 and
-# over, so a flat 5,000 removed every cell at 65 and over from every rate gate: the ages
-# the obligation is actually made of, since the benefit starts at 65 and deaths and first
-# qualifying events concentrate there. A submission could then be arbitrarily wrong about
-# old-age mortality and still clear every rate ceiling.
+# A cell decides a rate gate only when the quantity it carries can be resolved at all.
+# Version four's first pass held one flat five thousand person-years across every band,
+# which removed every cell at 65 and over from every rate gate: the ages the obligation is
+# made of, since the benefit starts at 65 and deaths and first qualifying events
+# concentrate there. A submission could be arbitrarily wrong about old-age mortality and
+# clear every rate ceiling. The pass after it fell back on a hand-written floor per band,
+# which gated the right ages but stated no rule.
 #
-# Person-years is the wrong invariant to hold constant across bands, because the same
-# exposure buys two orders of magnitude more deaths at 85 than at 8. The floors fall with
-# age so that every band a rate gate reads carries enough events to be resolvable, and
-# the young bands, where a rate is a small number over a large denominator, keep the
-# larger floor.
-EXPOSURE_ELIGIBILITY_BY_BAND: dict[str, float] = {
-    "0-17": 4_000.0,
-    "18-44": 4_000.0,
-    "45-64": 4_000.0,
-    "65-74": 1_200.0,
-    "75-84": 600.0,
-    "85+": 350.0,
-    "18-64": 4_000.0,
-    "65+": 1_500.0,
+# The rule has two parts, both published, and the floors below are computed from it:
+#
+# 1. The denominator rule. Every cell, whatever its estimand, must stand on at least
+#    MIN_CELL_PERSONS expected persons over the scored window, so the exposure a rate
+#    divides by is a quantity a reconstruction can resolve. A person count of 120 carries
+#    a nine percent relative standard error if the count itself were Poisson.
+# 2. The numerator rule. A rate cell must also carry at least MIN_EXPECTED_EVENTS expected
+#    events of its own kind, which is one over the square of the declared relative standard
+#    error target: 25 events at a target of 0.20. The expected count is the cell's exposure
+#    times a published reference rate for its band, so the floor is a minimum expected
+#    death count and a minimum expected event count, not a person-year count that buys two
+#    orders of magnitude more deaths at 85 than at 8.
+#
+# REFERENCE_EVENT_RATES is a published schedule of the shape a reserving office reads off
+# a standard table. Its values are rounded to two figures from the twelve development
+# worlds, which ship truth and which a method may tune on; no qualification or graded
+# world enters it.
+SCORED_WINDOW_YEARS = 5.0            # the sixty-month horizon the rate truth is read over
+CELL_RSE_TARGET = 0.20               # the relative standard error a gated rate cell may have
+MIN_EXPECTED_EVENTS = round(1.0 / CELL_RSE_TARGET ** 2, 6)   # 25 events at 0.20
+MIN_CELL_PERSONS = 120.0             # expected persons behind any scored cell
+
+REFERENCE_EVENT_RATES: dict[str, dict[str, float]] = {
+    MORTALITY_ESTIMAND: {"0-17": 0.00050, "18-44": 0.0015, "45-64": 0.010,
+                         "65-74": 0.050, "75-84": 0.125, "85+": 0.30,
+                         "18-64": 0.0050, "65+": 0.080},
+    INCIDENCE_ESTIMAND: {"0-17": 0.020, "18-44": 0.030, "45-64": 0.040,
+                         "65-74": 0.055, "75-84": 0.050, "85+": 0.040,
+                         "18-64": 0.035, "65+": 0.052},
 }
 
+ELIGIBILITY_BANDS: tuple[str, ...] = ACTUARIAL_AGE_BAND_LABELS + tuple(
+    b for b in BROAD_AGE_BAND_LABELS if b not in ACTUARIAL_AGE_BAND_LABELS)
 
-def eligibility_floor(thresholds: ActuarialThresholds, band: str) -> float:
-    """Person-years a cell in ``band`` needs before any gate reads it.
 
-    A threshold set that moves the flat floor (a test, or a bar file) moves every band
-    with it, so the per-band table stays a shape and never a second hidden constant.
+def _derive_eligibility_floors() -> dict[str, dict[str, float]]:
+    """Person-year floors implied by the two published parts of the rule."""
+    person_floor = MIN_CELL_PERSONS * SCORED_WINDOW_YEARS
+    floors = {EXPOSURE_ESTIMAND: {band: person_floor for band in ELIGIBILITY_BANDS}}
+    for estimand, schedule in REFERENCE_EVENT_RATES.items():
+        floors[estimand] = {band: max(person_floor, MIN_EXPECTED_EVENTS / rate)
+                            for band, rate in schedule.items()}
+    return floors
+
+
+ELIGIBILITY_FLOORS: dict[str, dict[str, float]] = _derive_eligibility_floors()
+
+
+def eligibility_floor(thresholds: ActuarialThresholds, band: str,
+                      estimand: str = EXPOSURE_ESTIMAND) -> float:
+    """Person-years a cell of ``estimand`` in ``band`` needs before any gate reads it.
+
+    A threshold set that moves the denominator rule (a test, or a bar file) moves every
+    floor with it, so the derived table stays a shape and never a second hidden constant.
     """
-    default = float(PLACEHOLDER_THRESHOLDS.exposure_eligibility_person_years)
+    default = MIN_CELL_PERSONS * SCORED_WINDOW_YEARS
     scale = float(thresholds.exposure_eligibility_person_years) / default if default else 1.0
-    return float(EXPOSURE_ELIGIBILITY_BY_BAND.get(band, default)) * scale
+    table = ELIGIBILITY_FLOORS.get(estimand, ELIGIBILITY_FLOORS[EXPOSURE_ESTIMAND])
+    return float(table.get(band, default)) * scale
 
 
 # ----------------------------------------------------------------- obligation contract
@@ -535,10 +570,13 @@ def check_rate_additivity(parsed: dict, admin: dict,
                           tolerance: float = 1e-6) -> list[str]:
     """Exposure adds; rates and quantiles do not, and are exempt by kind.
 
-    Two requirements, both on the quantity that adds: a broad band equals the sum of the
-    actuarial bands inside it, and a state equals the sum of its counties. Mortality and
-    incidence are checked for ratio consistency against their own exposures instead,
-    because a rate is a ratio and reconciling it arithmetically would be wrong.
+    Three requirements. Two are on the quantity that adds: a broad band equals the sum of
+    the actuarial bands inside it, and a state equals the sum of its counties. The third is
+    the ratio-consistency check that mortality and incidence take instead, because a rate
+    is a ratio and reconciling it arithmetically would be wrong: a published rate times its
+    own published exposure is an event count, and a state's event count has to equal the
+    sum of its counties' event counts. A submission that files a state rate its own county
+    rates and exposures contradict is stating two different numbers of deaths.
     """
     errors: list[str] = []
     county_state = np.asarray(admin["county_state"], dtype=np.int64)
@@ -572,6 +610,25 @@ def check_rate_additivity(parsed: dict, admin: dict,
                 if abs(total - stated) > tolerance * max(1.0, abs(stated)):
                     errors.append(f"{EXPOSURE_ESTIMAND}: counties of state {s} {sex} {band} "
                                   f"sum to {total}, state says {stated}")
+    for estimand in (MORTALITY_ESTIMAND, INCIDENCE_ESTIMAND):
+        for s in range(int(admin["n_states"])):
+            members = np.flatnonzero(county_state == s)
+            for sex in SEX_LABELS:
+                for band in ACTUARIAL_AGE_BAND_LABELS:
+                    rate_key = (estimand, "state", s, sex, band)
+                    exposure_key = (EXPOSURE_ESTIMAND, "state", s, sex, band)
+                    parts = [((estimand, "county", int(c), sex, band),
+                              (EXPOSURE_ESTIMAND, "county", int(c), sex, band))
+                             for c in members]
+                    keys = [rate_key, exposure_key] + [k for pair in parts for k in pair]
+                    if any(k not in parsed for k in keys):
+                        continue
+                    stated = parsed[rate_key][0] * parsed[exposure_key][0]
+                    total = sum(parsed[r][0] * parsed[e][0] for r, e in parts)
+                    if abs(total - stated) > tolerance * max(1.0, abs(stated)):
+                        errors.append(
+                            f"{estimand}: state {s} {sex} {band} implies {stated} events "
+                            f"on its own exposure, its counties imply {total}")
     return errors
 
 
@@ -694,11 +751,15 @@ def score_rates(parsed: dict, truth: dict, thresholds: ActuarialThresholds,
                 alpha: float = 0.10) -> dict:
     """Cell errors reduced to the gate percentile and the maximum, per estimand and level.
 
-    Eligible cells are those whose true exposure over the window is at or above the
-    band's own floor in ``EXPOSURE_ELIGIBILITY_BY_BAND``, so a cell no method could
-    resolve never decides a pass and the oldest bands, which carry the obligation, are
-    still gated. Exposure is gated at county on the broad bands, mortality and incidence at
-    state on the actuarial bands; the other blocks are reported with ``gated`` false.
+    Eligible cells are those whose true exposure over the window is at or above the floor
+    the published rule gives their own estimand and band, so a cell no method could resolve
+    never decides a pass and the oldest bands, which carry the obligation, are still gated.
+    Exposure is gated at county on the broad bands, mortality and incidence at state on the
+    actuarial bands; the other blocks are reported with ``gated`` false.
+
+    A block whose cells all fail the floor is recorded with ``n_cells`` zero and a reason,
+    never dropped. A gated block that carries no eligible cell is a gate that decides
+    nothing, and the caller has to see it rather than read a shorter dictionary.
     """
     stabilizer = {EXPOSURE_ESTIMAND: thresholds.exposure_stabilizer,
                   MORTALITY_ESTIMAND: thresholds.mortality_stabilizer,
@@ -716,7 +777,8 @@ def score_rates(parsed: dict, truth: dict, thresholds: ActuarialThresholds,
                         continue
                     _, _, unit, sex, _ = key
                     exposure = truth.get((EXPOSURE_ESTIMAND, level, unit, sex, band))
-                    if exposure is None or float(exposure) < eligibility_floor(thresholds, band):
+                    floor = eligibility_floor(thresholds, band, estimand)
+                    if exposure is None or float(exposure) < floor:
                         continue
                     estimate, lower, upper = parsed[key]
                     cells.append((
@@ -726,11 +788,21 @@ def score_rates(parsed: dict, truth: dict, thresholds: ActuarialThresholds,
                                        float(value) + stabilizer[estimand], alpha),
                         (unit, sex, band)))
             if not cells:
+                metrics[f"{estimand}/{level}"] = {
+                    "n_cells": 0, "percentile_error": float("nan"),
+                    "max_error": float("nan"), "worst_cell": None,
+                    "coverage": float("nan"), "mean_interval_score": float("nan"),
+                    "gated": level == gated_level, "cells": [],
+                    "reason": "no cell of this block clears the eligibility floor of "
+                              "its band, so the block scores nothing",
+                }
                 continue
             errors = np.asarray([c[0] for c in cells], dtype=np.float64)
             worst = int(np.argmax(errors))
             metrics[f"{estimand}/{level}"] = {
                 "n_cells": len(cells),
+                "cells": sorted(c[3] for c in cells),
+                "reason": "",
                 "percentile_error": float(np.quantile(errors, thresholds.rate_gate_percentile,
                                                       method="higher")),
                 "max_error": float(errors.max()),
@@ -778,6 +850,28 @@ def quantile_score(q_hat: np.ndarray, liability: np.ndarray, scale: np.ndarray,
     indicator = (liability <= q_hat[None, :]).astype(np.float64)
     per_member = (level - indicator) * (liability - q_hat[None, :])
     return per_member.mean(axis=0) / scale
+
+
+def width_relative_error(hat: np.ndarray, tail_truth: np.ndarray, mean_truth: np.ndarray,
+                         min_width_fraction: float = 0.010) -> np.ndarray:
+    """|hat - truth| per region, in units of the ensemble's own tail width.
+
+    The width is the sealed tail statistic's distance above the sealed mean, which is the
+    quantity a tail gate exists to ask for. Scoring the same error against the level
+    instead lets a tail that is out by its entire width read as a fraction of a percent:
+    on a regional width of about ten percent of the mean, a two times padded q95 and a
+    mean-only q95 both sat inside version four's first tail bars. Both are out by one
+    width, so both read 1.0 here.
+
+    The divisor is held at a published minimum fraction of the regional mean, so a region
+    whose ensemble is nearly degenerate cannot divide by zero.
+    """
+    hat = np.asarray(hat, dtype=np.float64)
+    tail_truth = np.asarray(tail_truth, dtype=np.float64)
+    mean_truth = np.asarray(mean_truth, dtype=np.float64)
+    width = np.maximum(tail_truth - mean_truth,
+                       float(min_width_fraction) * np.maximum(np.abs(mean_truth), 1.0))
+    return np.abs(hat - tail_truth) / width
 
 
 def shortfall_error(es_hat: np.ndarray, es_truth: np.ndarray,
@@ -929,12 +1023,25 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
     qs = quantile_score(q_hat, liability, scale, TAIL_LEVEL)
     es_err = shortfall_error(es_hat, truth["es"], scale)
     mean_err = shortfall_error(mean_hat, truth["mean"], scale)
+    fraction = thresholds.min_tail_width_fraction
+    q_width_err = width_relative_error(q_hat, truth["q"], truth["mean"], fraction)
+    es_width_err = width_relative_error(es_hat, truth["es"], truth["mean"], fraction)
+    relative_width = (truth["q"] - truth["mean"]) / np.maximum(np.abs(truth["mean"]), 1.0)
 
     # A_B is the public size-proportional split of R and never reads the submission; A* is
     # the perfect-information allocation of the same total under the same constraints the
     # oracle faces, which is non-negativity and the total, not the submission's quantiles.
-    baseline = proportional_baseline_allocation(
-        q_hat if baseline_share is None else baseline_share, total)
+    #
+    # The share comes from the contract, where it is published as a share of persons at or
+    # above the eligibility age. With no share published the baseline splits R evenly,
+    # which is still a published rule that no submission can move. Standing the baseline on
+    # the submission's own q95, as the first pass did when the key was absent, put the
+    # submission on both arms of the skill denominator: a padded tail then moved the
+    # baseline it was scored against.
+    baseline_source = "contract share" if baseline_share is not None else "even split"
+    share = np.full(liability.shape[1], 1.0 / liability.shape[1]) \
+        if baseline_share is None else np.asarray(baseline_share, dtype=np.float64)
+    baseline = proportional_baseline_allocation(share, total)
     oracle = perfect_information_allocation(liability, total, weights)
     floored_oracle = perfect_information_allocation(liability, total, weights,
                                                     floors=q_hat if feasible else None)
@@ -953,9 +1060,14 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
         "quantile_score": qs, "mean_quantile_score": float(qs.mean()),
         "shortfall_error": es_err, "mean_shortfall_error": float(es_err.mean()),
         "mean_liability_error": float(mean_err.mean()),
+        "q95_width_error": q_width_err,
+        "mean_q95_width_error": float(q_width_err.mean()),
+        "es95_width_error": es_width_err,
+        "mean_es95_width_error": float(es_width_err.mean()),
+        "ensemble_tail_width": relative_width,
         "J": j, "J_baseline": j_baseline, "J_oracle": j_oracle,
         "J_floored_oracle": j_free_oracle,
-        "baseline_allocation": baseline,
+        "baseline_allocation": baseline, "baseline_source": baseline_source,
         "skill": skill_score(j, j_baseline, j_oracle) if feasible else float("nan"),
         "regional_shortfall_probability": shortfall_probability,
         "regional_tail": tail, "reserve_total": float(total),
@@ -988,6 +1100,12 @@ def evaluate_actuarial_gates(rate_errors: list[str], rate_metrics: dict,
             continue
         estimand = key.split("/")[0]
         family = "exposure" if estimand == EXPOSURE_ESTIMAND else "rate"
+        # A gated block with no eligible cell decides nothing, and a verdict that reads a
+        # shorter dictionary cannot tell that apart from a block that passed.
+        if not int(m.get("n_cells", 0)):
+            reasons.append(f"{family}: {key} has no eligible cell, so the gate reads "
+                           "nothing")
+            continue
         ceiling = ceilings[estimand]
         if ceiling is not None and m["percentile_error"] > ceiling:
             reasons.append(f"{family}: {key} percentile error "
@@ -1019,6 +1137,21 @@ def evaluate_actuarial_gates(rate_errors: list[str], rate_metrics: dict,
             if es_ceiling is not None and reserve["mean_shortfall_error"] > es_ceiling:
                 reasons.append(f"tail: expected shortfall error "
                                f"{reserve['mean_shortfall_error']:.4f} > {es_ceiling}")
+            # The two width bars are what separate a tail from a level. Both criteria are
+            # the error in units of the ensemble's own tail width, so a bar under one
+            # refuses a submission that is out by a whole width in either direction.
+            q_width_ceiling = bars.get("q95_width_error_ceiling",
+                                       thresholds.q95_width_error_ceiling)
+            if q_width_ceiling is not None \
+                    and reserve["mean_q95_width_error"] > q_width_ceiling:
+                reasons.append(f"tail: q95 error {reserve['mean_q95_width_error']:.4f} "
+                               f"of the ensemble tail width > {q_width_ceiling}")
+            es_width_ceiling = bars.get("es95_width_error_ceiling",
+                                        thresholds.es95_width_error_ceiling)
+            if es_width_ceiling is not None \
+                    and reserve["mean_es95_width_error"] > es_width_ceiling:
+                reasons.append(f"tail: ES95 error {reserve['mean_es95_width_error']:.4f} "
+                               f"of the ensemble tail width > {es_width_ceiling}")
             minimum = bars.get("skill_minimum", thresholds.skill_minimum)
             if not math.isfinite(reserve["skill"]):
                 reasons.append("reserve: skill is undefined because the oracle and the "

@@ -968,8 +968,18 @@ def _record_mechanism_rates(
     urban = mechanisms.covariate("urban", county)
     econ = mechanisms.covariate("econ", county)
     elder = mechanisms.covariate("elder", county)
+    # The rural excess in name, address and linkage error is itself scaled by the world's
+    # migration intensity. That product of two axes is the first of the three the protocol
+    # predeclares: a world that moves people harder loses more of them at the rural end of
+    # the gradient, so linkage quality cannot be read off urbanity alone and the two axes
+    # cannot be fitted one at a time on the development design.
+    rural_gradient = float(coefficients["linkage_urban_gradient"]) * (
+        1.0
+        + float(coefficients["linkage_gradient_by_migration"])
+        * (float(coefficients["migration_age_pattern"]) - 1.0)
+    )
     linkage_shift = (
-        float(coefficients["linkage_urban_gradient"]) * (0.5 - urban)
+        rural_gradient * (0.5 - urban)
         + float(coefficients["linkage_intercept_shift"])
         + mechanisms.effect("linkage", county)
     )
@@ -992,13 +1002,16 @@ def _record_mechanism_rates(
         coverage_shift = coverage_shift + frailty_slope * np.log(np.clip(frailty, 0.15, 6.0))
     # Item missingness on the money value has its own money-band slope. In version four's
     # first pass this was the target-dependence axis again, which loaded one coefficient
-    # onto two mechanisms with different targets and left neither identified.
+    # onto two mechanisms with different targets and left neither identified. Its county
+    # effect is its own draw as well: reusing the coverage effect verbatim made the two
+    # county patterns identical, so measuring where a register is thin also measured
+    # where its values go missing, and one estimate did for both.
     missing_shift = (
         float(coefficients["item_missing_econ_slope"]) * (econ - 0.5)
         + float(coefficients["item_missing_band_slope"])
         * (np.asarray(band, dtype=np.float64) - 2.0)
         / 2.0
-        + mechanisms.effect("coverage", county)
+        + mechanisms.effect("item_missing", county)
     )
     age_multiplier = (
         float(coefficients["age_reporting_error"])

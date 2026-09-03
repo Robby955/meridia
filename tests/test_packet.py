@@ -12,11 +12,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.actuarial import ensemble_truth
-from meridia.packet import (FORBIDDEN_COLUMN_PREFIXES, PacketParams, build_packet,
-                            reserve_weights,
-                            build_world, participant_columns)
+from meridia.actuarial import ObligationContract
+from meridia.packet import (EXPERIENCE_BURN_IN_MONTHS, FORBIDDEN_COLUMN_PREFIXES,
+                            GRADING_WORLD, PacketParams, _experience_history,
+                            build_packet, build_world, participant_columns,
+                            reserve_weights)
 from meridia.projection import project_truth_from_history
-from meridia.survey import SURVEY_BANDS, SurveyParams
+from meridia.survey import (N_SURVEY_OUTSIDE_AXES, SURVEY_BANDS, SURVEY_ENVELOPE,
+                            SurveyParams)
 from meridia.release import ESTIMAND_IDS, required_rows
 
 SEED = 9001
@@ -318,6 +321,14 @@ def test_hidden_regime_packet_is_retained_only(tmp_path):
     assert world_h["mechanisms"]["design"]["cell"] == -1
     assert world_d["mechanisms"]["design"]["cell"] >= 0
     assert world_h["mechanisms"]["coefficients"] != world_d["mechanisms"]["coefficients"]
+    # The survey instrument moves with the source rule as well: an evaluation world puts
+    # two of its nine survey axes outside the band the open worlds are drawn from.
+    assert len(world_h["survey_outside"]) == N_SURVEY_OUTSIDE_AXES
+    assert world_d["survey_outside"] == []
+    assert world_h["survey_params"] != world_d["survey_params"]
+    for axis in world_h["survey_outside"]:
+        low, high = SURVEY_BANDS[axis]
+        assert not low <= world_h["survey_params"][axis] <= high
     assert hidden["retained"]["truth_revised.csv"] != dev["retained"]["truth_revised.csv"]
     assert hidden["participant"]["sources/population_revised.csv"] != dev["participant"]["sources/population_revised.csv"]
     assert hidden["participant"]["survey_revised.csv"] != dev["participant"]["survey_revised.csv"]
@@ -336,6 +347,10 @@ def test_the_contract_publishes_the_survey_family_and_the_baseline_share(packet)
     assert set(survey["bands"]) == set(SURVEY_BANDS)
     for name, (low, high) in SURVEY_BANDS.items():
         assert survey["bands"][name] == [low, high]
+        envelope_low, envelope_high = SURVEY_ENVELOPE[name]
+        assert survey["envelope"][name] == [envelope_low, envelope_high]
+        assert envelope_low < low < high < envelope_high
+    assert survey["n_outside_axes"] == N_SURVEY_OUTSIDE_AXES
     reserve = contract["reserve"]
     share = np.asarray(reserve["baseline_share"], dtype=np.float64)
     assert len(share) == int(contract["n_states"])
@@ -352,3 +367,64 @@ def test_the_contract_publishes_the_survey_family_and_the_baseline_share(packet)
     text = (packet_dir / "participant" / "contract.json").read_text()
     for name in SURVEY_BANDS:
         assert f'"{name}": {drawn[name]}' not in text
+
+
+# ------------------------------------ the mortality trend's only anchor is the file
+
+TREND_WORLD = PacketParams(grid=(64, 80), n_settlements=5, n_states=3, total=40_000,
+                           observed_months=120, preliminary_lag=6, horizon_months=12,
+                           experience_years=5, experience_lag_months=12,
+                           ensemble_members=4, design_cell=4)
+
+
+def _experience_drift(rows) -> float:
+    """Count-weighted log mortality drift, each band by sex by state cell centred first.
+
+    The published statistic from the identifiability report. Cells are centred on their
+    own count-weighted means because the bands sit orders of magnitude apart, so a slope
+    taken across them would read the composition of the deaths rather than the trend.
+    """
+    keep = (rows["exposure"] > 0) & (rows["deaths"] > 0)
+    label = np.asarray([f"{b}|{s}|{u}" for b, s, u in
+                        zip(rows["age_band"], rows["sex"], rows["state"])])
+    numerator = denominator = 0.0
+    for name in np.unique(label[keep]):
+        block = keep & (label == name)
+        if block.sum() < 3:
+            continue
+        weight = rows["deaths"][block].astype(np.float64)
+        year = rows["year"][block].astype(np.float64)
+        year = year - np.average(year, weights=weight)
+        rate = np.log(rows["deaths"][block] / rows["exposure"][block])
+        rate = rate - np.average(rate, weights=weight)
+        numerator += float((weight * year * rate).sum())
+        denominator += float((weight * year ** 2).sum())
+    return -numerator / denominator if denominator else float("nan")
+
+
+def test_the_committed_world_runs_a_burn_in_before_the_published_experience_file():
+    """The file is the mortality trend's only anchor, so where its window sits matters."""
+    world = GRADING_WORLD
+    first_year_starts = (world.observed_months - world.experience_lag_months
+                         - 12 * world.experience_years)
+    assert first_year_starts >= EXPERIENCE_BURN_IN_MONTHS
+    assert EXPERIENCE_BURN_IN_MONTHS >= 36
+
+
+def test_the_experience_file_reads_the_trend_once_the_ledger_has_settled():
+    """A ledger's opening years carry a settling term a trend estimator reads as improvement.
+
+    The frail die first and each band refills from below, so the death rate inside a cell
+    falls for reasons that have nothing to do with the world's mortality axis. Measured
+    over twelve small worlds, a file at ledger months 0 to 60 had a bias of +0.084 a year
+    against a published band 0.058 wide; the same worlds read at months 48 to 108 had a
+    bias of -0.013. This checks one of those worlds, so the committed window is a
+    measured choice rather than a stated one.
+    """
+    built = build_world(1105, TREND_WORLD)
+    truth = built["mechanisms"].design.intensity["mortality_improvement"]
+    obligation = ObligationContract()
+    early = _experience_drift(_experience_history(built, built["admin"], obligation, 5, 60))
+    late = _experience_drift(_experience_history(built, built["admin"], obligation, 5, 12))
+    assert abs(early - truth) > 0.05
+    assert abs(late - truth) < 0.5 * abs(early - truth)

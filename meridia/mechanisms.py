@@ -71,18 +71,37 @@ DEVELOPMENT_BAND: Final = {
 
 # Predeclared interactions (protocol section 10, last paragraph). Nothing outside this
 # list is generated, and each entry names the coefficient that carries it.
+#
+# Three of them are a product of two axes at one site, listed first. Until version four's
+# second pass only one was, so every other axis entered additively at a single place and a
+# method that fitted the six axes separately on the twelve development worlds transferred
+# exactly to any recombination of them. The hidden corner then carried no difficulty
+# beyond its six marginals, which is the whole point of putting the hidden world in a
+# corner the design does not spend.
+PAIRWISE_AXIS_INTERACTIONS: Final = (
+    "linkage_gradient_by_migration",
+    "health_completeness_by_latent_frailty",
+    "death_capture_by_age_error",
+)
+
 DECLARED_INTERACTIONS: Final = {
-    # Three of the five cross two axes, so a method that fits each axis separately on the
-    # development design does not transfer to a configuration it has not seen. The other
-    # two cross an axis with a public covariate, which is what their protocol wording says.
+    "linkage_gradient_by_migration":
+        "linkage_gradient_by_migration: linkage_urban_gradient x"
+        " migration_age_pattern,"
+        " scaling the rural excess of the name, address and linkage error rates, so a"
+        " world that moves people harder also loses them across the urban gradient",
+    "health_completeness_by_latent_frailty":
+        "health_inclusion_completeness_by_target: administrative_completeness x"
+        " missingness_target_dependence x log frailty_i, in the health inclusion logit",
+    "death_capture_by_age_error":
+        "death_report_by_age_error: mortality_improvement x age_reporting_error, in the"
+        " probability that a death reaches the register after the snapshot and the"
+        " register therefore still carries the person",
     "migration_by_stale_address_linkage":
         "id_persist_move_by_migration: migration_age_pattern x recent_move_i, inside the"
         " identifier persistence logit that linkage_urban_gradient also enters",
     "rurality_by_name_and_address_error":
         "linkage_urban_gradient: axis x urban_c",
-    "health_completeness_by_latent_frailty":
-        "health_inclusion_completeness_by_target: administrative_completeness x"
-        " missingness_target_dependence x log frailty_i, in the health inclusion logit",
     "age_error_by_age_slope_of_mortality":
         "age_error_by_mortality_slope: age_reporting_error x the world's Gompertz age"
         " slope, which is itself a per-world draw",
@@ -152,8 +171,12 @@ COEFFICIENT_RANGES: Final = {
     "coverage_county_sd": (0.10, 0.38),
     "item_missing_econ_slope": (-0.80, 0.80),
     "item_missing_band_slope": (-1.30, 1.30),   # money band of the record, not the target axis
+    "item_missing_county_sd": (0.09, 0.36),     # its own county effect, not coverage's
+    # Register death capture.
+    "death_report_by_age_error": (6.0, 16.0),  # mortality trend x age reporting error
     # Name, birth, and linkage error.
     "linkage_intercept_shift": (-0.35, 0.35),
+    "linkage_gradient_by_migration": (0.15, 0.75),  # rural gradient x migration intensity
     "linkage_county_sd": (0.14, 0.48),
     "age_error_age_slope": (0.20, 0.95),       # older ages reported more coarsely
     "age_error_by_mortality_slope": (0.30, 1.20),  # age error x the world's mortality age slope
@@ -187,6 +210,7 @@ COEFFICIENT_RANGES: Final = {
 
 COUNTY_EFFECT_FAMILIES: Final = (
     "coverage",
+    "item_missing",
     "linkage",
     "income_scale",
     "formation",
@@ -213,6 +237,9 @@ COVARIATE_DEFINITIONS: Final = {
 # the interaction below reads the ratio, so a world with a steeper age gradient in deaths
 # also reports age more coarsely at the old ages.
 REFERENCE_MORTALITY_AGE_SLOPE: Final = 0.105
+
+# The neutral value of the age-reporting axis, where its declared products vanish.
+REFERENCE_AGE_REPORTING_ERROR: Final = 1.0
 
 NEWBORN_FRAILTY_INHERITANCE: Final = 0.35
 NEWBORN_FRAILTY_SIGMA: Final = 0.42
@@ -247,6 +274,27 @@ def expit(x: np.ndarray | float) -> np.ndarray:
 def logit(p: np.ndarray | float) -> np.ndarray:
     q = np.clip(np.asarray(p, dtype=np.float64), 1e-9, 1.0 - 1e-9)
     return np.log(q / (1.0 - q))
+
+
+def death_report_late_probability(coefficients: dict[str, float], base: float) -> float:
+    """Chance that a death reaches the register after the snapshot, for one world.
+
+    The second of the three products of two axes. A register whose ages are reported
+    coarsely closes its records slowly, and how slowly depends on which way the mortality
+    level is moving: a falling death count leaves a register with less pressure to
+    reconcile, a rising one with more. The observable trace is the gap between the deaths
+    the experience file publishes and the disappearances a vintage-to-vintage link
+    measures, which is a quantity a method already computes for the mortality rate.
+
+    Both axes are centred where the development band centres them, so a world at the
+    middle of the design gets the published base rate and the product is a departure
+    from it rather than a level shift.
+    """
+    low, high = DEVELOPMENT_BAND["mortality_improvement"]
+    trend = float(coefficients["mortality_improvement"]) - 0.5 * (low + high)
+    coarse = float(coefficients["age_reporting_error"]) - REFERENCE_AGE_REPORTING_ERROR
+    shift = float(coefficients["death_report_by_age_error"]) * trend * coarse
+    return float(np.clip(expit(logit(float(base)) + shift), 0.02, 0.85))
 
 
 def rank_uniform(values: np.ndarray) -> np.ndarray:
@@ -570,6 +618,7 @@ def contract_block() -> dict:
         "public_envelope": {k: list(v) for k, v in PUBLIC_ENVELOPE.items()},
         "development_band": {k: list(v) for k, v in DEVELOPMENT_BAND.items()},
         "declared_interactions": dict(DECLARED_INTERACTIONS),
+        "pairwise_axis_interactions": list(PAIRWISE_AXIS_INTERACTIONS),
         "development_design": DEVELOPMENT_DESIGN.tolist(),
         "n_development_cells": N_DEVELOPMENT_CELLS,
         "covariates": dict(COVARIATE_DEFINITIONS),
@@ -579,10 +628,17 @@ def contract_block() -> dict:
                         " (a_frailty + a_completeness_by_target * a_completeness)"
                         " * log(frailty_i)",
             "item_missing": "logit p_missing = logit(base) + b_econ * (econ_c - 0.5)"
-                            " + b_band * (band_r - 2) / 2 + u_c ; b_band is the record's"
-                            " own money band and is not the health selection slope",
+                            " + b_band * (band_r - 2) / 2 + v_c ; b_band is the record's"
+                            " own money band and is not the health selection slope, and"
+                            " v_c is item missingness's own county effect, a separate"
+                            " draw from the u_c of the inclusion family above",
+            "death_capture": "logit p_late = logit(base) + a_capture * (improvement -"
+                             " midpoint of the published improvement band) *"
+                             " (age_reporting_error - 1); a death reported late is a"
+                             " person the register still carries at the snapshot",
             "reporting_error": "logit p_error = logit(base) + a_rural * (0.5 - urban_c)"
-                               " + u_c ; birth and age error scale with"
+                               " * (1 + a_rural_by_migration * (migration_age_pattern"
+                               " - 1)) + u_c ; birth and age error scale with"
                                " (1 + a_age_slope * (age - 45) / 40) and with"
                                " (1 + a_mortality_slope * (b / 0.105 - 1)) for the"
                                " world's own Gompertz age slope b",

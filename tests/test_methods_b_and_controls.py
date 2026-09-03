@@ -46,7 +46,16 @@ def test_method_b_clears_hard_gates_from_participant_files(packet, tmp_path):
     assert report["metrics"]["persons/all"]["coverage"] > 0.5
     assert report["reserve"]["feasible"]
     families = {reason.split(":")[0] for reason in report["reasons"]}
-    assert families <= {"tail", "reserve", "exposure", "rate", "coverage"}, report["reasons"]
+    assert families <= {"tail", "reserve", "exposure", "rate", "coverage",
+                        "disclosure"}, report["reasons"]
+    # What the method controls is asserted directly. No published cell is recoverable
+    # from the published totals, and the table it releases is most of the releasable one.
+    # Whether a cell whose true count sits under the threshold was published is not a
+    # rule a method can keep: suppression reads the estimate, and on a cell this thin an
+    # estimate can sit at twice the threshold while the truth sits under it. The
+    # attainability of that gate belongs to the lane that owns the audit.
+    assert report["disclosure"]["recoverable"] == []
+    assert report["disclosure"]["utility"] > 0.85
 
 
 @pytest.mark.parametrize("name", controls.CONTROLS)
@@ -143,3 +152,79 @@ def test_the_age_rake_reproduces_all_three_published_count_items():
     assert scaled[:, child].sum() == pytest.approx(1.2 * cube[:, child].sum())
     assert scaled[:, elder].sum() == pytest.approx(0.8 * cube[:, elder].sum())
     assert scaled.sum() == pytest.approx(cube.sum())
+
+
+def test_the_development_average_regime_is_the_average_and_not_a_placeholder(dev_packet, tmp_path):
+    """Ablation 5 fixes the regime at what the development worlds showed on average.
+
+    Both routes to that number are checked: the average measured over development worlds,
+    which calibration A carries, and the published development band, which is what that
+    average estimates when no calibration is at hand.
+    """
+    import json
+
+    import numpy as np
+
+    from meridia.methods.actuarial_reference import LayerParams
+    fit = controls.fit_development_regime([dev_packet])
+    assert fit["n_worlds"] == 1
+    assert -0.15 < fit["mortality_drift"] < 0.15 and fit["mortality_drift_se"] > 0.0
+    contract = json.loads((dev_packet / "participant" / "contract.json").read_text())
+    from_band = controls.development_regime_override(contract, None)
+    band = contract["mechanisms"]["development_band"]["mortality_improvement"]
+    assert abs(from_band["mortality_drift"] -
+               float(np.log(1.0 - 0.5 * (band[0] + band[1])))) < 1e-12
+    assert abs(from_band["mortality_drift_se"] -
+               (band[1] - band[0]) / np.sqrt(12.0)) < 1e-12
+    from_calibration = controls.development_regime_override(
+        contract, {"development_regime": fit})
+    assert from_calibration["mortality_drift"] == fit["mortality_drift"]
+    assert from_calibration["mortality_drift_se"] == fit["mortality_drift_se"]
+    # The switch table carries no regime of its own, so nothing can drift out of step
+    # with the worlds the average is measured on.
+    assert controls.ACTUARIAL_SWITCHES["development_average_regime"] == {}
+    assert LayerParams().regime_override is None
+
+
+def test_the_development_average_regime_overrides_the_world_it_is_given(packet, tmp_path):
+    import json
+
+    from meridia.methods import actuarial_reference as AR
+    contract = json.loads((packet / "participant" / "contract.json").read_text())
+    override = controls.development_regime_override(contract, None)
+    out = tmp_path / "development_average_regime"
+    controls.run("development_average_regime", packet, out)
+    report = verify_submission(packet, out)
+    assert report["schema_errors"] == []
+    experience = AR.load_experience(packet)
+    arrays = AR.experience_arrays(
+        experience, int(json.loads(
+            (packet / "participant" / "contract.json").read_text())["n_states"]))
+    own = AR.estimate_improvement(arrays["exposure"], arrays["deaths"],
+                                  shock_family=AR.read_shock_family(contract))
+    # The control is only an ablation if the number it substitutes is a different one.
+    assert abs(own["drift"] - override["mortality_drift"]) > 1e-6
+
+
+def test_the_experience_only_control_files_four_files_from_the_aggregate_file(packet, tmp_path):
+    """The control that says the microdata is not needed, so the freeze can price that."""
+    import pandas as pd
+
+    from meridia.methods.actuarial_reference import LayerParams, SimulationParams
+    out = tmp_path / "experience_history_only"
+    controls._experience_history_only(
+        packet, out, LayerParams(simulation=SimulationParams(n_paths=128)))
+    for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
+        assert (out / file).exists()
+    report = verify_submission(packet, out)
+    assert report["schema_errors"] == [] and report["additivity_errors"] == []
+    release = pd.read_csv(out / "release.csv")
+    nation = release[release["level"] == "nation"].set_index("estimand")["estimate"]
+    assert nation["persons"] > 0 and nation["elders_65_plus"] > 0
+    # Households, money and education have no source in an aggregate demographic file.
+    for item in ("households", "median_household_income", "tertiary_share_25_plus"):
+        assert nation[item] == 0.0
+    truth = pd.read_csv(packet / "retained" / "truth_revised.csv")
+    truth_nation = truth[truth["level"] == "nation"].set_index("estimand")["value"]
+    assert report["metrics"]["households/nation"]["worst_error"] > 0.5
+    assert abs(nation["persons"] / truth_nation["persons"] - 1.0) > 0.02

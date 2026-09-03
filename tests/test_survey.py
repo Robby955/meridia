@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
 from meridia.microdata import build_microdata
 from meridia.population import build_population
-from meridia.survey import (SURVEY_BANDS, SurveyParams, draw_survey,
-                            draw_survey_params)
+from meridia.survey import (N_SURVEY_OUTSIDE_AXES, SURVEY_BANDS, SURVEY_ENVELOPE,
+                            SurveyParams, draw_survey, draw_survey_instrument,
+                            draw_survey_params, survey_stream)
 from meridia.terrain import generate_elevation
 
 SEED = 777
@@ -138,3 +139,64 @@ def test_the_survey_instrument_is_a_per_world_draw_inside_its_published_bands():
     for name in ("n_strata_rows", "n_strata_cols", "cells_per_stratum",
                  "households_per_cell", "anchor_sensitivity", "anchor_specificity"):
         assert getattr(fixed, name) == getattr(default, name)
+
+
+def test_the_hidden_instrument_leaves_the_development_band_on_two_axes():
+    """A band twelve open worlds cover densely is a band a method can fit once.
+
+    The mechanism layer already put two of its six axes outside the development band on a
+    hidden world. The survey instrument did not: all nine of its axes were drawn from the
+    one published band whatever the world, so the nonresponse and measurement model an
+    open world identifies transferred whole to an evaluation world.
+    """
+    patterns = set()
+    for seed in (2101, 2102, 2103, 2104, 2105, 2106, 9001):
+        drawn, outside = draw_survey_instrument(seed, "hidden")
+        assert len(outside) == N_SURVEY_OUTSIDE_AXES
+        patterns.add(outside)
+        for name, (low, high) in SURVEY_BANDS.items():
+            value = getattr(drawn, name)
+            envelope_low, envelope_high = SURVEY_ENVELOPE[name]
+            assert envelope_low <= value <= envelope_high, (seed, name, value)
+            if name in outside:
+                assert value < low or value > high, (seed, name, value)
+            else:
+                assert low <= value <= high, (seed, name, value)
+        assert draw_survey_instrument(seed, "hidden")[1] == outside
+    # The pair is drawn, not written down: it is not one pair over seven worlds.
+    assert len(patterns) > 1
+    for seed in (1101, 1105, 1112):
+        drawn, outside = draw_survey_instrument(seed, "development")
+        assert outside == ()
+        for name, (low, high) in SURVEY_BANDS.items():
+            assert low <= getattr(drawn, name) <= high, (seed, name)
+
+
+def test_the_envelope_holds_the_band_and_keeps_the_instrument_well_formed():
+    for name, (low, high) in SURVEY_BANDS.items():
+        envelope_low, envelope_high = SURVEY_ENVELOPE[name]
+        assert envelope_low < low < high < envelope_high, name
+    for name in ("item_income_rate", "item_education_rate", "age_heaping_prob"):
+        assert 0.0 < SURVEY_ENVELOPE[name][0] and SURVEY_ENVELOPE[name][1] < 1.0
+    assert SURVEY_ENVELOPE["income_error_sigma"][0] > 0.0
+
+
+def test_two_worlds_never_share_a_survey_stream():
+    """The stream is keyed on the world and the snapshot, not on their sum.
+
+    Development seeds are consecutive and so are the two snapshot ticks, so a key of
+    seed plus tick made pairs of worlds draw the same households, the same nonresponse
+    and the same reported error.
+    """
+    keys = {tuple(survey_stream(seed, vintage).entropy)
+            for seed in range(1101, 1113) for vintage in (0, 1)}
+    assert len(keys) == 24
+    people, micro, _ = _setup()
+    def digest(seed, vintage):
+        survey = draw_survey(micro, people["population"], seed, vintage=vintage)
+        blob = b"".join(np.ascontiguousarray(v).tobytes()
+                        for v in survey["survey"].values())
+        return hashlib.sha256(blob).hexdigest()
+    assert digest(1101, 1) != digest(1102, 0)
+    assert digest(1101, 0) != digest(1101, 1)
+    assert digest(1101, 0) == digest(1101, 0)

@@ -228,3 +228,33 @@ def test_a_suppress_everything_table_protects_everything_and_fails_the_utility_g
     assert honest["utility"] == 1.0
     assert evaluate_gates([], [], {}, honest,
                           {"disclosure_utility_floor": 0.8})["pass"] is True
+
+
+def test_the_released_detailed_cells_carry_an_accuracy_bar_of_their_own():
+    """A share alone is met by publishing every releasable cell as any number at all."""
+    truth = np.array([[[12, 3], [40, 9]], [[7, 60], [2, 25]]])
+    bars = {"disclosure_utility_floor": 0.8, "detailed_accuracy_ceiling": 0.25}
+
+    honest = truth.astype(float)
+    honest[truth < 10] = np.nan
+    audit = disclosure_audit(honest, truth, threshold=10)
+    assert audit["n_scored"] == 4
+    assert audit["detailed_error"] == 0.0
+    assert evaluate_gates([], [], {}, audit, bars)["pass"] is True
+
+    # Every releasable cell published, none of them near its own count. The utility share
+    # reads one, and only the accuracy bar refuses it.
+    garbage = np.where(truth >= 10, 1.0, np.nan)
+    audit = disclosure_audit(garbage, truth, threshold=10)
+    assert audit["pass"] is True and audit["utility"] == 1.0
+    assert audit["detailed_error"] > 0.25
+    assert evaluate_gates([], [], {}, audit, {"disclosure_utility_floor": 0.8})["pass"] \
+        is True
+    verdict = evaluate_gates([], [], {}, audit, bars)
+    assert verdict["pass"] is False
+    assert any(r.startswith("detailed accuracy") for r in verdict["reasons"])
+
+    # A blank table has nothing to score, and the utility floor is what refuses it.
+    blank = disclosure_audit(np.full(truth.shape, np.nan), truth, threshold=10)
+    assert blank["n_scored"] == 0 and math.isnan(blank["detailed_error"])
+    assert evaluate_gates([], [], {}, blank, bars)["pass"] is False

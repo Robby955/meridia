@@ -206,8 +206,11 @@ def disclosure_audit(published: np.ndarray, truth_table: np.ndarray, threshold: 
     constraints), or when published cells and totals are not internally consistent.
 
     The audit also returns ``utility``, the share of cells at or above the threshold that
-    the submission published. Protection is a one-sided requirement and a blank table
-    meets it; the utility share is what a gate reads to refuse one.
+    the submission published, and ``detailed_error``, the accuracy of the cells it did
+    publish. Protection is a one-sided requirement and a blank table meets it, so a share
+    alone would be met by publishing every releasable cell as any number at all. The two
+    together are the requirement: publish a declared share of the table, and be right about
+    what you publish, while every protected cell stays suppressed.
     """
     published = np.asarray(published, dtype=np.float64)
     truth_table = np.asarray(truth_table)
@@ -287,6 +290,26 @@ def disclosure_audit(published: np.ndarray, truth_table: np.ndarray, threshold: 
     findings["n_published_releasable"] = int(published_releasable.sum())
     findings["utility"] = (float(published_releasable.sum()) / float(releasable.sum())
                            if releasable.any() else 1.0)
+    # Accuracy of what was released. The stabilizer is the published disclosure threshold,
+    # which is the cell-size unit the table is protected at, and never below one person.
+    # The gated statistic is the median cell, because the tail of this distribution is the
+    # thin cells every reconstruction is poor on: measured on the qualification worlds, the
+    # two strong references sit at 0.10 to 0.18 at the median and at 0.28 to 0.69 at the
+    # 0.95 percentile, while a table that publishes every releasable cell as one number sits
+    # above 0.95 at both. The percentile and the worst cell are reported, not gated.
+    scored = published_releasable & np.isfinite(published)
+    findings["n_scored"] = int(scored.sum())
+    if scored.any():
+        stabilizer = max(float(threshold), 1.0)
+        error = np.abs(published[scored] - truth_table[scored].astype(np.float64)) / \
+            (truth_table[scored].astype(np.float64) + stabilizer)
+        findings["detailed_error"] = float(np.median(error))
+        findings["detailed_error_p95"] = float(np.quantile(error, 0.95, method="higher"))
+        findings["detailed_worst_error"] = float(error.max())
+    else:
+        findings["detailed_error"] = float("nan")
+        findings["detailed_error_p95"] = float("nan")
+        findings["detailed_worst_error"] = float("nan")
     return findings
 
 
@@ -297,8 +320,9 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
     """Combine the checks into a pass verdict with named reasons.
 
     ``bars`` keys: ``worst_error`` and ``interval_score_ceiling`` map "estimand/level" to a
-    ceiling; ``coverage_floor`` and ``disclosure_utility_floor`` are one number each. A
-    metric with no bar is reported, not gated.
+    ceiling; ``coverage_floor``, ``disclosure_utility_floor`` and
+    ``detailed_accuracy_ceiling`` are one number each. A metric with no bar is reported,
+    not gated.
     """
     reasons: list[str] = []
     if schema_errors:
@@ -313,6 +337,11 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
             and float(disclosure.get("utility", 1.0)) < float(utility_floor):
         reasons.append(f"disclosure utility: {disclosure['utility']:.3f} of the releasable "
                        f"cells published < {utility_floor}")
+    accuracy_ceiling = bars.get("detailed_accuracy_ceiling")
+    error = float(disclosure.get("detailed_error", float("nan"))) if disclosure else float("nan")
+    if accuracy_ceiling is not None and disclosure is not None and error > accuracy_ceiling:
+        reasons.append(f"detailed accuracy: released cells score {error:.4f} > "
+                       f"{accuracy_ceiling}")
     for key, m in metrics.items():
         ceiling = bars.get("worst_error", {}).get(key)
         if ceiling is not None and m["worst_error"] > ceiling:

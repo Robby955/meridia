@@ -197,7 +197,9 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
     if disclosure is not None:
         report["disclosure"] = {k: v for k, v in disclosure.items()
                                 if k in ("pass", "n_protected", "n_suppressed",
-                                         "published_protected", "recoverable")}
+                                         "published_protected", "recoverable",
+                                         "utility", "n_scored", "detailed_error",
+                                         "detailed_error_p95", "detailed_worst_error")}
     return report
 
 
@@ -357,7 +359,9 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         "disclosure": {k: v for k, v in disclosure.items()
                        if k in ("pass", "n_protected", "n_suppressed",
                                 "published_protected", "recoverable",
-                                "n_releasable", "n_published_releasable", "utility")},
+                                "n_releasable", "n_published_releasable", "utility",
+                                "n_scored", "detailed_error", "detailed_error_p95",
+                                "detailed_worst_error")},
     }
     return report
 

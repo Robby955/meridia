@@ -110,6 +110,10 @@ def load_packet(packet_dir: Path) -> dict:
     return {
         "contract": contract,
         "county_state": geography["state"].to_numpy(dtype=np.int64),
+        # Land cells are the denominator of the published urbanity covariate, which the
+        # response model needs and no other step reads.
+        "land_cells": geography["land_cells"].to_numpy(dtype=np.float64)
+        if "land_cells" in geography.columns else None,
         "survey": pd.read_csv(P / "survey_revised.csv"),
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
         "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),
@@ -1183,8 +1187,12 @@ def calibrate(dev_packet_dirs, calibration_path: Path,
                       "residual_sd": max(residual_sd, 0.01)}
     # The exact-key union control needs the same development worlds; its constants
     # ride along in this receipt so the control battery can run from calibration A.
-    from .controls import fit_exact_key_union
+    from .controls import fit_development_regime, fit_exact_key_union
     factors["exact_key_union"] = fit_exact_key_union(dev_packet_dirs)
+    # The development-world average regime, which ablation 5 fixes in place of the world
+    # in front of it. It is a property of the development set, not of any submission, so
+    # it rides in the same receipt as the other development-world constants.
+    factors["development_regime"] = fit_development_regime(dev_packet_dirs)
     # County income ratios from the income source are raised to exponents fitted on
     # the same development worlds (``fit_ratio_exponents``); the national corrections
     # above do not depend on them, since this line reads nation and state from the

@@ -219,14 +219,27 @@ def main() -> None:
         measured = statistics(packet)
         coefficients = world["mechanisms"].get("coefficients", {})
         realized = dict(intensity)
-        # Two axes are predeclared to interact, so the quantity a mechanism actually runs
+        # Some axes are predeclared to interact, so the quantity a mechanism actually runs
         # on is a product, not the axis. Identifiability is a claim about the realized
         # coefficient: it is what a method has to recover, and it is what decides a world.
+        #
+        # Two of the three products of two axes land on a statistic below. Health
+        # inclusion reads latent frailty at a slope administrative completeness scales,
+        # and the rural excess of the name and address error rate is scaled by the
+        # world's migration intensity, which is exactly what the missing-name slope on
+        # urbanity measures. The third, the late-report probability of a death, does not
+        # enter either of the statistics its two axes are read from, so no axis carries a
+        # correction for it.
         if "health_inclusion_completeness_by_target" in coefficients:
             realized["missingness_target_dependence"] = float(
                 intensity["missingness_target_dependence"]
                 * (1.0 + float(coefficients["health_inclusion_completeness_by_target"])
                    * (float(intensity["administrative_completeness"]) - 1.0)))
+        if "linkage_gradient_by_migration" in coefficients:
+            realized["linkage_urban_gradient"] = float(
+                intensity["linkage_urban_gradient"]
+                * (1.0 + float(coefficients["linkage_gradient_by_migration"])
+                   * (float(intensity["migration_age_pattern"]) - 1.0)))
         rows.append({"world": packet.name, "regime": world["regime"],
                      **{f"true_{a}": float(realized[a]) for a in AXES},
                      **{f"read_{a}": float(measured[a]) for a in AXES},

@@ -48,7 +48,8 @@ from .release import (AGE_BAND_LABELS, ESTIMANDS, LEVELS, SEX_LABELS,
                       compute_detailed_table_truth, compute_truth)
 from .sources import (SOURCE_REGIMES, benchmark_values, build_observed_sources,
                       draw_benchmark_bias, draw_source_params, participant_source_snapshots)
-from .survey import SURVEY_BANDS, SurveyParams, draw_survey, draw_survey_params
+from .survey import (N_SURVEY_OUTSIDE_AXES, SURVEY_BANDS, SURVEY_ENVELOPE,
+                     SurveyParams, draw_survey, draw_survey_instrument)
 from .terrain import generate_elevation
 
 FORBIDDEN_COLUMN_PREFIXES = ("truth_", "mechanism", "crosswalk")
@@ -75,12 +76,31 @@ class PacketParams:
     shock_annual_rate: float = ANNUAL_SHOCK_RATE   # published shock years per year
 
 
+# Months of ledger the committed world runs before the published experience file's first
+# year begins. The ledger starts from a drawn population whose frailty and age
+# composition are not yet those of the process that will run it, and the first years of
+# any such ledger carry a settling term: within a band, the frail die first and the band
+# refills from below, so the death rate falls for a reason that has nothing to do with
+# the world's mortality trend. Measured on twelve small worlds, the trend estimator's
+# bias over a file at ledger months 0 to 60 was +0.084 a year against an axis whose whole
+# published band is 0.058 wide, and its rank correlation with the realized intensity was
+# 0.21. Over months 48 to 108 of the same worlds the bias is -0.013 and the correlation
+# is 0.50, with the remaining error concentrated in the four worlds whose shock schedule
+# put an epidemic year inside the window, which is a published family and visible in the
+# file's own national series.
+EXPERIENCE_BURN_IN_MONTHS = 48
+
 # The committed version-four world: one size for the development set, the qualification
 # worlds and the graded ones, so a bar frozen on one is read on the same object. The size
 # is set by what a 2,048-member continuation ensemble costs, which is 310 seconds across
 # fourteen processes here and would be hours at the version-three default grid.
+#
+# ``observed_months`` is the burn-in plus the five published years plus the twelve-month
+# publication lag. The extra months cost 2.3 seconds of ledger per world at this size and
+# nothing in the ensemble, which pays only for the horizon.
 GRADING_WORLD = PacketParams(grid=(96, 128), n_settlements=8, n_states=6, total=60_000,
-                             observed_months=72, preliminary_lag=6, horizon_months=60,
+                             observed_months=EXPERIENCE_BURN_IN_MONTHS + 60 + 12,
+                             preliminary_lag=6, horizon_months=60,
                              experience_years=5, experience_lag_months=12,
                              ensemble_members=2048)
 
@@ -115,7 +135,7 @@ def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     mechanisms = build_world_mechanisms(
         seed, params.regime, admin, micro, businesses, params.design_cell,
         mortality_age_slope=character["demography"].gompertz_b)
-    survey_params = draw_survey_params(seed)
+    survey_params, survey_outside = draw_survey_instrument(seed, params.regime)
     months = params.observed_months + params.horizon_months
     years = max(3, months // 12 + 1)
     shocks = draw_world_shocks(seed, years, params.max_shocks,
@@ -138,6 +158,7 @@ def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
         "history": history, "sources": sources, "shocks": shocks,
         "source_params": source_params, "benchmark_bias": benchmark_bias,
         "mechanisms": mechanisms, "survey_params": survey_params,
+        "survey_outside": survey_outside,
         "ticks": {"snapshot": snapshot, "preliminary": preliminary_tick,
                   "revised": revised_tick, "horizon": snapshot + months},
     }
@@ -160,14 +181,14 @@ def _recent_admission(history: dict, state: dict, tick: int, window: int = 12) -
     return admitted[np.flatnonzero(state["person"]["is_alive"])]
 
 
-def _survey_at(built: dict, tick: int) -> dict:
+def _survey_at(built: dict, tick: int, vintage: int) -> dict:
     state = replay_event_history(built["history"], tick)
     person, household_cell = person_table_from_state(state, tick)
     height, width = built["params"].grid
     population = np.bincount(person["cell"], minlength=height * width).reshape(height, width)
     micro = {"person": person, "household_cell": household_cell,
              "urbanity": built["micro"]["urbanity"], "n_households": len(household_cell)}
-    survey = draw_survey(micro, population, built["seed"] + tick,
+    survey = draw_survey(micro, population, built["seed"], vintage=vintage,
                          params=built["survey_params"],
                          recent_admission=_recent_admission(built["history"], state, tick))
     # Participant view: the survey carries the county, not the grid cell, and a
@@ -206,6 +227,12 @@ def _experience_history(built: dict, admin: dict, obligation: ObligationContract
     demographic experience always lags collection.  Without that lag the most recent
     year's exposure would be a near-exact contemporaneous population count by state, and
     the scored state-level counts would come free with the anchor.
+
+    It also starts well after the ledger does.  The committed world runs
+    ``EXPERIENCE_BURN_IN_MONTHS`` before the file's first year, because a ledger's opening
+    years carry a settling term in the death rate that a trend estimator reads as
+    improvement.  The file is the only anchor the mortality trend has, so the window it
+    covers is the difference between an axis that can be estimated and one that cannot.
     """
     history, ticks = built["history"], built["ticks"]
     county_state = np.asarray(admin["county_state"], dtype=np.int64)
@@ -389,8 +416,8 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     retained.mkdir(parents=True)
 
     # Participant side: surveys, sources, benchmark totals, geography, contract.
-    for label in ("preliminary", "revised"):
-        survey = _survey_at(built, ticks[label])
+    for vintage, label in enumerate(("preliminary", "revised")):
+        survey = _survey_at(built, ticks[label], vintage)
         _write_table(participant / f"survey_{label}.csv", survey["survey"], forbid_truth=True)
     snapshots = participant_source_snapshots(built["sources"])
     for label, snapshot in snapshots.items():
@@ -492,8 +519,13 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
             "measurement": "multiplicative lognormal money error; ages heaped to a"
                            " multiple of five with a fixed probability",
             "bands": {name: list(bounds) for name, bounds in sorted(SURVEY_BANDS.items())},
-            "note": "one continuous draw per world inside each band; the realized values"
-                    " are not published",
+            "envelope": {name: list(bounds)
+                         for name, bounds in sorted(SURVEY_ENVELOPE.items())},
+            "n_outside_axes": N_SURVEY_OUTSIDE_AXES,
+            "note": "one continuous draw per world. A world a method may tune on draws"
+                    " every axis inside its band; an evaluation world draws"
+                    " n_outside_axes of them between that band and the envelope edge."
+                    " Which axes those are, and the realized values, are not published",
         },
         "experience_history": {
             "file": "experience_history.csv",
@@ -504,6 +536,8 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
             "exposure_unit": "person-years",
             "publication_lag_months": params.experience_lag_months,
             "last_year_ends_at_tick": ticks["revised"] - params.experience_lag_months,
+            "first_year_starts_at_tick": (ticks["revised"] - params.experience_lag_months
+                                          - 12 * params.experience_years),
         },
         "development": development,
     }
@@ -530,6 +564,7 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         "source_params": asdict(built["source_params"]),
         "mechanisms": built["mechanisms"].record(),
         "survey_params": asdict(built["survey_params"]),
+        "survey_outside": list(built["survey_outside"]),
         "benchmark_bias": {k: np.asarray(v).tolist() for k, v in built["benchmark_bias"].items()},
     }, indent=1, sort_keys=True, default=str) + "\n")
     if development:

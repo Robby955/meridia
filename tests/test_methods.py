@@ -331,3 +331,239 @@ def test_ratio_exponents_are_bounded_and_applied_inside_the_band():
     assert np.allclose(out["median_household_income"], [0.8, 1.2])
     assert abs(out["low_income_household_share"][0] - 1.5 ** 1.66) < 1e-9
     assert apply_ratio_exponents(ratios, None) is ratios
+
+
+# ------------------------------------------------------- the shared actuarial layer
+#
+# The estimators the version-four reference adds, each on a case where the right answer
+# is known by construction. They are unit tests on synthetic input, so they say what the
+# estimator does rather than what one world happened to produce.
+
+def _experience(n_years=5, n_states=4, drift=-0.03, level=0.01, shock_year=None,
+                shock=2.0, slope=0.10, exposure=20_000.0):
+    """A five-year experience file with a planted drift, slope and optional shock."""
+    import numpy as np
+    from meridia.methods.actuarial_reference import ACTUARIAL_AGE_BANDS
+    n_bands = len(ACTUARIAL_AGE_BANDS)
+    midpoint = np.array([0.5 * (lo + min(hi, 100)) for lo, hi in ACTUARIAL_AGE_BANDS])
+    base = level * np.exp(slope * (midpoint - 45.0))
+    out = {k: np.zeros((n_years, n_states, n_bands, 2))
+           for k in ("exposure", "deaths", "qualifying_events", "net_migration")}
+    rng = np.random.default_rng(11)
+    for y in range(n_years):
+        factor = np.exp(drift * y) * (shock if y == shock_year else 1.0)
+        for s in range(n_states):
+            for x in range(2):
+                out["exposure"][y, s, :, x] = exposure
+                out["deaths"][y, s, :, x] = rng.poisson(base * factor * exposure)
+                out["qualifying_events"][y, s, :, x] = rng.poisson(
+                    4.0 * base * factor * exposure)
+                out["net_migration"][y, s, :, x] = 20.0 * np.exp(-0.05 * midpoint)
+    out["years"] = np.arange(1, n_years + 1)
+    return out
+
+
+def test_the_published_shock_family_is_read_and_its_multipliers_move_together():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+    contract = {"shock_family": {"annual_rate": 0.2, "kinds": {
+        "mortality_spike": {"mortality_multiplier": [1.5, 3.0],
+                            "admission_multiplier": [1.4, 2.6]},
+        "baby_bust": {"fertility_multiplier": [0.45, 0.75]},
+        "migration_wave": {"leave_home_multiplier": [1.8, 3.0]}}}}
+    family = AR.read_shock_family(contract)
+    assert family["annual_rate"] == 0.2 and len(family["kinds"]) == 3
+    assert AR.shock_range_for(family, "incidence") == (1.4, 2.6)
+    draw = AR.draw_shock_year(np.random.default_rng(3), 4000, family, 0.0, (1.0, 1.0))
+    hit = draw["mortality"] > 1.0
+    # One kind a year out of three, at the published annual rate.
+    assert 0.04 < hit.mean() < 0.10
+    # An epidemic year raises deaths and admissions on the same draw, never one alone.
+    assert np.array_equal(hit, draw["incidence"] > 1.0)
+    position = (draw["mortality"][hit] - 1.5) / 1.5
+    assert np.allclose(draw["incidence"][hit], 1.4 + position * 1.2)
+    assert np.all(draw["fertility"][hit] == 1.0)
+    ordinary = ~hit
+    assert np.all(draw["mortality"][ordinary] == 1.0)
+
+
+def test_the_shock_loading_a_family_carries_is_what_an_average_year_already_holds():
+    from meridia.methods import actuarial_reference as AR
+    family = {"annual_rate": 0.3, "kinds": [{"mortality": (1.5, 3.0)},
+                                            {"fertility": (0.5, 0.7)},
+                                            {"migration": (2.0, 2.0)}]}
+    assert abs(AR.expected_shock_loading(family, "mortality") - 0.1 * 1.25) < 1e-12
+    assert abs(AR.expected_shock_loading(family, "fertility") + 0.1 * 0.4) < 1e-12
+    assert AR.expected_shock_loading(None, "mortality") == 0.0
+
+
+def test_the_drift_estimator_is_not_dragged_by_one_published_shock_year():
+    from meridia.methods import actuarial_reference as AR
+    family = {"annual_rate": 0.2, "kinds": [{"mortality": (1.5, 3.0)}]}
+    clean = _experience(drift=-0.03)
+    fit = AR.estimate_improvement(clean["exposure"], clean["deaths"], shock_family=family)
+    assert abs(fit["drift"] + 0.03) < 0.01 and fit["fitted"]
+    shocked = _experience(drift=-0.03, shock_year=1, shock=2.0)
+    naive = AR.estimate_improvement(shocked["exposure"], shocked["deaths"])
+    shock_aware = AR.estimate_improvement(shocked["exposure"], shocked["deaths"],
+                                          shock_family=family)
+    assert shock_aware["shock_posterior"][1] > 0.9
+    assert abs(shock_aware["drift"] + 0.03) < abs(naive["drift"] + 0.03)
+    assert abs(shock_aware["drift"] + 0.03) < 0.02
+
+
+def test_the_gompertz_slope_comes_back_off_the_experience_file():
+    from meridia.methods import actuarial_reference as AR
+    fit = AR.gompertz_slope(_experience(slope=0.09))
+    assert fit["fitted"] and abs(fit["slope"] - 0.09) < 0.01
+    assert 0.0 < fit["slope_se"] < 0.01
+
+
+def test_age_heaping_is_measured_and_moved_back_over_its_neighbours():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+    rng = np.random.default_rng(5)
+    age = rng.integers(20, 90, 40_000)
+    heaped = np.where(rng.random(len(age)) < 0.3, 5 * np.round(age / 5).astype(int), age)
+    measured = AR.age_heaping_intensity(heaped)
+    assert measured["fitted"] and 0.05 < measured["excess"] < 0.35
+    assert AR.age_heaping_intensity(age)["excess"] < 0.02
+    cube = np.zeros((2, 101, 2))
+    for a in heaped:
+        cube[0, a, 0] += 1.0
+    fixed = AR.deheap_age_cube(cube, measured["excess"])
+    assert abs(fixed.sum() - cube.sum()) < 1e-6
+    on_five = [a for a in range(25, 90) if a % 5 == 0]
+    assert fixed[0, on_five, 0].sum() < cube[0, on_five, 0].sum()
+
+
+def test_the_response_model_reads_the_gradient_the_sampling_units_show():
+    import numpy as np
+    import pandas as pd
+    from meridia.methods import actuarial_reference as AR
+    rng = np.random.default_rng(9)
+    urbanity = np.linspace(0.0, 1.0, 12)
+    rows = []
+    for county in range(12):
+        rate = 1.0 / (1.0 + np.exp(-(1.2 - 1.6 * urbanity[county])))
+        sampled = 60
+        responded = int(rng.binomial(sampled, rate))
+        for household in range(responded):
+            rows.append({"county": county, "household": f"{county}-{household}",
+                         "psu": county, "psu_sampled_households": sampled,
+                         "design_weight": 10.0, "age": 45.0, "income": 30_000.0})
+    survey = pd.DataFrame(rows)
+    fit = AR.fit_survey_response(survey, np.zeros(12, dtype=int), urbanity)
+    assert fit["fitted"] and -2.4 < fit["urban"] < -0.9
+    weights = AR.nonresponse_weights(survey, fit)
+    county = survey["county"].to_numpy()
+    # The county totals stay where the design put them; only the composition moves.
+    for c in range(12):
+        assert abs(weights[county == c].sum() -
+                   survey["design_weight"].to_numpy()[county == c].sum()) < 1e-6
+    assert weights[county == 11].max() > weights[county == 0].max()
+
+
+def test_the_churn_fit_keeps_the_deaths_a_flat_rate_would_remove_from_the_old():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+    n_counties, n_bands = 6, 6
+    experience = _experience(n_states=2)
+    mobility = AR.mobility_profile(experience)
+    age_error = np.ones(n_bands)
+    at_risk = np.full((n_counties, n_bands, 2), 4000.0)
+    truth = np.zeros((n_counties, n_bands, 2))
+    truth[:, 3:, :] = 0.05          # deaths concentrate in the three oldest bands
+    truth[:, :3, :] = 0.001
+    churn = 0.10 * np.broadcast_to(mobility, truth.shape[1:])[None]
+    gone = at_risk * (truth + churn)
+    fit = AR.fit_churn(gone, at_risk, 12, truth, mobility, age_error,
+                       np.zeros(n_counties, dtype=int))
+    assert fit["fitted"]
+    recovered = (gone - fit["churn"] * at_risk) / at_risk
+    flat = gone[:, :2, :].sum(axis=(1, 2)) / at_risk[:, :2, :].sum(axis=(1, 2))
+    flat_recovered = (gone - flat[:, None, None] * at_risk) / at_risk
+    old = np.s_[:, 3:, :]
+    assert np.abs(recovered[old] - truth[old]).mean() < \
+        np.abs(flat_recovered[old] - truth[old]).mean()
+    assert np.abs(recovered[old] / truth[old] - 1.0).max() < 0.25
+
+
+def test_a_deviation_collapses_to_one_when_its_own_measurement_is_the_noise():
+    import numpy as np
+    from meridia.methods.actuarial_reference import shrink_deviation
+    rng = np.random.default_rng(2)
+    noisy = shrink_deviation(1.0 + rng.normal(0.0, 0.5, 40), np.full(40, 0.25))
+    assert noisy["tau2"] < 0.05 and np.abs(noisy["deviation"] - 1.0).max() < 0.2
+    signal = np.repeat([0.6, 1.4], 20)
+    clean = shrink_deviation(signal, np.full(40, 1e-4))
+    assert clean["tau2"] > 0.1 and np.abs(clean["deviation"] - signal).max() < 0.05
+
+
+def test_two_measurements_of_one_level_combine_by_their_own_precision():
+    import numpy as np
+    from meridia.methods.actuarial_reference import blend_levels, level_disagreement
+    first = np.array([1.0, 2.0])
+    second = np.array([2.0, 4.0])
+    tight = blend_levels(first, np.array([1e-6, 1e-6]), second, np.array([1.0, 1.0]))
+    assert np.allclose(tight["rate"], first, rtol=1e-3) and tight["weight"].max() < 1e-5
+    even = blend_levels(first, np.array([0.1, 0.1]), second, np.array([0.1, 0.1]))
+    assert np.allclose(even["rate"], np.sqrt(first * second))
+    spread = level_disagreement(first, second)
+    assert abs(spread["national"] - np.log(2.0) / np.sqrt(2.0)) < 1e-9
+    assert spread["regional"] < 1e-9
+
+
+def test_the_priced_composition_is_raked_to_the_file_and_the_nation_is_untouched():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+    county_state = np.array([0, 0, 1, 1])
+    paths = np.full((3, 4, 101, 2), 5.0)
+    experience = _experience(n_states=2)
+    experience["exposure"][-1, 0] *= 3.0            # state 0 holds three quarters
+    shares = AR.experience_state_shares(experience)
+    assert abs(shares[0, 3, 0] - 0.75) < 1e-9
+    raked = AR.rake_to_state_shares(paths, county_state, shares)
+    collapse = AR.band_matrix(100)
+    banded = np.einsum("ba,cas->cbs", collapse, raked.mean(axis=0))
+    state = np.stack([banded[:2].sum(axis=0), banded[2:].sum(axis=0)])
+    assert np.allclose(state / state.sum(axis=0), shares, atol=1e-9)
+    before = np.einsum("ba,cas->cbs", collapse, paths.mean(axis=0)).sum(axis=0)
+    assert np.allclose(banded.sum(axis=0), before)
+
+
+def test_a_wider_level_uncertainty_widens_the_tail_without_lifting_the_mean():
+    import numpy as np
+    from meridia.methods import actuarial_reference as AR
+    from meridia.actuarial import ObligationContract
+    obligation = ObligationContract(monthly_benefit=150.0, qualifying_event_cost=15_000.0,
+                                    death_benefit=7_500.0, monthly_discount_rate=0.002,
+                                    eligibility_min_age=65, horizon_months=24)
+    ac = AR.ActuarialContract(
+        obligation=obligation, region_of_county=np.array([0, 1]), n_regions=2,
+        reserve_total=0.0, reserve_weights=np.ones(2), gamma=0.25,
+        anchor_item="recent_hospitalization", anchor_sensitivity=1.0,
+        anchor_specificity=1.0, anchor_window_months=12, experience_years=5,
+        experience_file="experience_history.csv", experience_last_tick=0)
+    paths = np.zeros((4096, 2, 101, 2))
+    paths[:, :, 70, :] = 500.0
+    rates = {"mortality": np.full((2, 101, 2), 0.02),
+             "incidence": np.full((2, 101, 2), 0.03),
+             "migration": np.zeros((2, 101, 2)), "migration_se": np.zeros((2, 101, 2)),
+             "not_yet": np.ones((2, 101, 2)), "fertility": 0.0,
+             "mortality_drift": 0.0, "mortality_drift_se": 0.0,
+             "incidence_drift": 0.0, "incidence_drift_se": 0.0}
+    params = AR.SimulationParams(path_chunk=512, shock_probability=0.0)
+    narrow = AR.simulate_liabilities(paths, dict(rates, mortality_log_sd=0.0,
+                                                 incidence_log_sd=0.0), ac, params)
+    wide = AR.simulate_liabilities(paths, dict(rates, mortality_log_sd=0.30,
+                                               incidence_log_sd=0.30,
+                                               mortality_log_sd_region=np.full(2, 0.30),
+                                               incidence_log_sd_region=np.full(2, 0.30)),
+                                   ac, params)
+    narrow_mean = narrow["liability"].mean(axis=0)
+    wide_mean = wide["liability"].mean(axis=0)
+    # Mean one in expectation: what is left at four thousand paths is Monte Carlo error
+    # on a level whose own spread is a third, not a loading.
+    assert np.abs(wide_mean / narrow_mean - 1.0).max() < 0.02
+    assert (wide["liability"].std(axis=0) > 2.0 * narrow["liability"].std(axis=0)).all()

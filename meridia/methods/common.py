@@ -23,6 +23,10 @@ def load_packet(packet_dir: Path) -> dict:
     return {
         "contract": contract,
         "county_state": geography["state"].to_numpy(dtype=np.int64),
+        # Land cells are the denominator of the published urbanity covariate, which the
+        # response model needs and no other step reads.
+        "land_cells": geography["land_cells"].to_numpy(dtype=np.float64)
+        if "land_cells" in geography.columns else None,
         "survey": pd.read_csv(P / "survey_revised.csv"),
         "population": pd.read_csv(P / "sources" / "population_revised.csv"),
         "population_preliminary": pd.read_csv(P / "sources" / "population_preliminary.csv"),

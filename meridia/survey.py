@@ -67,13 +67,83 @@ SURVEY_BANDS = {
     "age_heaping_prob": (0.10, 0.35),
 }
 
+# The instrument's public plausibility envelope, wider than the development band on both
+# sides of every axis. A hidden world places at most two of its nine survey axes between
+# the development band and this edge, which is the same arrangement the mechanism layer
+# uses for its six regime axes. Without it the whole instrument was inside one band that
+# twelve worlds shipping truth covered densely, so a nonresponse and measurement model
+# fitted there transferred to a world nobody had seen. Every value in the envelope keeps
+# the instrument well formed: the rates stay strictly inside zero and one and the money
+# error stays positive.
+SURVEY_ENVELOPE = {
+    "response_intercept": (0.55, 2.45),
+    "response_age": (-0.004, 0.038),
+    "response_income": (-0.95, 0.02),
+    "response_urban": (-1.25, 0.10),
+    "item_income_rate": (0.05, 0.38),
+    "item_income_mnar": (0.05, 1.35),
+    "item_education_rate": (0.012, 0.170),
+    "income_error_sigma": (0.035, 0.270),
+    "age_heaping_prob": (0.05, 0.48),
+}
 
-def draw_survey_params(seed: int, params: SurveyParams = SurveyParams()) -> SurveyParams:
-    """One world's survey instrument: the sample design fixed, the mechanism drawn."""
+# How many survey axes a hidden world may take outside the development band.
+N_SURVEY_OUTSIDE_AXES = 2
+
+SURVEY_REGIMES = ("development", "hidden")
+
+# Domain tags. The instrument draw and the sample draw are separate streams, and the
+# sample stream takes the world seed and a vintage index rather than a seed shifted by
+# the snapshot tick: consecutive development seeds and consecutive ticks made two worlds
+# share a survey stream, which is a joint draw nobody declared.
+_INSTRUMENT_DOMAIN = 0x5A12
+_SAMPLE_DOMAIN = 0x5A11
+
+
+def survey_stream(seed: int, vintage: int) -> np.random.SeedSequence:
+    """The sample and reporting stream of one snapshot of one world."""
+    return np.random.SeedSequence([int(seed), _SAMPLE_DOMAIN, int(vintage)])
+
+
+def _outside_stretch(axis: str, high_side: bool) -> tuple[float, float]:
+    """The gap between the development band and the envelope edge, on one side."""
+    low, high = SURVEY_BANDS[axis]
+    envelope_low, envelope_high = SURVEY_ENVELOPE[axis]
+    return (high, envelope_high) if high_side else (envelope_low, low)
+
+
+def draw_survey_instrument(seed: int, regime: str = "development",
+                           params: SurveyParams = SurveyParams()
+                           ) -> tuple[SurveyParams, tuple[str, ...]]:
+    """One world's survey instrument, and which of its axes left the development band.
+
+    The sample design is published and fixed; the mechanism is drawn. A development
+    world draws every axis inside the published band. A hidden world draws two axes from
+    the stretch between that band and the envelope edge, one side chosen per axis, and
+    the remaining seven inside the band. The draw is keyed on the world's own seed, so
+    no configuration can be read off this module.
+    """
     from dataclasses import replace
-    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x5A12]))
-    return replace(params, **{name: float(rng.uniform(lo, hi))
-                              for name, (lo, hi) in SURVEY_BANDS.items()})
+    if regime not in SURVEY_REGIMES:
+        raise ValueError(f"unknown survey regime {regime!r}")
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), _INSTRUMENT_DOMAIN]))
+    names = list(SURVEY_BANDS)
+    outside: tuple[str, ...] = ()
+    if regime == "hidden":
+        chosen = rng.choice(len(names), size=N_SURVEY_OUTSIDE_AXES, replace=False)
+        outside = tuple(sorted(names[int(k)] for k in chosen))
+    values = {}
+    for name in names:
+        band = (_outside_stretch(name, bool(rng.random() < 0.5))
+                if name in outside else SURVEY_BANDS[name])
+        values[name] = float(rng.uniform(*band))
+    return replace(params, **values), outside
+
+
+def draw_survey_params(seed: int, regime: str = "development",
+                       params: SurveyParams = SurveyParams()) -> SurveyParams:
+    """One world's survey instrument: the sample design fixed, the mechanism drawn."""
+    return draw_survey_instrument(seed, regime, params)[0]
 
 
 def assign_strata(height: int, width: int, params: SurveyParams) -> np.ndarray:
@@ -85,8 +155,15 @@ def assign_strata(height: int, width: int, params: SurveyParams) -> np.ndarray:
 
 def draw_survey(micro: dict, population: np.ndarray, seed: int,
                 params: SurveyParams = SurveyParams(),
-                recent_admission: np.ndarray | None = None) -> dict:
+                recent_admission: np.ndarray | None = None,
+                vintage: int = 0) -> dict:
     """Draw one survey: sample, response, and reported values, with retained truth.
+
+    ``seed`` is the world's own seed and ``vintage`` numbers the snapshot, so the stream
+    is a function of the world and the snapshot rather than of their sum. The caller used
+    to pass the seed plus the snapshot tick, which two worlds on consecutive seeds and
+    consecutive ticks can agree on: those two worlds then drew the same households, the
+    same nonresponse and the same measurement error.
 
     ``recent_admission`` is the true indicator that a person was admitted to hospital in
     the twelve months before the reference tick.  It is reported through a misclassified
@@ -96,7 +173,7 @@ def draw_survey(micro: dict, population: np.ndarray, seed: int,
     estimable instead of being restated by the register that caused it.
     """
     height, width = population.shape
-    rng = np.random.default_rng(np.random.SeedSequence([seed, 0x5A11]))
+    rng = np.random.default_rng(survey_stream(seed, vintage))
     person = micro["person"]
     household_cell = micro["household_cell"]
     n_households = micro["n_households"]

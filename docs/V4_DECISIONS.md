@@ -880,3 +880,586 @@ that produced the world set and once alone across seven processes:
 The worker count divides the continuation ensemble between processes and changes nothing in
 the packet, which is what the second build checks. A small world built at one worker and at
 three gives the same result in `tests/test_packet.py`.
+
+## Phase two, 2026-09-03
+
+### The verifier scoring surface
+
+Owner of this section: the lane that holds `meridia/actuarial.py`, `meridia/verify.py`,
+`meridia/scoring.py`, `scripts/freeze_v4_bars.py` and their tests. It closes the phase-one
+audit findings on the scored surface. Every entry names what changed, the reason, and the
+measurement behind it. Each change carries a test that fails on the previous tree and
+passes on this one.
+
+#### Eligibility comes from a published rule, not a floor per band
+
+`EXPOSURE_ELIGIBILITY_BY_BAND` was a hand-written person-year floor for each band. It gated
+the right ages, which the flat five thousand did not, but it stated no rule, so nothing
+said why a band's floor was the number it was. The table is now derived from two published
+constants and one published reference schedule, all in `meridia/actuarial.py`:
+
+- every cell, whatever its estimand, stands on at least 120 expected persons over the
+  scored window, which is 600 person-years at the sixty-month horizon;
+- a rate cell also carries at least 25 expected events of its own kind, which is one over
+  the square of the declared 0.20 relative standard error target, at the published
+  reference rate for its band;
+- `REFERENCE_EVENT_RATES` holds that schedule, rounded to two figures from the twelve
+  development worlds, which ship truth. No qualification or graded world enters it.
+
+The floor is therefore a minimum expected death count and a minimum expected event count,
+which is the invariant the audit asked for. Person-years is the wrong one to hold fixed
+across bands, because the same exposure buys two orders of magnitude more deaths at 85 than
+at 8. Derived floors, in person-years:
+
+    estimand              0-17    18-44   45-64  65-74  75-84   85+   18-64   65+
+    exposure               600      600     600    600    600   600     600   600
+    mortality rate      50,000   16,667   2,500    600    600   600   5,000   600
+    qualifying rate      1,250      833     625    600    600   625     714   600
+
+Measured on the six committed qualification worlds, gated state by sex cells for the
+mortality rate, hand-set floors in brackets:
+
+    world     45-64      65-74      75-84      85+     18-44
+    qual-0    10 [10]    10 [10]     2 [2]     0 [0]    0 [10]
+    qual-1    12  [8]    12  [8]     6 [6]     0 [0]    2  [8]
+    qual-2    10 [10]    10 [10]     4 [4]     0 [0]    0 [10]
+    qual-3    10  [8]     9  [6]     4 [4]     0 [0]    2  [8]
+    qual-4    12 [10]    12  [8]     4 [4]     0 [0]    0 [10]
+    qual-5    12 [11]    12  [9]     3 [3]     0 [0]    2 [12]
+
+Both bands the obligation is priced on are gated at state level on all six worlds. Two
+consequences are taken deliberately rather than repaired. The 85 and over band stays
+outside every rate gate, now because a cell of at most 178 person-years is under 120
+expected persons, not because a floor was chosen to keep it out. Mortality at 0-17 leaves
+the gate on every world and at 18-44 keeps only the two largest cells on three of six,
+since a state by sex cell there carries under 25 expected deaths; a gate on a cell that
+thin raises the ceiling for the bands that can be resolved, which is the same argument the
+oldest band was already excluded on.
+
+At county level the exposure gate reads more of the table than it did: 0-17 goes from 1 to 8
+gated cells to 30 to 36, 18-64 from 15 to 24 to 32 to 36, and 65 and over from 2 to 4 to 17
+to 22, out of 70 cells per block. The exposure ceiling is frozen from the worse witness over
+that set, so it will freeze looser than it did, and it will be read on cells that carry the
+obligation instead of the dense young ones alone.
+
+#### The detailed table is scored on what it publishes
+
+`disclosure_audit` already reported `utility`, the share of releasable cells a submission
+published, and a floor refused an all-missing table. A share alone is met by publishing
+every releasable cell as any number at all, so the audit now also scores the released
+cells: `detailed_error` is the median relative error over them, with the published
+disclosure threshold as the stabilizer, and `evaluate_gates` refuses a submission over
+`bars["detailed_accuracy_ceiling"]`. The 0.95 percentile and the worst cell are reported
+and not gated.
+
+The median is the gated statistic because the tail of that distribution is the thin cells
+every reconstruction is poor on. Measured on qualification worlds qual-0, qual-1 and qual-5,
+over the 167 to 180 releasable cells of each: the two strong references sit at 0.10, 0.10
+and 0.18 at the median and at 0.28, 0.28 and 0.65 at the 0.95 percentile, while a table that
+publishes every releasable cell as one number sits at 0.95 to 0.96 at the median. The
+declared attainability cap for the bar is 0.50, which leaves the reference room and refuses
+the constant table.
+
+#### A bar that cannot fire stops the freeze
+
+Clamping to the declared caps was already in place. What was missing is the verdict: a bar
+written at zero on a criterion that is never negative was recorded as a note and the run
+went on to report a freeze. `scripts/freeze_v4_bars.py` now carries `CRITERION_RANGE`, the
+range each bounded criterion can take, and `_unattainable_bars` returns a hard list when a
+ceiling sits at or above its criterion's maximum, when a floor sits at or below its minimum,
+or when a bar is written with no declared range at all. The list goes at the top of the
+freeze report, the result line names it, and the run does not complete. The three bars of
+the first pass, a `tau_worst` of 1.425, a `regional_shortfall_ceiling` of 1.5 and a
+`rate_coverage_floor` of -0.06, are the cases the check is written against: the first two
+clamp back inside their range, and the coverage floor is the one that still cannot fire.
+
+#### The tail is scored in units of the ensemble's own width
+
+The tail bars that sat inside their range were still measured against the level, where a
+tail that is out by its entire width reads as a fraction of a percent. `score_reserve` now
+also reports `mean_q95_width_error` and `mean_es95_width_error`, the distance from the
+sealed q95 and ES95 in units of the sealed tail's own distance above the sealed mean, with
+the divisor held at a published one percent of the regional mean so a nearly degenerate
+region cannot divide by zero. Both have a bar and a declared attainability cap of 0.50.
+
+Measured on a 2,048-member ensemble whose regional width is 0.100 of the mean, which is the
+0.099 the sealed worlds carry: a truthful tail reads 0.000, a mean-only tail reads 1.000 and
+a doubled tail reads 1.000. Under the four tail bars of the first freeze the doubled tail
+produced no reason at all, with a pooled exceedance deviation of 0.047 against 0.15, a
+worst-region deviation of 0.048 against 0.30, and a quantile score of 0.0091 against 0.0098.
+The width bar refuses it.
+
+On the committed qualification worlds the same criterion reads 0.93 to 4.87 for the two
+strong references. That is the regional liability level, in the units the tail gate cares
+about: the references are out by one to five tail widths, which is why their exceedance
+rates scatter instead of sitting near 0.05. The bar is written at its cap and the witness
+fails it, which is what the freeze rule says to do, and the gate cannot freeze until the
+regional mortality and incidence estimator improves. That was already the first item of the
+next pass; the width criterion states it in one number per world instead of six exceedance
+rates.
+
+#### The practical baseline never reads the submission
+
+`score_reserve` fell back to the submission's own q95 for the size-proportional baseline
+whenever the contract published no `baseline_share`, which put the submission on both arms
+of the skill denominator: a padded tail moved the baseline it was scored against. The
+fallback is now an even split of R across regions, which is still a published rule, and the
+report says which was used in `baseline_source`. The packet publishes the share, so the
+committed worlds take the contract branch and nothing about them changes. The oracle stands
+on the truth ensemble under non-negativity and the total alone, as it already did.
+
+#### A gated block with no eligible cell is named
+
+`score_rates` dropped a block whose cells all failed the floor, so a gated block that
+decided nothing looked exactly like a block that passed. Every block is now recorded, with
+`n_cells` zero, an empty cell list and a reason, and `evaluate_actuarial_gates` fails a
+gated block that carries no eligible cell. The cells a block did read are recorded on the
+metric as well, which is what the freeze provenance writes out.
+
+#### The ratio-consistency check the docstring promised
+
+`check_rate_additivity` claimed mortality and incidence were checked for ratio consistency
+against their own exposures. They were not. The check is now implemented rather than the
+claim withdrawn: a published rate times its own published exposure is an event count, and a
+state's event count has to equal the sum of its counties'. A submission that files a state
+rate its county rates and exposures contradict is stating two different numbers of deaths.
+Measured on the twelve witness submissions of the qualification runs, the worst relative
+inconsistency is 1.4e-13, so the existing tolerance of 1e-6 leaves the strong lines
+untouched and refuses a real contradiction.
+
+#### The freeze records which cells each rate bar read
+
+A rate ceiling is only as strong as the cells its eligibility rule admits, and the first
+pass froze three of them on a cell set that held no band at 65 and over without saying so
+anywhere. `_rate_cell_record` collects, per gated block, the count per world and witness,
+the distinct cells, and the bands they cover, and any world where the block had nothing
+eligible. The freeze report prints it, `bars.json` carries it under `frozen_from`, and
+`PROVENANCE.md` writes the derived eligibility floors next to it. A block with no eligible
+cell also no longer enters the bar it would otherwise loosen.
+
+#### What this leaves for the next freeze
+
+The bars under `bars/national-v8` were frozen before these changes and are not edited by
+hand here. `bars.json` records `frozen: false` and the verifier refuses to gate with it, so
+nothing reads a stale set. A freeze run has to produce the new bars, and on the measurements
+above it will end NOT FROZEN on the two width bars for the reason already recorded: the
+regional liability level, not the tail shape, is what the strong references miss.
+
+### The generator's remaining leaks
+
+Owner of this section: the lane that holds `meridia/survey.py`, `meridia/demography.py`,
+`meridia/character.py`, `meridia/mechanisms.py`, `meridia/sources.py`, `meridia/packet.py`,
+`meridia/events.py`, `scripts/build_v4_worlds.py` and their tests. It closes the phase-one
+audit findings on the generator side. Two of the eight were already closed on the baseline
+commit and had no test that would catch a regression; they are recorded here with the test
+that now pins them. The other six changed code, and each carries a test that fails on the
+baseline tree and passes on this one.
+
+#### The survey instrument has an envelope, and an evaluation world leaves the band
+
+Nine survey fields were drawn per world already, which closed the version-three leak, but
+every world was drawn from the one published band. Twelve development worlds ship truth and
+cover that band densely, so a nonresponse and measurement model fitted there transferred
+whole to a world nobody had seen: nothing about the instrument sat outside the region the
+open worlds spanned.
+
+`survey.SURVEY_ENVELOPE` is now the instrument's published plausibility envelope, wider than
+the development band on both sides of all nine axes, and `draw_survey_instrument` places two
+axes of an evaluation world between the band and the envelope edge, with the side drawn per
+axis. That is the arrangement the mechanism layer already used for its six regime axes, and
+the count is published as `survey_family.n_outside_axes` beside the envelope itself. Every
+value in the envelope keeps the instrument well formed: the three rates stay strictly inside
+zero and one, and the money error stays positive. Which two axes a world moved, and the
+realized values, are retained rather than published, and the anchor's sensitivity and
+specificity stay fixed and declared.
+
+#### The survey stream is keyed on the world and the snapshot, not on their sum
+
+`_survey_at` passed `seed + tick` to `draw_survey`. Development seeds run 1101 to 1112 and
+the two snapshot ticks differ by the preliminary lag, so pairs of worlds landed on the same
+key and drew the same households, the same nonresponse and the same reported error. The key
+is now `SeedSequence([seed, domain tag, vintage])`, built in one place by `survey_stream`,
+with the world's own seed and the snapshot index rather than any arithmetic on the two.
+
+#### Four demography fields and the hidden level pattern: already drawn, now pinned
+
+`gompertz_b`, `makeham`, `infant_extra` and `move_city_prob` sit in `CHARACTER_RANGES`, reach
+`DemographyParams` through `draw_world_character`, and are read by the ledger at
+`build_event_history`. `HIDDEN_LEVEL_PATTERNS` is the public candidate set rather than a
+world's choice: `draw_mechanism_design` takes the pattern and the pair of outside axes from
+the world's own seed under a domain tag no other stream uses. Neither finding needed a code
+change, and neither had a test.
+
+They have one each now. The four demography fields differ over twelve worlds, none sits at
+its dataclass default, and the world with the steepest drawn slope has the steeper hazard
+ratio between ages 90 and 60. Nine hidden seeds give eight distinct level patterns and four
+distinct outside pairs, the module carries no `HIDDEN_LEVELS` or `HIDDEN_OUTSIDE_AXES`
+constant, and the design draw is shown to be a separate stream from the coefficient draw:
+the same seed under the two source rules gives the same non-axis coefficients.
+
+#### Three declared interactions are now a product of two axes at one site
+
+One of the five declared interactions crossed two axes. The rest crossed an axis with a
+public covariate or with a character draw, so five of the six axes entered additively at a
+single site and a method that fitted them one at a time on the twelve development worlds
+transferred to any recombination. `PAIRWISE_AXIS_INTERACTIONS` now names three, published in
+the contract next to the families that carry them:
+
+- `linkage_gradient_by_migration`, drawn from (0.15, 0.75), scales the rural excess of the
+  name, address and linkage error rates by `linkage_urban_gradient` times
+  `migration_age_pattern`. Measured on one world at its own drawn coefficients, the rural
+  minus urban gap in the linkage error rate runs 0.0112 at a migration intensity of 0.25,
+  0.0150 at 1.00 and 0.0216 at 2.30.
+- `health_inclusion_completeness_by_target` was already the product of
+  `administrative_completeness` and `missingness_target_dependence` in the health inclusion
+  logit, and stays where it is. Moving it to item missingness, as one reading of the finding
+  suggested, would put the target-dependence axis back on two mechanisms, which is what the
+  next finding exists to prevent.
+- `death_report_by_age_error`, drawn from (6.0, 16.0), is `mortality_improvement` times
+  `age_reporting_error` in the probability that a death reaches the register after the
+  snapshot, so a register that reports ages coarsely closes its records at a speed that
+  depends on which way the death count is moving. Realized late-report probability against a
+  published base of 0.22: 0.191 to 0.252 over the twelve development seeds and 0.183 to
+  0.329 over the nine hidden ones. Both axes are centred at the middle of the development
+  band, so a world in the middle of the design gets the base rate and the product is a
+  departure from it.
+
+The trace is a quantity a method already computes. Deaths in the experience file are read
+off the ledger's own event ticks, never off a recorded tick, so the file gives the true
+count while the register gives the captured one, and their gap moves with the product.
+
+#### Item missingness has its own county effect
+
+Item missingness on the money value reused the coverage county effect verbatim, so the
+county pattern of a thin register and the county pattern of a missing value were the same
+vector and one estimate did for both. `item_missing` is a county effect family of its own,
+with its own published spread `item_missing_county_sd` in (0.09, 0.36). On one world the two
+vectors have standard deviations 0.19 and 0.34 and a correlation of 0.09, and the test
+shows the item missingness rate reads its own effect and not the other.
+
+#### The mortality trend needs a settled ledger, not a wider band
+
+The improvement axis had a trace through the experience file and the trace did not work. The
+reason is not the axis and not the file's format: a ledger's opening years carry a settling
+term that the trend estimator reads as improvement. The frail die first, each band refills
+from below, and the death rate inside a cell falls for reasons that have nothing to do with
+the world's mortality axis. Mean latent frailty among the living on one world falls 2.4
+percent in the first year, about 1 percent a year by year three, and 0.4 percent a year by
+year ten.
+
+Measured on twelve small worlds at 40,000 persons, the published count-weighted drift
+estimator against the realized intensity:
+
+    window                       mean bias    rmse     rank correlation
+    ledger months 0 to 60          +0.084     0.095          0.21
+    ledger months 48 to 108        -0.013     0.071          0.50
+
+The band is 0.058 wide, so a bias of +0.084 is larger than the whole quantity being
+estimated. The committed world therefore runs `EXPERIENCE_BURN_IN_MONTHS`, which is 48, of
+ledger before the file's first year, and `GRADING_WORLD.observed_months` is that burn-in plus
+the five published years plus the twelve-month publication lag, which is 120 rather than 72.
+The contract publishes `first_year_starts_at_tick` beside the tick the file ends at.
+
+What remains in the late window is one published family, not an unknown. Four of the twelve
+worlds carry an epidemic year inside the window, and those four hold the whole remaining
+error: without them the estimates track the intensity to about 0.01. A shock year multiplies
+a whole year's deaths by 1.5 to 3.0 across every cell at once, `shock_family` publishes the
+form and the annual rate, and the file's own national series shows the year. Leaving that in
+is deliberate: the axis is now estimable by a method that models the published family, and
+not by one that fits a straight line through five points.
+
+#### Graded seeds live outside the repository
+
+A world's whole configuration follows from its seed, so three graded seeds written into
+`scripts/build_v4_worlds.py` put the graded configurations in the tree, and a build loop that
+printed every seed put them in a terminal as well. `graded_seeds` reads them from a sealed
+JSON file outside the repository, at `~/.config/meridia/v4_graded_seeds.json` or wherever
+`MERIDIA_GRADED_SEED_FILE` points, and refuses a missing, repeating or malformed file by
+name. `progress_line` prints a seed only for the development family, which is the family a
+method may tune on, and the qualification and graded lines carry the world's name, its file
+count and its build time.
+
+#### Cost, and what has to be rebuilt
+
+At the committed world size the ledger goes from 132 months to 180, and the world build goes
+from 5.7 to 8.0 seconds. The continuation ensemble is unchanged: a member pays for the
+horizon window, which is still sixty months, so the 2,048-member cost of about 310 seconds
+across fourteen processes stands and the added months are under one percent of a packet.
+
+Every world has to be rebuilt, and every bar re-frozen. Three of these changes move what a
+world contains on their own: the coefficient vector is longer, so every draw after the first
+new entry differs; the county effect families gained one, so every family after it differs;
+and the ledger is longer, so the ticks move. The bars under `bars/national-v8` already record
+`frozen: false`, and `bars/national-v8/identifiability.txt` is a reading of the previous
+worlds. Rerunning `scripts/identifiability_v4.py` on the rebuilt development and
+qualification worlds is the measurement that says whether the mortality axis now clears the
+bar the other five already meet.
+
+One guard is left for the freeze lane rather than taken here.
+`scripts/build_sealed_reconstruction_packet.py` refuses a world whose mechanism levels
+repeat a development design row and whose two outside intensities are not both inside the
+public envelope. The survey instrument now has the same shape of invariant, and the retained
+`world.json` carries `survey_outside`, so the same script could refuse an evaluation packet
+whose instrument does not leave the development band on two axes. That file belongs to the
+sealing and freeze lane and is not edited here.
+
+One cross-lane consequence is recorded here because the rebuilt worlds are what surfaced it.
+The world at seed 4711 in `tests/test_methods_b_and_controls.py` now makes the Bayesian line
+publish a protected cell: it estimates zero for county 10, ages 16 to 24, male, whose true
+count is 4. The methods lane has taken the general point in its own section, that a gate on
+the truth of a suppressed cell is not a rule a method can keep. Underneath it sits one piece
+of arithmetic that is a hole either way: `meridia/methods/common.py` writes a cell as
+`"" if 0 < value < suppress_below else round(value, 3)`, so an estimate of exactly zero is
+published rather than suppressed. Seed 4711 is the only one of eight at that world size with
+any protected cell, which is how the lower bound sat unexercised.
+
+### The reference methods and the control battery
+
+Owner of this section: the methods lane, `meridia/methods/actuarial_reference.py`,
+`meridia/methods/controls.py`, the two strong lines that share them, and their tests.
+Nothing outside `meridia/methods/` is edited here, and no estimator reads a truth file;
+truth is read only to measure what the estimators did, and every number below is such a
+measurement.
+
+The six worlds every measurement in this section is taken over are qual-0, qual-1, qual-3,
+dev-00, dev-01 and dev-04, with the design-based witness at 2,048 simulation paths, unless
+a line says otherwise.
+
+#### Ablation 5 now fixes the regime at the development-world average it names
+
+`development_average_regime` set the mortality drift to zero and its standard error to
+0.002. Neither number is a development-world average. Zero drift is not the average regime,
+it is no regime at all, and 0.002 is an eighth of the smallest standard error the estimator
+reports on a world this size, so the control was also filing a false confidence that no
+development world would have produced. Its passing was being read as evidence about the
+regime axis of protocol section 10.
+
+The override is now built at run time from one of two places, and both were measured:
+
+- the average over the twelve development worlds, fitted by `fit_development_regime` with
+  the same estimator the strong line runs and stored in calibration A beside the other
+  development-world constants. It reads mortality drift -0.0242 with a mean reported
+  standard error of 0.0216, and incidence drift +0.0083 at 0.0111;
+- with no calibration to hand, the published development band of the mortality improvement
+  axis. The design is balanced, so the average intensity over the twelve worlds is the
+  band's midpoint and the spread a method carries from that average is the band's own
+  standard deviation. The axis is a proportional decline, so the drift is the log of one
+  minus it: -0.0192 at a spread of 0.0167.
+
+The two routes agree to 0.005 on the drift and to 0.005 on the spread, which is the check
+that the closed form is the same quantity the twelve worlds measure. The realized axis
+spans -0.030 to 0.075 in the public envelope, so on a world outside the development band
+the substituted drift is wrong by up to 0.05 a year, which is where the projection and the
+tails are meant to fail.
+
+`ACTUARIAL_SWITCHES["development_average_regime"]` is now empty and `LayerParams` carries no
+default regime, so there is no constant left in the table that could drift out of step with
+the worlds the average is measured on.
+
+#### The continuation is the published law, and the level it starts from is estimated
+
+Protocol section 6 gives the truth ensemble independent futures drawn from a family the
+contract publishes. The reference simulated something else: one shock kind at a probability
+of 0.10 that moved mortality alone, against a published annual rate of 0.20 over three kinds
+whose fields move together on one draw.
+
+- `read_shock_family` parses `contract["shock_family"]` and `draw_shock_year` draws it as
+  published: one Bernoulli a year at the published rate, one kind uniform over the kinds,
+  then a single uniform draw shared by that kind's multipliers. An epidemic year now raises
+  deaths and hospital admissions together, which is what makes it one event.
+- The leave-home multiplier of the migration kind is read and deliberately not applied. The
+  simulation carries net migration per cell, and the published multiplier is on a gross
+  leaving rate; multiplying a net flow by a gross-flow multiplier is not the published
+  mechanism. This is recorded rather than fixed, since carrying gross flows would need a
+  second migration quantity the experience file does not publish.
+- A level a method estimates over several years already contains the family's expected
+  loading, and the continuation adds it again. `expected_shock_loading` states that
+  expectation from the published family, the year-level shock posteriors take out the part
+  the file shows, and what the detector could not resolve is removed once. Neither step can
+  remove it twice.
+
+The level errors the continuation propagates are estimated rather than assumed. They were
+0.06 and 0.10 in log units, the same two numbers on every world and every region:
+
+- the sampling error of each level, which is one over the root of the counts behind it;
+- the disagreement between two independent measurements of the same level, over root two:
+  the experience file against the register vintages for mortality, and the experience file
+  against the anchored archive for incidence;
+- the spread across the imputations of the link set, for mortality.
+
+They are drawn as one national and one per region, so a region's whole estimate moves
+together, which is the correlation a regional tail is made of. The multiplier is centred to
+average one; without the half-variance term an honest widening of the tail arrives as a
+quiet loading on the mean, and at the widths now estimated that loading was 4 to 7 percent of
+the national liability.
+
+#### What the reference reads off the participant files, world by world
+
+Version four draws the survey instrument, the demography and the interaction coefficients
+per world, so anything a method holds constant is a constant carried into a world nobody
+has seen. Five quantities that were constants or were not read at all are now fitted, and
+none of them reads a truth file:
+
+- **The unit-response model.** The survey names the households each sampling unit drew, so
+  the response rate is observed per unit and its regression on the county's urbanity gives
+  the intercept and the urban coefficient, and the tilt of the responders' mean age against
+  the register's own age distribution gives the age coefficient. The fitted
+  propensities divide the design weights inside each county, so the level the design fixed
+  stays and only the composition moves. Measured: the urban coefficient reads -0.42 on
+  dev-00 against a published band of -0.85 to -0.15, and +0.04 on qual-1, which is outside
+  it. The estimator is unbiased in shape and thin in evidence at eighteen counties, and that
+  is recorded rather than hidden. The money coefficient of the same logit is left unfitted
+  and reported as not identified: recovering it needs the population's money distribution
+  in the units the survey reports money in, the two money sources sit on scales no
+  participant file states, and the county-level route to it regresses the response rate and
+  the money level on the same urbanity.
+- **The Gompertz age slope**, from five years of state by band by sex counts rather than
+  from one snapshot. It sets the age gradient inside each band of the priced schedule.
+  Measured: 0.0998 on dev-00 against a realized 0.1073, and 0.1042 on qual-1.
+- **Age heaping in the survey.** The register carries no heaping at all, measured at 0.000
+  excess mass on multiples of five; the survey carries 0.12 to 0.20. Two band boundaries the
+  obligation is priced across sit on a multiple of five, so the anchor's weights and its item
+  are spread back over the neighbouring ages before the bands are cut.
+- **The migration by stale-address interaction**, as a fitted term. A record leaves the
+  register between vintages because the person died, because they moved and the identifier
+  did not survive the move, or because the reported birth date changed. The last two are
+  churn and they have opposite age patterns, so one flat rate read off the young bands
+  removes too much at the ages the obligation is priced on. Two shapes are fitted instead:
+  the mobility profile from the experience file and the age-error profile from a
+  cross-vintage probe on records whose names are unique in both files. That probe also
+  measures the second declared interaction directly: the reported birth date moves for
+  0.0006 of records at 0-17 and 0.0036 at 65 and over on dev-00, which is the age gradient
+  the family declares.
+- **The health completeness by frailty interaction**, as a fitted surface. The inclusion
+  probability is regressed on the register's shortfall against the published benchmark by
+  state and on the cell's own anchored prevalence, with their product as the declared
+  interaction term, and each thin cell is shrunk toward that surface instead of toward one
+  pooled number.
+
+One outright error was found and fixed while wiring the anchor. The anchor asks about any
+admission inside the window and the archive count it was compared against was filtered to
+the qualifying diagnosis groups, so the ratio was reading the share of admissions that
+qualify as if it were the share of patients the archive holds. Measured on dev-00: 39
+percent of recently admitted patients are in a qualifying group, the pooled inclusion
+probability read 0.268 against a generator value near 0.63, and it now reads 0.695. Putting
+the numerator back cut the mean regional liability error over the six worlds from 0.168 to
+0.104.
+
+#### Where the county detail is, and where it is not
+
+The two microdata sources measure the levels the obligation is priced on far worse than the
+experience file does, and the previous pass took their county detail at close to face value.
+Measured over the six worlds, as the median absolute log error of a state level against the
+horizon truth:
+
+    estimator                                    mortality   incidence
+    experience file                                  0.241       0.115
+    register vintages, churn removed flat            1.577
+    register vintages, churn fitted                  2.497
+    register vintages, raw disappearances            4.996
+    health archive, inclusion adjusted                            0.379
+    health archive, raw                                           0.246
+
+The register loses records to identifier churn at many times the death rate, so a
+disappearance count is a churn measurement with a death rate inside it. Three consequences
+are taken:
+
+- levels are combined by their own precisions, not by a chosen weight. `blend_levels` takes
+  a variance from each side, and the vintage side reports the variance its churn correction
+  carries, so it ends up with about 4 percent of the weight on dev-00 and the anchored
+  archive with about 2 percent of the incidence weight. No constant anywhere says so.
+- a county deviation is shrunk by how much between-county spread survives its own
+  measurement error, by moments, so a source whose correction dominates it contributes a
+  vector of ones rather than the correction's noise.
+- the composition of the priced population is raked to the experience file's own state
+  shares. The file's exposure is person-years read off the same pass the truth uses, so its
+  composition is exact as of eighteen months before the snapshot, and what moves those
+  shares afterwards is the difference in ageing between states rather than the growth they
+  share. Measured against the retained truth: the state shares of the population at 65 and
+  over sit within about 3 percent, where the register-based reconstruction of the same
+  shares sits within about 13 percent.
+
+The publication lag is what stops the file being a contemporaneous headcount, and it does
+stop that: the un-aged elder count from the file's last year runs 11 percent under to 9
+percent over the truth, world by world. It does not stop the file carrying the state
+composition, because that error is common across states and cancels in a share. If the
+generator lane intends the lag to protect the regional composition as well as the level,
+the lag is not the instrument that does it; a coarser published geography in the file would
+be. Nothing is asked for here, and the reference codes against the file as it stands.
+
+#### A control that submits the experience file on its own
+
+`experience_history_only` is the eighteenth control. It opens no microdata: the population
+comes from the last published year's exposure, split across the counties of a state in
+proportion to land area, spread evenly over the single years inside each band, and aged
+forward to the snapshot under the file's own survival and net migration. Rates and the
+liability come from the file's state levels alone, with no linkage, no archive and no
+anchor. Households, money and education have no source in an aggregate demographic file and
+are filed as zero rather than borrowed from a register the control says it does not need.
+
+Measured on qual-0 against `bars/national-v8`, it fails 92 named gates, among them the
+county persons accuracy at 1.16 against a ceiling of 0.40, the national elder count at 0.11
+against 0.07, the pooled exceedance deviation at 0.4978 against 0.15, the q95 error at 1.07
+tail widths against 0.5, and the reserve skill at -0.58 against 0.05. It fails on the count
+gates because a land-area split is not a population, on the rate gates because the level is a
+year and a half stale, and on the tail gates because a distribution with no reconstruction,
+linkage or selection uncertainty in it is not a predictive distribution.
+
+#### Measured effect of the whole pass
+
+Design-based witness, six worlds, 2,048 paths, scored against `bars/national-v8` with the
+verifier as it stands. Previous reference first, this one second:
+
+    criterion                                   before    after
+    pooled exceedance deviation                 0.1815   0.1641
+    worst-region exceedance deviation           0.6687   0.5722
+    q95 error, in ensemble tail widths          1.2581   1.0324
+    ES95 error, in ensemble tail widths         1.0091   0.8972
+    reserve skill against the public baseline  -0.5595  -0.3783
+    mortality rate, state percentile error      0.8628   0.7240
+    incidence rate, state percentile error      0.4509   0.4758
+    mortality rate interval coverage            0.6718   0.8336
+    mean regional liability error               0.0789   0.0878
+
+Every tail and reserve criterion improves and the mortality rate gate improves with it. Two
+do not: the incidence percentile error is 0.025 worse and the mean regional liability error
+is 0.9 of a percentage point worse. The second is the honest cost of the first: the level a
+region is priced at now carries the file's composition and a shock loading taken out of the
+level, and both trade a little bias for the variance the tails are scored on.
+
+Rate interval coverage is where the change is largest, from 0.67 to 0.83 against a nominal
+0.90, because the intervals now carry the estimated level uncertainty rather than two fixed
+numbers. The phase-one audit recorded coverage of 0.04 to 0.55 on gated cells; that finding
+is closed to the extent the level uncertainty explains it.
+
+#### What is still open
+
+- **The binding constraint is unchanged in kind.** The q95 error is a little over one
+  ensemble tail width, against a bar of half a width. The regional liability level is still
+  the thing to fix, and after this pass the two largest remaining terms are the
+  reconstruction's own state elder counts and the state incidence level, not the mortality
+  level.
+- **The bars must be re-frozen.** `bars/national-v8` was frozen from the previous reference
+  and its file already records `frozen: false`. Both witnesses fail it on five of six worlds
+  here, which is a statement about that bar set and not a verdict.
+- **Ablation 4 now separates on a narrower margin.** The anchored archive takes about 2
+  percent of the incidence level weight, because the anchor's own sampling error at three
+  thousand respondents is what the variance says it is. Ignoring health selection still
+  fails on every world tried and always by more than the strong line does, but the freeze
+  should confirm the margin on the qualification set rather than assume it.
+- **The response model is thin.** The urban coefficient is inside the published band on one
+  world and outside it on another. Eighteen counties and one sampling unit each is what the
+  world size affords, and the estimator is stated as fitted rather than identified.
+- **The disclosure gate is not attainable as written.** Suppression reads the estimate and
+  protection is defined on the truth, so a cell whose true count sits under the threshold
+  can carry an estimate above any fixed cut. On the small hidden world in
+  `tests/test_methods_b_and_controls.py` the Bayesian line publishes one such cell out of
+  three protected, with 0.94 of the releasable table published and nothing recoverable from
+  the published totals. The test now asserts what a method controls, which is that no
+  published cell is recoverable and that the released share clears the floor. Whether
+  `published_protected` stays a hard failure or is scored as a rate is a decision for the
+  lane that owns the audit.
+- **The age-error shape carries no weight in the churn fit.** The mix reads about 0.03 on the
+  mobility shape and 0.00 on the age-error shape on both worlds inspected, which says the
+  age-error mechanism is real but too small at this world size to separate from mobility
+  inside the disappearance count.

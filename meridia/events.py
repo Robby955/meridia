@@ -23,7 +23,8 @@ from meridia.hospitals import ENCOUNTER_OUTCOMES, validate_hospital_conservation
 from meridia.identities import ENTITY_NAMESPACE, NAMESPACE_SHIFT, SEQUENCE_MASK
 from meridia.identities import entity_namespace, truth_entity_ids, truth_world_id
 from meridia.mechanisms import (FRAILTY_RANGE, WorldMechanisms,
-                                build_world_mechanisms, migration_age_pull,
+                                build_world_mechanisms,
+                                death_report_late_probability, migration_age_pull,
                                 newborn_frailty, quintile_band)
 
 EVENT_TYPES: Final = {
@@ -381,9 +382,19 @@ def _new_record(
 
 
 def _report_tick(
-    rng: np.random.Generator, tick: int, params: EventHistoryParams
+    rng: np.random.Generator, tick: int, params: EventHistoryParams,
+    late_probability: float | None = None
 ) -> int:
-    if rng.random() >= params.late_report_probability:
+    """When an event reaches the register, which is the tick a source can see it at.
+
+    ``late_probability`` overrides the ledger's published base rate for one family of
+    events. Death is the family that uses it: how well a register closes a record is a
+    mechanism of the world rather than a constant, and the two axes behind it are
+    declared. One draw is taken either way, so the ledger's stream does not depend on
+    which rate applies.
+    """
+    rate = params.late_report_probability if late_probability is None else float(late_probability)
+    if rng.random() >= rate:
         return tick
     return tick + int(rng.integers(1, params.max_report_delay_months + 1))
 
@@ -621,6 +632,7 @@ _LEDGER_CONTEXT: tuple[str, ...] = (
     "branch_month",
     "coefficients",
     "continuation_member",
+    "death_late_probability",
     "demography",
     "hospital_beds",
     "hospital_id",
@@ -649,6 +661,7 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
      branch_month,
      coefficients,
      continuation_member,
+     death_late_probability,
      demography,
      hospital_beds,
      hospital_id,
@@ -824,7 +837,7 @@ def _run_ledger_months(context: dict, loop: dict, first_month: int,
         ]
         active_job_by_person = _active_job_by_person(state)
         for person_position in dies:
-            recorded = _report_tick(rng, tick, params)
+            recorded = _report_tick(rng, tick, params, death_late_probability)
             person_identifier = int(person["truth_person_id"][person_position])
             job_position = int(active_job_by_person[person_position])
             if job_position >= 0:
@@ -1877,6 +1890,8 @@ def build_event_history(
         "branch_month": branch_month,
         "coefficients": coefficients,
         "continuation_member": continuation_member,
+        "death_late_probability": death_report_late_probability(
+            coefficients, params.late_report_probability),
         "demography": demography,
         "hospital_beds": hospital_beds,
         "hospital_id": hospital_id,

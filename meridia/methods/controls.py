@@ -44,8 +44,19 @@ says the gate is loose rather than that the control was subtle.
   so the survey anchor is never used. Ablation 4. Targets the incidence gate and, through
   the projected first events, the tail and reserve gates.
 - ``development_average_regime``: mortality improvement and its uncertainty fixed at the
-  development-world average instead of read from this world's experience file.
-  Ablation 5. Targets the projection and the tails.
+  development-world average instead of read from this world's experience file. The
+  average is the one measured on the development worlds, in calibration A; with no
+  calibration to hand it is the midpoint and the spread of the development band the
+  contract publishes, which is what that average estimates. Ablation 5. Targets the
+  projection and the tails.
+- ``experience_history_only``: the aggregate experience file extrapolated on its own,
+  with no microdata at all. Counts come from the last published year's exposure spread
+  over counties by land area and aged forward; rates and the liability come from the
+  file's own state levels; households, money and education have no source in that file
+  and are filed as zero rather than borrowed from a register the control says it does not
+  need. Targets the county and state count gates, the rate gates through a level that is a
+  year and a half stale, and the tail gates through a distribution with no linkage,
+  selection or reconstruction uncertainty in it.
 - ``mean_only_tail``: the reference's own liability paths, with the mean submitted as the
   95th percentile. Ablation 6. Targets the exceedance criterion.
 - ``normal_tail``: the reference's paths summarised by mean plus 1.645 standard
@@ -69,6 +80,7 @@ says the gate is loose rather than that the control was subtle.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -84,18 +96,17 @@ CONTROLS = ("register_only", "survey_only", "no_dedup", "inflated_intervals",
 ACTUARIAL_CONTROLS = ("deterministic_linkage", "ignore_health_selection",
                       "development_average_regime", "mean_only_tail", "normal_tail",
                       "padded_tail", "proportional_reserve", "version_three_recipe",
-                      "suppress_all_detail")
+                      "suppress_all_detail", "experience_history_only")
 ALL_CONTROLS = CONTROLS + ACTUARIAL_CONTROLS
 
 # One layer switch per version-four control. version_three_recipe also rebuilds the release
-# and projection tables, so it is handled apart from this table.
+# and projection tables, and experience_history_only builds its own population, so both are
+# handled apart from this table. development_average_regime's override is not a constant
+# either: it is the development-world average, built at run time.
 ACTUARIAL_SWITCHES = {
     "deterministic_linkage": {"deterministic_linkage": True, "archive_only_rates": True},
     "ignore_health_selection": {"ignore_health_selection": True},
-    "development_average_regime": {"regime_override": {"mortality_drift": 0.0,
-                                                       "mortality_drift_se": 0.002,
-                                                       "incidence_drift": 0.0,
-                                                       "incidence_drift_se": 0.002}},
+    "development_average_regime": {},
     "mean_only_tail": {"tail": "mean"},
     "normal_tail": {"tail": "normal"},
     "padded_tail": {"tail": "padded", "padding": 1.6},
@@ -228,6 +239,71 @@ def deterministic_reserve_rows(contract: dict, county_state: np.ndarray,
             for r in range(n_regions)]
 
 
+def fit_development_regime(dev_packet_dirs) -> dict:
+    """The regime a method carries when it does not read this world's own file.
+
+    Each development world's experience file is read with the same estimator the strong
+    line uses, and the four numbers stored here are the averages of those readings: the
+    mortality and incidence drift, and the standard error each reading reported. That is
+    what "the development-world average" means, and it is the quantity ablation 5 fixes
+    in place of the world in front of it. Stored in calibration A beside the other
+    development-world constants.
+    """
+    drifts = {"mortality": [], "incidence": []}
+    errors = {"mortality": [], "incidence": []}
+    for dev in dev_packet_dirs:
+        dev = Path(dev)
+        contract = json.loads((dev / "participant" / "contract.json").read_text())
+        experience = AR.load_experience(dev, contract)
+        if experience is None:
+            continue
+        n_states = int(np.asarray(contract.get("n_states", 1), dtype=np.int64)) or 1
+        arrays = AR.experience_arrays(experience, n_states)
+        family = AR.read_shock_family(contract)
+        for kind, counts in (("mortality", arrays["deaths"]),
+                             ("incidence", arrays["qualifying_events"])):
+            fit = AR.estimate_improvement(
+                arrays["exposure"], counts, shock_family=family,
+                shock_range=AR.shock_range_for(family, kind))
+            drifts[kind].append(float(fit["drift"]))
+            errors[kind].append(float(fit["drift_se"]))
+    out = {"n_worlds": len(drifts["mortality"])}
+    for kind in ("mortality", "incidence"):
+        if drifts[kind]:
+            out[f"{kind}_drift"] = float(np.mean(drifts[kind]))
+            out[f"{kind}_drift_se"] = float(np.mean(errors[kind]))
+    return out
+
+
+def development_regime_override(contract: dict, calibration: dict | None) -> dict:
+    """The override ablation 5 runs under, from the calibration or from the contract.
+
+    The measured average over the development worlds is the right quantity and it is what
+    calibration A carries. Without one, the published development band of the mortality
+    improvement axis says the same thing in closed form: the design is balanced, so the
+    average intensity over the twelve development worlds is the band's midpoint, and the
+    spread a method would carry from that average is the band's own standard deviation.
+    The axis is a proportional decline, so the drift it implies is the log of one minus it.
+    """
+    fitted = (calibration or {}).get("development_regime")
+    if fitted and "mortality_drift" in fitted:
+        return {"mortality_drift": float(fitted["mortality_drift"]),
+                "mortality_drift_se": float(fitted["mortality_drift_se"]),
+                "incidence_drift": float(fitted.get("incidence_drift", 0.0)),
+                "incidence_drift_se": float(fitted.get("incidence_drift_se",
+                                                       fitted["mortality_drift_se"]))}
+    band = (((contract.get("mechanisms") or {}).get("development_band") or {})
+            .get("mortality_improvement"))
+    if not band:
+        raise ValueError("development_average_regime needs either the development-world "
+                         "average in calibration A or the published development band")
+    low, high = float(band[0]), float(band[1])
+    drift = float(np.log(max(1.0 - 0.5 * (low + high), 1e-6)))
+    spread = float((high - low) / np.sqrt(12.0))
+    return {"mortality_drift": drift, "mortality_drift_se": spread,
+            "incidence_drift": 0.0, "incidence_drift_se": spread}
+
+
 def _read_rows(path: Path) -> list[dict]:
     import pandas as pd
     return pd.read_csv(path).to_dict("records")
@@ -277,9 +353,128 @@ def _version_three_release(data: dict, tick: int, county_state: np.ndarray, regi
     return release, projection
 
 
+def experience_only_cube(arrays: dict, county_state: np.ndarray, land: np.ndarray,
+                         years_ahead: float) -> np.ndarray:
+    """A county by age by sex population built from the experience file alone.
+
+    The last published year's person-years are the state's stock at the middle of that
+    year. They are split across the counties of the state in proportion to land area,
+    which is the only county-level quantity a participant holds that does not come from a
+    register, spread evenly over the single years inside each band, and then aged forward
+    to the snapshot under the file's own survival and net migration. Every step is a
+    shortcut, and each one is the shortcut a file with no microdata behind it forces.
+    """
+    n_counties = len(county_state)
+    n_states = int(county_state.max()) + 1
+    exposure = np.asarray(arrays["exposure"], dtype=np.float64)[-1]
+    deaths = np.asarray(arrays["deaths"], dtype=np.float64)[-1]
+    migration = np.asarray(arrays["net_migration"], dtype=np.float64)[-1]
+    land = np.maximum(np.asarray(land, dtype=np.float64), 1.0)
+    share = np.zeros(n_counties)
+    for s in range(n_states):
+        members = county_state == s
+        share[members] = land[members] / max(land[members].sum(), 1e-9)
+    cube = np.zeros((n_counties, AR.MAX_AGE + 1, 2))
+    for b, (lo, hi) in enumerate(AR.ACTUARIAL_AGE_BANDS):
+        ages = np.arange(lo, min(hi, AR.MAX_AGE) + 1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rate = np.where(exposure[:, b, :] > 0,
+                            (migration[:, b, :] - deaths[:, b, :]) /
+                            np.maximum(exposure[:, b, :], 1e-9), 0.0)
+        level = exposure[:, b, :] * (1.0 + np.clip(rate, -0.5, 0.5)) ** years_ahead
+        per_age = level / len(ages)
+        for age in ages:
+            cube[:, age, :] = share[:, None] * per_age[county_state]
+    shifted = np.zeros_like(cube)
+    steps = int(round(years_ahead))
+    if steps <= 0:
+        return cube
+    shifted[:, steps:, :] = cube[:, :-steps, :]
+    shifted[:, -1, :] += cube[:, -1, :]
+    return shifted
+
+
+def experience_only_rows(cube: np.ndarray, county_state: np.ndarray,
+                         relative_half: float) -> list[dict]:
+    """The eight release estimands from that population, with zeros where the file is
+    silent. Households, money and education have no source in an aggregate demographic
+    file, and a control that says it needs no microdata files them as what it knows."""
+    counties = np.arange(len(county_state))
+    ages = np.arange(cube.shape[1])
+    point = {}
+    for estimand, mask in (("persons", np.ones(len(ages), dtype=bool)),
+                           ("children_under_16", ages <= 15),
+                           ("elders_65_plus", ages >= 65)):
+        county_value = cube[:, mask, :].sum(axis=(1, 2))
+        for c in counties:
+            point[(estimand, "county", int(c))] = float(county_value[c])
+        for s in range(int(county_state.max()) + 1):
+            point[(estimand, "state", s)] = float(county_value[county_state == s].sum())
+        point[(estimand, "nation", 0)] = float(county_value.sum())
+    for estimand in ("households", "median_household_income", "mean_income_adults",
+                     "low_income_household_share", "tertiary_share_25_plus"):
+        for c in counties:
+            point[(estimand, "county", int(c))] = 0.0
+        for s in range(int(county_state.max()) + 1):
+            point[(estimand, "state", s)] = 0.0
+        point[(estimand, "nation", 0)] = 0.0
+    return _rows_with_relative_half(point, relative_half)
+
+
+def _experience_history_only(packet_dir: Path, out_dir: Path,
+                             layer: "AR.LayerParams | None" = None) -> None:
+    """Everything from ``experience_history.csv``, ``geography.csv`` and the contract."""
+    import pandas as pd
+    participant = Path(packet_dir) / "participant"
+    contract = json.loads((participant / "contract.json").read_text())
+    geography = pd.read_csv(participant / "geography.csv")
+    county_state = geography["state"].to_numpy(dtype=np.int64)
+    land = geography["land_cells"].to_numpy(dtype=np.float64) \
+        if "land_cells" in geography.columns else np.ones(len(county_state))
+    experience = AR.load_experience(packet_dir, contract)
+    if experience is None:
+        raise AR.MissingActuarialInputs(
+            "experience_history_only needs a version-four packet with the experience file")
+    n_states = int(county_state.max()) + 1
+    arrays = AR.experience_arrays(experience, n_states)
+    tick = int(contract["ticks"]["revised"])
+    horizon_months = int(contract["ticks"]["horizon"]) - tick
+    lag = float((contract.get("experience_history") or {}).get("publication_lag_months", 12))
+    now = experience_only_cube(arrays, county_state, land, lag / 12.0 + 0.5)
+    future = experience_only_cube(arrays, county_state, land,
+                                  lag / 12.0 + 0.5 + horizon_months / 12.0)
+    # Births are not in the file, so the birth rate is read out of the stock it left: the
+    # person-years under eighteen spread over eighteen years, over the person-years of
+    # women of childbearing age.
+    exposure = arrays["exposure"].sum(axis=0)
+    women = float(exposure[:, 1, 1].sum())
+    children = float(exposure[:, 0, :].sum() / 18.0)
+    fertility = children / max(women, 1e-9)
+    release = experience_only_rows(now, county_state, 0.02)
+    projection = experience_only_rows(future, county_state, 0.04)
+    detail = np.zeros((len(county_state), len(AGE_BAND_LABELS), len(SEX_LABELS)))
+    ages = np.arange(now.shape[1])
+    for b, (lo, hi) in enumerate(((0, 15), (16, 24), (25, 44), (45, 64), (65, 200))):
+        inside = (ages >= lo) & (ages <= min(hi, AR.MAX_AGE))
+        detail[:, b, :] = now[:, inside, :].sum(axis=1)
+    data = {"contract": contract, "county_state": county_state, "land_cells": land}
+    layer = replace(layer, experience_only=True) if layer is not None \
+        else AR.LayerParams(experience_only=True)
+    result = AR.actuarial_submission(
+        Path(packet_dir), data, county_state, now[None], fertility, release, projection,
+        detail, 2.0 * int(contract["disclosure_threshold"]), Path(out_dir),
+        AGE_BAND_LABELS, SEX_LABELS, layer)
+    if result is None:
+        raise AR.MissingActuarialInputs(
+            "experience_history_only needs the reserve block in the contract")
+
+
 def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
                        calibration_path: str | None) -> None:
     """Run the strong design-based line with exactly one step removed."""
+    if name == "experience_history_only":
+        _experience_history_only(Path(packet_dir), Path(out_dir))
+        return
     if name == "suppress_all_detail":
         # A strong submission whose protected table publishes nothing. Disclosure
         # protection is one-sided and a blank table meets it; the utility floor is what
@@ -292,7 +487,14 @@ def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
         detail["count"] = float("nan")
         detail.to_csv(out_dir / "detailed.csv", index=False)
         return
-    layer = AR.LayerParams(**ACTUARIAL_SWITCHES[name])
+    switches = dict(ACTUARIAL_SWITCHES[name])
+    if name == "development_average_regime":
+        calibration = json.loads(Path(calibration_path).read_text()) \
+            if calibration_path else None
+        contract = json.loads(
+            (Path(packet_dir) / "participant" / "contract.json").read_text())
+        switches["regime_override"] = development_regime_override(contract, calibration)
+    layer = AR.LayerParams(**switches)
     if name != "version_three_recipe":
         A.run(packet_dir, out_dir,
               A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path,

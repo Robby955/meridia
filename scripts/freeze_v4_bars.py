@@ -27,6 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.methods import bayesian, controls, design_based
 from meridia.methods import actuarial_reference as AR
+from meridia.actuarial import ELIGIBILITY_FLOORS
+from meridia.actuarial import MIN_CELL_PERSONS as AR_MIN_CELL_PERSONS
+from meridia.actuarial import MIN_EXPECTED_EVENTS as AR_MIN_EXPECTED_EVENTS
 from meridia.actuarial import ensemble_truth as AR_ensemble_truth
 from meridia.actuarial import quantile_score
 from meridia.release import ESTIMAND_BY_ID
@@ -79,7 +82,29 @@ CEILING_CAP = {
     "exposure_error_ceiling": 0.500,
     "mortality_error_ceiling": 1.000,
     "incidence_error_ceiling": 1.000,
+    # The two width bars are the ones that separate a tail from a level. A submission out
+    # by half the ensemble's own tail width is the loosest that still refuses a mean-only
+    # tail and a doubled one, both of which are out by a full width.
+    "q95_width_error_ceiling": 0.500,
+    "es95_width_error_ceiling": 0.500,
 }
+# Caps for the bars that sit outside the actuarial block.
+TOP_LEVEL_CEILING_CAP = {"detailed_accuracy_ceiling": 0.500}
+
+# What each criterion can take, for the bars whose range is bounded by construction. A
+# ceiling at or above its own maximum, or a floor at or below its own minimum, cannot
+# refuse anything; the freeze says so and does not complete. Version four's first pass
+# wrote a tau_worst of 1.425 against a deviation whose maximum is 0.95, a regional
+# shortfall ceiling of 1.5 against a probability, and a coverage floor of -0.06.
+CRITERION_RANGE = {
+    "tau_mean": (0.0, 0.95),
+    "tau_worst": (0.0, 0.95),
+    "regional_shortfall_ceiling": (0.0, 1.0),
+    "rate_coverage_floor": (0.0, 1.0),
+    "disclosure_utility_floor": (0.0, 1.0),
+    "skill_minimum": (None, 1.0),
+}
+FLOOR_BARS = ("rate_coverage_floor", "disclosure_utility_floor", "skill_minimum")
 # The quantile score has no natural scale, so its cap is a declared multiple of the score
 # the sealed truth itself attains on the same ensemble: a submission may pay this much more
 # than perfect information does, and no more.
@@ -95,6 +120,9 @@ FLOOR_MINIMUM = {
 }
 DISCLOSURE_UTILITY_CAP = 0.90
 DISCLOSURE_UTILITY_SLACK = 0.10
+DETAILED_ACCURACY_FLOOR = 0.050  # the released detailed cells carry at least this much room
+Q95_WIDTH_FLOOR = 0.200          # in units of the ensemble's own regional tail width
+ES95_WIDTH_FLOOR = 0.200
 
 ACCURACY_FLOOR = {
     "nation": {"count": 0.05, "mean": 0.08, "median": 0.08, "proportion": 0.010},
@@ -111,20 +139,52 @@ def _floor_for(key: str) -> float:
     return ACCURACY_FLOOR[level][ESTIMAND_BY_ID[estimand].kind]
 
 
+def _gated_blocks(reports: dict, estimand: str) -> list:
+    """Every gated block of one estimand that had a cell to read."""
+    return [m for r in reports.values() for k, m in r["rate_metrics"].items()
+            if m["gated"] and k.split("/")[0] == estimand and int(m.get("n_cells", 0))]
+
+
+def _rate_cell_record(reports: dict) -> dict:
+    """Which cells each rate bar was frozen from, world by world.
+
+    A rate ceiling is only as strong as the cells its eligibility rule admits, and version
+    four's first pass froze three of them on a cell set that held no band at 65 and over
+    without saying so anywhere. The freeze report and the provenance now carry the count
+    per world and the cells themselves.
+    """
+    record: dict[str, dict] = {}
+    for (name, world), report in sorted(reports.items()):
+        for key, m in sorted(report["rate_metrics"].items()):
+            if not m["gated"]:
+                continue
+            block = record.setdefault(key, {"n_cells": {}, "cells": [], "empty": []})
+            block["n_cells"][f"{world}/{name}"] = int(m.get("n_cells", 0))
+            if not int(m.get("n_cells", 0)):
+                block["empty"].append(f"{world}/{name}")
+                continue
+            for cell in m.get("cells", []):
+                entry = [int(cell[0]), str(cell[1]), str(cell[2])]
+                if entry not in block["cells"]:
+                    block["cells"].append(entry)
+    for block in record.values():
+        block["cells"].sort()
+        block["bands"] = sorted({cell[2] for cell in block["cells"]})
+    return record
+
+
 def _rate_bars(reports: dict) -> dict:
     """One ceiling per rate estimand, from the worse witness over every gated cell."""
     bars = {}
     for estimand in RATE_KEY_ESTIMANDS:
-        worst = [m["percentile_error"] for r in reports.values()
-                 for k, m in r["rate_metrics"].items()
-                 if m["gated"] and k.split("/")[0] == estimand]
+        worst = [m["percentile_error"] for m in _gated_blocks(reports, estimand)]
         value = max(worst) if worst else 0.0
         name = {"person_years_exposure": "exposure_error_ceiling",
                 "mortality_rate": "mortality_error_ceiling",
                 "qualifying_event_rate": "incidence_error_ceiling"}[estimand]
         bars[name] = round(max(RATE_MARGIN * value, RATE_FLOOR[estimand]), 6)
-    coverage = [m["coverage"] for r in reports.values()
-                for m in r["rate_metrics"].values() if m["gated"]]
+    coverage = [m["coverage"] for estimand in RATE_KEY_ESTIMANDS
+                for m in _gated_blocks(reports, estimand)]
     # A coverage bar is a floor on the submission, so its constant is a cap on the bar,
     # never a floor under it. A constant that sits above what both witnesses attain is
     # not a bar, it is a world neither of them can pass.
@@ -161,7 +221,12 @@ def _tail_bars(reports: dict, oracle_quantile_score: float) -> dict:
     shortfall = max(float(np.max(r["regional_shortfall_probability"])) for r in feasible)
     tail = max(float(np.max(r["regional_tail"])) for r in feasible)
     skill = min(float(r["skill"]) for r in feasible if np.isfinite(r["skill"]))
+    q_width = max(float(r["mean_q95_width_error"]) for r in feasible)
+    es_width = max(float(r["mean_es95_width_error"]) for r in feasible)
     utility = min(float(r["disclosure"].get("utility", 1.0)) for r in reports.values())
+    detailed = [float(r["disclosure"].get("detailed_error", float("nan")))
+                for r in reports.values()]
+    detailed = [value for value in detailed if np.isfinite(value)]
     score_cap = QUANTILE_SCORE_ORACLE_MULTIPLE * max(oracle_quantile_score, 1e-12)
     bars = {
         "tau_mean": round(max(TAIL_MARGIN * pooled, TAU_MEAN_FLOOR), 4),
@@ -173,24 +238,72 @@ def _tail_bars(reports: dict, oracle_quantile_score: float) -> dict:
             max(SHORTFALL_MARGIN * shortfall, SHORTFALL_FLOOR), 4),
         "catastrophic_tail_ceiling": round(max(TAIL_MARGIN * tail, CATASTROPHIC_FLOOR), 4),
         "skill_minimum": round(float(min(skill - SKILL_SLACK, SKILL_CAP)), 4),
+        "q95_width_error_ceiling": round(max(TAIL_MARGIN * q_width, Q95_WIDTH_FLOOR), 4),
+        "es95_width_error_ceiling": round(max(TAIL_MARGIN * es_width, ES95_WIDTH_FLOOR), 4),
     }
     bars["disclosure_utility_floor"] = round(
         float(min(utility - DISCLOSURE_UTILITY_SLACK, DISCLOSURE_UTILITY_CAP)), 3)
+    # The share alone is met by publishing every releasable cell as any number at all, so
+    # the released cells carry an accuracy ceiling of their own.
+    bars["detailed_accuracy_ceiling"] = round(
+        max(ACCURACY_MARGIN * max(detailed), DETAILED_ACCURACY_FLOOR), 6) if detailed \
+        else DETAILED_ACCURACY_FLOOR
     return bars
+
+
+def _bar_holder(bars: dict, name: str) -> dict:
+    """Where one named bar lives: the actuarial block, or the top level."""
+    if name in TOP_LEVEL_CEILING_CAP or name in ("disclosure_utility_floor",):
+        return bars
+    return bars["actuarial"]
+
+
+def _unattainable_bars(bars: dict) -> list[str]:
+    """Bars that cannot fire, and gated bars with no declared range at all.
+
+    A ceiling at or above the largest value its criterion can take, and a floor at or
+    below the smallest, refuses nothing: the gate is a formality and the run has to say so
+    rather than write the number and finish. A bar the freeze writes with no declared
+    attainability range is the same failure one step earlier, because nothing checked it.
+    """
+    hard: list[str] = []
+    for name, (low, high) in CRITERION_RANGE.items():
+        holder = _bar_holder(bars, name)
+        value = holder.get(name)
+        if value is None:
+            continue
+        if name in FLOOR_BARS:
+            if low is not None and float(value) <= low:
+                hard.append(f"{name}: a floor at {value} is at or under the smallest value "
+                            f"its criterion can take ({low}), so it refuses nothing")
+            if high is not None and float(value) > high:
+                hard.append(f"{name}: a floor at {value} is above the largest value its "
+                            f"criterion can take ({high}), so nothing can clear it")
+        elif high is not None and float(value) >= high:
+            hard.append(f"{name}: a ceiling at {value} is at or above the largest value "
+                        f"its criterion can take ({high}), so it refuses nothing")
+    declared = set(CEILING_CAP) | set(TOP_LEVEL_CEILING_CAP) | set(FLOOR_MINIMUM) \
+        | set(CRITERION_RANGE) | {"quantile_score_ceiling"}
+    for name in sorted(bars["actuarial"]):
+        if name not in declared:
+            hard.append(f"{name}: written with no declared attainability range, so no "
+                        "check knows what this criterion can take")
+    return hard
 
 
 def _clamp_to_attainability(bars: dict, oracle_quantile_score: float) -> list[str]:
     """Hold every bar inside its declared range and say which ones the witnesses miss."""
     notes: list[str] = []
-    caps = dict(CEILING_CAP)
+    caps = dict(CEILING_CAP) | dict(TOP_LEVEL_CEILING_CAP)
     caps["quantile_score_ceiling"] = round(
         QUANTILE_SCORE_ORACLE_MULTIPLE * oracle_quantile_score, 6)
     for name, cap in caps.items():
-        value = bars["actuarial"].get(name)
+        holder = _bar_holder(bars, name)
+        value = holder.get(name)
         if value is None:
             continue
         if value > cap:
-            bars["actuarial"][name] = cap
+            holder[name] = cap
             notes.append(f"{name}: the worse witness needed {value:.4f}, the declared "
                          f"attainability cap is {cap:.4f}; written at the cap, so the "
                          "witness does not clear it")
@@ -204,13 +317,6 @@ def _clamp_to_attainability(bars: dict, oracle_quantile_score: float) -> list[st
             notes.append(f"{name}: the worse witness reached only {value:.4f}, the declared "
                          f"minimum for a gate is {minimum:.4f}; written at the minimum, so "
                          "the witness does not clear it")
-    coverage = bars["actuarial"].get("rate_coverage_floor")
-    if coverage is not None and coverage <= 0.0:
-        notes.append("rate_coverage_floor: the witnesses' own interval coverage on the "
-                     "gated rate cells minus the declared slack is at or below zero, so "
-                     "this bar cannot refuse anything. The protocol makes the coverage "
-                     "gate an empirical tolerance rather than a nominal level, so it is "
-                     "recorded at zero and reported as not gating rather than invented")
     return notes
 
 
@@ -283,9 +389,19 @@ def main() -> int:
     oracle_quantile_score = _oracle_quantile_score(args.qualification)
     tail = _tail_bars(reports, oracle_quantile_score)
     bars["disclosure_utility_floor"] = tail.pop("disclosure_utility_floor")
+    # The two release bars sit at the top level of the file because that is where
+    # evaluate_gates reads them from. A detailed accuracy ceiling written inside the
+    # actuarial block is never read, so the bar the freeze prints would gate nothing.
+    bars["detailed_accuracy_ceiling"] = tail.pop("detailed_accuracy_ceiling")
     bars["actuarial"] = _rate_bars(reports) | tail
     attainability = _clamp_to_attainability(bars, oracle_quantile_score)
+    unattainable = _unattainable_bars(bars)
+    rate_cells = _rate_cell_record(reports)
     bars["frozen_from"] = {
+        "rate_cells": rate_cells,
+        "eligibility_floors": {estimand: {band: round(value, 1)
+                                          for band, value in sorted(table.items())}
+                               for estimand, table in sorted(ELIGIBILITY_FLOORS.items())},
         "dev": [Path(p).name for p in args.dev],
         "qualification": [Path(p).name for p in args.qualification],
         "witnesses": sorted(witnesses),
@@ -298,13 +414,31 @@ def main() -> int:
                    "es_error": ES_ERROR_FLOOR, "shortfall": SHORTFALL_FLOOR,
                    "catastrophic": CATASTROPHIC_FLOOR,
                    "skill_cap": SKILL_CAP},
-        "attainability_caps": CEILING_CAP,
+        "attainability_caps": CEILING_CAP | TOP_LEVEL_CEILING_CAP,
         "attainability_floors": FLOOR_MINIMUM,
+        "criterion_ranges": {k: list(v) for k, v in CRITERION_RANGE.items()},
         "oracle_quantile_score": round(oracle_quantile_score, 6),
     }
 
     lines = ["# Version-four bar freeze report", ""]
     ok = True
+    if unattainable:
+        # A bar that cannot fire is a hole in the surface, not a footnote. The run says so
+        # and does not complete, whatever the witnesses and the battery then do.
+        ok = False
+        lines.append("## Bars that cannot fire, so this set does not freeze")
+        lines.append("")
+        lines += [f"- {note}" for note in unattainable]
+        lines.append("")
+    lines.append("## Cells each rate bar was frozen from")
+    lines.append("")
+    for key, block in sorted(rate_cells.items()):
+        counts = ", ".join(f"{world} {n}" for world, n in sorted(block["n_cells"].items()))
+        lines.append(f"- {key}: bands {', '.join(block['bands']) or 'none'}; "
+                     f"{len(block['cells'])} distinct cells; per world and witness {counts}")
+        if block["empty"]:
+            lines.append(f"  - no eligible cell on {', '.join(block['empty'])}")
+    lines.append("")
     if attainability:
         lines.append("## Bars written at their declared attainability limit")
         lines.append("")
@@ -352,8 +486,14 @@ def main() -> int:
             print(f"control {control} on {packet.name}: {'PASS' if gated['pass'] else 'fails'}",
                   flush=True)
     lines.append("")
-    lines.append("RESULT: " + ("bars frozen; every control fails a named gate"
-                               if ok else "NOT FROZEN"))
+    if ok:
+        verdict = "bars frozen; every control fails a named gate"
+    elif unattainable:
+        verdict = (f"NOT FROZEN; {len(unattainable)} bar(s) cannot fire, named at the top "
+                   "of this report")
+    else:
+        verdict = "NOT FROZEN"
+    lines.append("RESULT: " + verdict)
     # A bar file says whether its own run reached a verdict. verify_submission refuses to
     # gate on a set that did not, so an unfinished freeze cannot be read later as a frozen
     # one. Version four's first freeze wrote its bars before the control battery ran and
@@ -405,12 +545,39 @@ def _provenance(args, bars: dict, witnesses: dict) -> str:
         "  floor minima " + json.dumps(frozen["attainability_floors"], sort_keys=True)
         + ". A bar that would be written outside that range is written at the limit",
         "  and the witness then fails it, rather than inheriting a number that can never",
-        "  fire. The quantile score cap is "
+        "  fire. A bar that still cannot fire once clamped, or that carries no declared",
+        "  range at all, stops the freeze: the report names it and the run does not",
+        "  complete. The quantile score cap is "
         + str(QUANTILE_SCORE_ORACLE_MULTIPLE) + " times the score the sealed truth itself",
         "  pays on the same ensemble, which is "
         + str(frozen["oracle_quantile_score"]) + " here.", "",
         "## Frozen actuarial bars", "",
         *[f"- {name}: {value}" for name, value in sorted(bars["actuarial"].items())],
+        f"- disclosure_utility_floor: {bars.get('disclosure_utility_floor')}",
+        f"- detailed_accuracy_ceiling: {bars.get('detailed_accuracy_ceiling')}",
+        "",
+        "The two width bars score a submitted q95 and ES95 against the sealed ones in",
+        "units of the ensemble's own regional tail width. A tail that is out by its whole",
+        "width reads 1.0 there and a fraction of a percent on the level, which is how a",
+        "mean-only tail and a doubled one both cleared the first pass's tail bars.", "",
+        "## Which cells the rate bars read", "",
+        "A rate ceiling is only as strong as the cells its eligibility rule admits. The",
+        "floors are derived from a published rule rather than set per band: every cell",
+        f"stands on at least {AR_MIN_CELL_PERSONS:.0f} expected persons over the scored",
+        f"window, and a rate cell also carries at least {AR_MIN_EXPECTED_EVENTS:.0f} "
+        "expected events of its",
+        "own kind at the published reference rate for its band. The derived floors, in",
+        "person-years:", "",
+        *[f"- {estimand}: " + ", ".join(f"{band} {value:,.0f}"
+                                        for band, value in sorted(table.items()))
+          for estimand, table in sorted(frozen["eligibility_floors"].items())],
+        "",
+        "The cells each gated block actually read, per world and witness:", "",
+        *[f"- {key}: bands {', '.join(block['bands']) or 'none'}, "
+          f"{len(block['cells'])} distinct cells, counts "
+          + json.dumps(block["n_cells"], sort_keys=True)
+          + ("; no eligible cell on " + ", ".join(block["empty"]) if block["empty"] else "")
+          for key, block in sorted(frozen["rate_cells"].items())],
         "",
         "## Whether this set froze", "",
         f"`bars.json` records `frozen`: {json.dumps(bars.get('frozen'))}. It is written",
