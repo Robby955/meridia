@@ -29,16 +29,35 @@ EVIDENCE_SCHEMA = "meridia.v4.composite-freeze-evidence.v1"
 VERIFIER_EVIDENCE_SCHEMA = "meridia.v4.verifier-evidence.v1"
 EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v1"
 PROVENANCE_SCHEMA = "meridia.v4.freeze-provenance.v1"
+DEVELOPMENT_DIAGNOSTIC_SCHEMA = "meridia.v4.development-diagnostics.v1"
 ELDER_AUDIT_SCHEMA = "meridia.methods.elder_reconstruction_audit.v1"
 REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v1"
+RESERVE_QUALIFICATION_SCHEMA = "meridia.v4.reserve-qualification-audit.v1"
+RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v1"
+RESERVE_RED_TEAM_SCHEMA = "meridia.reserve-total-red-team.v1"
 QUANTILE = 0.99
 TARGET_FALSE_FAIL_RATE = 0.01
 EXPECTED_QUALIFICATION_WORLDS = 6
 GRADED_WORLD_COUNT = 3
-MIN_REPLICATES_PER_LINE_WORLD = 2
 MIN_P99_SAMPLE_COUNT = 100
-MIN_REFERENCE_LINES = 3
 ANCHOR_CORRELATION_THRESHOLD = 0.4
+REFERENCE_LINES = ("A", "B", "C")
+QUALIFICATION_WORLDS = tuple(
+    f"qual-{index}" for index in range(EXPECTED_QUALIFICATION_WORLDS)
+)
+REPLICATES_PER_LINE_WORLD = 7
+REFERENCE_REPORT_COUNT = len(REFERENCE_LINES) * len(QUALIFICATION_WORLDS)
+REPLICATE_REPORT_COUNT = (
+    REFERENCE_REPORT_COUNT * REPLICATES_PER_LINE_WORLD
+)
+DEVELOPMENT_WORLDS = tuple(f"dev-{index:02d}" for index in range(12))
+DEVELOPMENT_DIAGNOSTICS = (
+    "design_reconstruction_oracle_tail",
+    "true_population_normal_tail",
+)
+DEVELOPMENT_DIAGNOSTIC_REPORT_COUNT = (
+    len(DEVELOPMENT_WORLDS) * len(DEVELOPMENT_DIAGNOSTICS)
+)
 
 REGIME_AXES = (
     "mortality_improvement",
@@ -150,6 +169,7 @@ REQUIRED_SCIENTIFIC_CONTROLS = tuple(sorted({
     for controls in SCIENTIFIC_CONTROLS_BY_GATE.values()
     for control in controls
 }))
+CONTROL_REPORT_COUNT = len(REQUIRED_SCIENTIFIC_CONTROLS) * len(QUALIFICATION_WORLDS)
 
 CORRELATION_CAVEAT = (
     "The marginal products assume independent gate and world failures. They are "
@@ -295,10 +315,13 @@ def _report_binding(report: Mapping[str, Any]) -> dict[str, str]:
 def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
     """Return the exact replay binding whose digest is the evidence identifier."""
 
-    if kind not in {"reference", "replicate", "control"}:
+    if kind not in {"reference", "replicate", "control", "diagnostic"}:
         raise EvidenceError(f"unknown evidence kind {kind!r}")
     report = _report(entry)
     metadata = _metadata(entry)
+    q95_feasibility = report.get("reserve_q95_feasibility")
+    if not isinstance(q95_feasibility, Mapping):
+        raise EvidenceError("verifier report has no reserve_q95_feasibility object")
     binding: dict[str, Any] = {
         "schema": EVIDENCE_BINDING_SCHEMA,
         "kind": kind,
@@ -309,12 +332,27 @@ def evidence_binding(entry: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
         "runner_digest_sha256": _sha256(
             _first(metadata, "runner_digest_sha256"), "runner_digest_sha256"
         ),
+        "measurement_contract_digest_sha256": _sha256(
+            _first(metadata, "measurement_contract_digest_sha256"),
+            "measurement_contract_digest_sha256",
+        ),
+        "run_receipt_digest_sha256": _sha256(
+            _first(metadata, "run_receipt_digest_sha256"),
+            "run_receipt_digest_sha256",
+        ),
         **_report_binding(report),
         "verifier_report_digest_sha256": _canonical_digest(report),
+        "reserve_q95_feasibility_digest_sha256": _canonical_digest(
+            q95_feasibility
+        ),
     }
     if kind == "control":
         binding["control"] = _identifier(
             _first(metadata, "control", "control_name"), "control"
+        )
+    elif kind == "diagnostic":
+        binding["diagnostic"] = _identifier(
+            _first(metadata, "diagnostic", "diagnostic_name"), "diagnostic"
         )
     else:
         binding["reference_line"] = _identifier(
@@ -407,7 +445,12 @@ def _first(metadata: Mapping[str, Any], *names: str) -> Any:
 def _identifier(value: Any, label: str) -> str:
     if isinstance(value, bool) or value is None:
         raise EvidenceError(f"{label} is missing")
-    text = str(value).strip()
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, int):
+        text = str(value)
+    else:
+        raise EvidenceError(f"{label} must be a string or integer identifier")
     if not text:
         raise EvidenceError(f"{label} is missing")
     return text
@@ -472,9 +515,13 @@ def extract_composite_metrics(report: Mapping[str, Any]) -> dict[str, dict[str, 
 
 
 def _evidence_identity(entry: Mapping[str, Any], *, replicate: bool,
-                       control: bool = False) -> dict[str, Any]:
+                       control: bool = False, diagnostic: bool = False) -> dict[str, Any]:
     metadata = _metadata(entry)
-    kind = "control" if control else ("replicate" if replicate else "reference")
+    if control and diagnostic:
+        raise EvidenceError("an evidence report cannot be both a control and a diagnostic")
+    kind = "control" if control else (
+        "diagnostic" if diagnostic else ("replicate" if replicate else "reference")
+    )
     binding = evidence_binding(entry, kind=kind)
     evidence_id = _identifier(
         _first(metadata, "evidence_id", "evidence_digest", "report_id"),
@@ -497,11 +544,52 @@ def _evidence_identity(entry: Mapping[str, Any], *, replicate: bool,
         )
     if control:
         identity["control"] = binding["control"]
+    elif diagnostic:
+        identity["diagnostic"] = binding["diagnostic"]
     else:
         identity["reference_line"] = binding["reference_line"]
     if replicate:
         identity["replicate_id"] = binding["replicate_id"]
     return identity
+
+
+def _reserve_q95_feasibility(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the explicit participant-facing feasibility receipt in a report."""
+
+    receipt = report.get("reserve_q95_feasibility")
+    if not isinstance(receipt, Mapping):
+        raise EvidenceError("verifier report has no reserve_q95_feasibility object")
+    fields = {
+        name: _audit_number(receipt.get(name), f"reserve q95 feasibility {name}")
+        for name in (
+            "q95_sum",
+            "allocation_sum",
+            "reserve_total",
+            "total_minus_q95_sum",
+        )
+    }
+    expected_keys = set(fields) | {
+        "all_regions_at_or_above_q95",
+        "allocation_sums_to_total",
+        "feasible",
+    }
+    if set(receipt) != expected_keys:
+        raise EvidenceError("reserve_q95_feasibility fields differ from the contract")
+    if receipt.get("all_regions_at_or_above_q95") is not True \
+            or receipt.get("allocation_sums_to_total") is not True \
+            or receipt.get("feasible") is not True:
+        raise EvidenceError("reserve q95 feasibility must pass for freeze evidence")
+    tolerance = 1e-10 * max(1.0, fields["reserve_total"])
+    if abs(fields["allocation_sum"] - fields["reserve_total"]) > tolerance:
+        raise EvidenceError("reserve allocation sum differs from the public total")
+    if abs(
+        fields["total_minus_q95_sum"]
+        - (fields["reserve_total"] - fields["q95_sum"])
+    ) > tolerance:
+        raise EvidenceError("reserve q95 feasibility margin is inconsistent")
+    if fields["total_minus_q95_sum"] < -tolerance:
+        raise EvidenceError("public reserve total is below the submitted q95 sum")
+    return json.loads(json.dumps(receipt, sort_keys=True, allow_nan=False))
 
 
 def _normalized_reference(entry: Mapping[str, Any], *, replicate: bool) -> dict[str, Any]:
@@ -512,6 +600,7 @@ def _normalized_reference(entry: Mapping[str, Any], *, replicate: bool) -> dict[
     return identity | {
         "hard_pass": _hard_pass(report),
         "metrics": extract_composite_metrics(report),
+        "reserve_q95_feasibility": _reserve_q95_feasibility(report),
         "report": report,
     }
 
@@ -524,6 +613,22 @@ def _normalized_control(entry: Mapping[str, Any]) -> dict[str, Any]:
     return identity | {
         "hard_pass": _hard_pass(report),
         "metrics": extract_composite_metrics(report),
+        "reserve_q95_feasibility": _reserve_q95_feasibility(report),
+        "report": report,
+    }
+
+
+def _normalized_diagnostic(entry: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(entry, Mapping):
+        raise EvidenceError("development diagnostic evidence entries must be objects")
+    report = _report(entry)
+    identity = _evidence_identity(
+        entry, replicate=False, diagnostic=True
+    )
+    return identity | {
+        "hard_pass": _hard_pass(report),
+        "metrics": extract_composite_metrics(report),
+        "reserve_q95_feasibility": _reserve_q95_feasibility(report),
         "report": report,
     }
 
@@ -533,6 +638,7 @@ def _normalize_entries(entries: Iterable[Mapping[str, Any]], *, kind: str) -> li
         "reference": lambda entry: _normalized_reference(entry, replicate=False),
         "replicate": lambda entry: _normalized_reference(entry, replicate=True),
         "control": _normalized_control,
+        "diagnostic": _normalized_diagnostic,
     }[kind]
     normalized = [normalizer(entry) for entry in entries]
     evidence_ids = [entry["evidence_id"] for entry in normalized]
@@ -548,21 +654,43 @@ def _normalize_entries(entries: Iterable[Mapping[str, Any]], *, kind: str) -> li
 def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
                                replicates: Sequence[Mapping[str, Any]],
                                controls: Sequence[Mapping[str, Any]],
+                               diagnostics: Sequence[Mapping[str, Any]],
                                lines: Sequence[str], worlds: Sequence[str]) -> None:
-    all_entries = [*references, *replicates, *controls]
+    all_entries = [*references, *replicates, *controls, *diagnostics]
     if any(entry["world"] not in worlds for entry in controls):
         raise EvidenceError("control evidence names an unregistered qualification world")
-    for field in ("verifier_digest_sha256", "runner_digest_sha256"):
+    observed_controls = {entry["control"] for entry in controls}
+    if observed_controls != set(REQUIRED_SCIENTIFIC_CONTROLS):
+        raise EvidenceError(
+            "qualification control labels differ from the registered battery; "
+            f"missing {sorted(set(REQUIRED_SCIENTIFIC_CONTROLS) - observed_controls)}, "
+            f"unexpected {sorted(observed_controls - set(REQUIRED_SCIENTIFIC_CONTROLS))}"
+        )
+    if any(entry["world"] not in DEVELOPMENT_WORLDS for entry in diagnostics):
+        raise EvidenceError("diagnostic evidence names an unregistered development world")
+    for field in (
+        "verifier_digest_sha256",
+        "runner_digest_sha256",
+        "measurement_contract_digest_sha256",
+    ):
         values = {entry["binding"][field] for entry in all_entries}
         if len(values) != 1:
             raise EvidenceError(f"evidence was produced by more than one {field[:-7]}")
-    for world in worlds:
+    run_receipts = [
+        entry["binding"]["run_receipt_digest_sha256"] for entry in all_entries
+    ]
+    if len(run_receipts) != len(set(run_receipts)):
+        raise EvidenceError("a run receipt was reused or relabeled as another report")
+    evidence_ids = [entry["evidence_id"] for entry in all_entries]
+    if len(evidence_ids) != len(set(evidence_ids)):
+        raise EvidenceError("an evidence identifier was reused across report classes")
+    for world in (*worlds, *DEVELOPMENT_WORLDS):
         rows = [entry for entry in all_entries if entry["world"] == world]
         for field in ("packet_digest_sha256", "contract_digest_sha256"):
             values = {entry["binding"][field] for entry in rows}
             if len(values) != 1:
                 raise EvidenceError(f"{world}: evidence disagrees on {field}")
-    method_by_line: dict[str, str] = {}
+    method_by_identity: dict[str, str] = {}
     for line in lines:
         values = {
             entry["binding"]["method_digest_sha256"]
@@ -571,9 +699,38 @@ def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
         }
         if len(values) != 1:
             raise EvidenceError(f"{line}: final and replicate method digests differ")
-        method_by_line[line] = next(iter(values))
-    if len(set(method_by_line.values())) != len(method_by_line):
-        raise EvidenceError("reference lines must have distinct method digests")
+        method_by_identity[f"reference:{line}"] = next(iter(values))
+    for name in REQUIRED_SCIENTIFIC_CONTROLS:
+        values = {
+            entry["binding"]["method_digest_sha256"]
+            for entry in controls
+            if entry["control"] == name
+        }
+        if len(values) != 1:
+            raise EvidenceError(f"{name}: control method digest is not stable")
+        method_by_identity[f"control:{name}"] = next(iter(values))
+    for name in DEVELOPMENT_DIAGNOSTICS:
+        values = {
+            entry["binding"]["method_digest_sha256"]
+            for entry in diagnostics
+            if entry["diagnostic"] == name
+        }
+        if len(values) != 1:
+            raise EvidenceError(f"{name}: diagnostic method digest is not stable")
+        method_by_identity[f"diagnostic:{name}"] = next(iter(values))
+    digest_owners: defaultdict[str, list[str]] = defaultdict(list)
+    for identity, digest in method_by_identity.items():
+        digest_owners[digest].append(identity)
+    relabeled = {
+        digest: sorted(owners)
+        for digest, owners in digest_owners.items()
+        if len(owners) > 1
+    }
+    if relabeled:
+        raise EvidenceError(
+            "method digest reused under different line, control, or diagnostic labels: "
+            f"{relabeled}"
+        )
     by_pair: defaultdict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     designs: set[str] = set()
     for entry in replicates:
@@ -585,6 +742,67 @@ def _check_binding_consistency(references: Sequence[Mapping[str, Any]],
         digests = [row["binding"]["resample_digest_sha256"] for row in rows]
         if len(digests) != len(set(digests)):
             raise EvidenceError(f"duplicate resample digest within {pair}")
+    resample_owners: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    for world in worlds:
+        by_replicate: defaultdict[str, list[Mapping[str, Any]]] = defaultdict(list)
+        for entry in replicates:
+            if entry["world"] == world:
+                by_replicate[entry["replicate_id"]].append(entry)
+        if len(by_replicate) != REPLICATES_PER_LINE_WORLD:
+            raise EvidenceError(
+                f"{world}: expected {REPLICATES_PER_LINE_WORLD} paired resamples, "
+                f"found {len(by_replicate)}"
+            )
+        for replicate_id, rows in by_replicate.items():
+            observed_lines = sorted(row["reference_line"] for row in rows)
+            if observed_lines != list(REFERENCE_LINES) or len(rows) != len(REFERENCE_LINES):
+                raise EvidenceError(
+                    f"{world}/{replicate_id}: resample is not paired across A, B, and C"
+                )
+            digests = {row["binding"]["resample_digest_sha256"] for row in rows}
+            if len(digests) != 1:
+                raise EvidenceError(
+                    f"{world}/{replicate_id}: A, B, and C use different resample digests"
+                )
+            resample_owners[next(iter(digests))].append((world, replicate_id))
+    duplicated_resamples = {
+        digest: owners for digest, owners in resample_owners.items() if len(owners) > 1
+    }
+    if duplicated_resamples:
+        raise EvidenceError(
+            "a paired resample digest was reused across world or replicate identifiers: "
+            f"{duplicated_resamples}"
+        )
+
+
+def _check_development_diagnostic_design(
+    diagnostics: Sequence[Mapping[str, Any]],
+) -> None:
+    if len(diagnostics) != DEVELOPMENT_DIAGNOSTIC_REPORT_COUNT:
+        raise EvidenceError(
+            "development diagnostics must contain exactly "
+            f"{DEVELOPMENT_DIAGNOSTIC_REPORT_COUNT} reports"
+        )
+    expected = {
+        (name, world)
+        for name in DEVELOPMENT_DIAGNOSTICS
+        for world in DEVELOPMENT_WORLDS
+    }
+    groups: defaultdict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    for entry in diagnostics:
+        groups[(entry["diagnostic"], entry["world"])].append(entry)
+    if set(groups) != expected or any(len(rows) != 1 for rows in groups.values()):
+        raise EvidenceError(
+            "development diagnostics need each registered diagnostic on dev-00 through "
+            "dev-11 exactly once"
+        )
+    if any(not entry["hard_pass"] for entry in diagnostics):
+        failed = sorted(
+            f"{entry['diagnostic']}/{entry['world']}"
+            for entry in diagnostics
+            if not entry["hard_pass"]
+        )
+        raise EvidenceError(f"development diagnostics failed hard checks: {failed}")
 
 
 def _freeze_provenance(references: Sequence[Mapping[str, Any]],
@@ -609,17 +827,315 @@ def _freeze_provenance(references: Sequence[Mapping[str, Any]],
     return record
 
 
+def _development_diagnostic_block(
+    diagnostics: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    reports = sorted(
+        [dict(row["binding"], evidence_id=row["evidence_id"]) for row in diagnostics],
+        key=lambda row: (row["diagnostic"], row["world"], row["evidence_id"]),
+    )
+    block = {
+        "schema": DEVELOPMENT_DIAGNOSTIC_SCHEMA,
+        "registered_diagnostics": list(DEVELOPMENT_DIAGNOSTICS),
+        "development_worlds": list(DEVELOPMENT_WORLDS),
+        "report_count": len(reports),
+        "counts_as_qualification_control": False,
+        "reports": reports,
+    }
+    block["digest_sha256"] = _canonical_digest(block)
+    return block
+
+
 def _audit_number(value: Any, label: str, *, low: float = 0.0,
                   high: float | None = None) -> float:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise EvidenceError(f"{label} must be numeric")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as exc:
-        raise EvidenceError(f"{label} must be numeric") from exc
+    number = float(value)
     if not math.isfinite(number) or number < low or (high is not None and number > high):
         raise EvidenceError(f"{label} is outside its registered range")
     return number
+
+
+def _digest_bound_audit(
+    audit: Mapping[str, Any] | None,
+    *,
+    schema: str,
+    label: str,
+    measurement_contract_digest: str,
+) -> dict[str, Any]:
+    if not isinstance(audit, Mapping) or audit.get("schema") != schema:
+        raise EvidenceError(f"a complete {schema} report is required")
+    try:
+        normalized = json.loads(json.dumps(audit, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError(f"{label} must be finite JSON") from exc
+    raw_recorded_digest = normalized.pop("digest_sha256", None)
+    recorded_digest = _sha256(raw_recorded_digest, f"{label} digest_sha256")
+    if raw_recorded_digest != recorded_digest:
+        raise EvidenceError(f"{label} digest_sha256 is not canonical lowercase")
+    if recorded_digest != _canonical_digest(normalized):
+        raise EvidenceError(f"{label} digest differs from its content")
+    raw_contract = normalized.get("measurement_contract_digest_sha256")
+    observed_contract = _sha256(
+        raw_contract,
+        f"{label} measurement_contract_digest_sha256",
+    )
+    if raw_contract != observed_contract:
+        raise EvidenceError(
+            f"{label} measurement_contract_digest_sha256 is not canonical lowercase"
+        )
+    if observed_contract != measurement_contract_digest:
+        raise EvidenceError(f"{label} is bound to a different measurement contract")
+    normalized["digest_sha256"] = recorded_digest
+    return normalized
+
+
+def _validate_reserve_calibration_audit(
+    audit: Mapping[str, Any] | None,
+    references: Sequence[Mapping[str, Any]],
+    measurement_contract_digest: str,
+) -> dict[str, Any]:
+    normalized = _digest_bound_audit(
+        audit,
+        schema=RESERVE_CALIBRATION_SCHEMA,
+        label="reserve calibration audit",
+        measurement_contract_digest=measurement_contract_digest,
+    )
+    if normalized.get("candidate") is not True \
+            or normalized.get("accepted") is not True \
+            or normalized.get("blockers") != [] \
+            or normalized.get("reference_lines") != list(REFERENCE_LINES) \
+            or normalized.get("qualification_worlds") != list(QUALIFICATION_WORLDS) \
+            or normalized.get("target_rule") \
+            != "sum(q95) + tail_slack_share * sum(ES95 - q95)":
+        raise EvidenceError("reserve calibration audit has not been accepted")
+    _audit_number(
+        normalized.get("rate_per_person_year"),
+        "reserve calibration rate_per_person_year",
+        low=1e-300,
+    )
+    _audit_number(
+        normalized.get("rate_grid"), "reserve calibration rate_grid", low=1e-300
+    )
+    _audit_number(
+        normalized.get("tail_slack_share"),
+        "reserve calibration tail_slack_share",
+        low=0.0,
+        high=1.0,
+    )
+    rows = normalized.get("evidence")
+    if not isinstance(rows, list) or len(rows) != REFERENCE_REPORT_COUNT:
+        raise EvidenceError("reserve calibration audit needs all 18 reference reports")
+    expected = {
+        (row["reference_line"], row["world"]): row for row in references
+    }
+    observed: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise EvidenceError("reserve calibration evidence row is not an object")
+        line = _identifier(
+            row.get("reference_line"), "reserve calibration reference_line"
+        )
+        world = _identifier(row.get("world"), "reserve calibration world")
+        if row.get("reference_line") != line or row.get("world") != world:
+            raise EvidenceError("reserve calibration identities are not canonical")
+        key = (line, world)
+        if key not in expected or key in observed:
+            raise EvidenceError("reserve calibration evidence pairs differ")
+        reference = expected[key]
+        if row.get("evidence_id") != reference["evidence_id"]:
+            raise EvidenceError("reserve calibration evidence id differs")
+        q95_sum = _audit_number(
+            row.get("submitted_q95_sum"), "reserve calibration submitted_q95_sum"
+        )
+        if not math.isclose(
+            q95_sum,
+            reference["reserve_q95_feasibility"]["q95_sum"],
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        ):
+            raise EvidenceError("reserve calibration q95 sum differs from the verifier")
+        margin = _audit_number(
+            row.get("candidate_margin"), "reserve calibration candidate_margin"
+        )
+        es95_sum = _audit_number(
+            row.get("submitted_es95_sum"), "reserve calibration submitted_es95_sum"
+        )
+        candidate_total = _audit_number(
+            row.get("candidate_reserve_total"),
+            "reserve calibration candidate_reserve_total",
+        )
+        target = q95_sum + float(normalized["tail_slack_share"]) * (
+            es95_sum - q95_sum
+        )
+        if es95_sum < q95_sum \
+                or candidate_total + 1e-9 < q95_sum \
+                or margin < 0.0 \
+                or not math.isclose(
+                    margin, candidate_total - target, rel_tol=1e-12, abs_tol=1e-9
+                ):
+            raise EvidenceError("reserve calibration candidate is infeasible")
+        observed[key] = row
+    if set(observed) != set(expected):
+        raise EvidenceError("reserve calibration evidence pairs are incomplete")
+    return normalized
+
+
+def _validate_reserve_red_team_audit(
+    audit: Mapping[str, Any] | None,
+    measurement_contract_digest: str,
+) -> dict[str, Any]:
+    normalized = _digest_bound_audit(
+        audit,
+        schema=RESERVE_RED_TEAM_SCHEMA,
+        label="reserve red-team audit",
+        measurement_contract_digest=measurement_contract_digest,
+    )
+    if normalized.get("independent_unit") != "world" \
+            or normalized.get("world_counts") \
+            != {"development": 12, "qualification": 6, "total": 18} \
+            or normalized.get("reserve_total_public_rule_verified") is not True \
+            or normalized.get("primary_measure") \
+            != "qualification incremental regional R2 over development region means":
+        raise EvidenceError("reserve red-team design differs from the registered measurement")
+    quantities = normalized.get("public_quantities")
+    if not isinstance(quantities, Mapping):
+        raise EvidenceError("reserve red-team public quantities are missing")
+    expected_names = {
+        "development": list(DEVELOPMENT_WORLDS),
+        "qualification": list(QUALIFICATION_WORLDS),
+    }
+    for regime, names in expected_names.items():
+        rows = quantities.get(regime)
+        if not isinstance(rows, list) \
+                or len(rows) != len(names) \
+                or not all(isinstance(row, Mapping) for row in rows) \
+                or [row.get("world") for row in rows] != names:
+            raise EvidenceError(f"reserve red-team {regime} worlds differ")
+        for row in rows:
+            _audit_number(
+                row.get("latest_year_total_exposure"),
+                f"reserve red-team {regime} exposure",
+            )
+            _audit_number(
+                row.get("reserve_total"), f"reserve red-team {regime} total"
+            )
+    primary = normalized.get(
+        "qualification_incremental_regional_r2_over_region_means"
+    )
+    if not isinstance(primary, Mapping):
+        raise EvidenceError("reserve red-team primary measurement is missing")
+    for field in ("q95", "es95", "headline_max"):
+        value = primary.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(float(value)):
+            raise EvidenceError("reserve red-team primary measurement is non-finite")
+    expected_headline = max(float(primary["q95"]), float(primary["es95"]))
+    if not math.isclose(
+        float(primary["headline_max"]), expected_headline, rel_tol=1e-12, abs_tol=1e-15
+    ):
+        raise EvidenceError("reserve red-team headline does not recompute")
+    return normalized
+
+
+def _validate_reserve_qualification_audit(
+    audit: Mapping[str, Any] | None,
+    references: Sequence[Mapping[str, Any]],
+    controls: Sequence[Mapping[str, Any]],
+    gates: Mapping[str, Any],
+    measurement_contract_digest: str,
+    calibration: Mapping[str, Any],
+    red_team: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized = _digest_bound_audit(
+        audit,
+        schema=RESERVE_QUALIFICATION_SCHEMA,
+        label="reserve qualification audit",
+        measurement_contract_digest=measurement_contract_digest,
+    )
+    if normalized.get("reference_lines") != list(REFERENCE_LINES) \
+            or normalized.get("qualification_worlds") != list(QUALIFICATION_WORLDS) \
+            or normalized.get("calibration_audit_digest_sha256") \
+            != calibration["digest_sha256"] \
+            or normalized.get("red_team_audit_digest_sha256") \
+            != red_team["digest_sha256"]:
+        raise EvidenceError("reserve qualification audit binding differs")
+
+    def check_rows(
+        rows: Any,
+        expected: Mapping[tuple[str, str], Mapping[str, Any]],
+        *,
+        identity_field: str,
+        expected_skill_pass: bool,
+    ) -> None:
+        if not isinstance(rows, list) or len(rows) != len(expected):
+            raise EvidenceError("reserve qualification result count differs")
+        observed: set[tuple[str, str]] = set()
+        ceiling = gates["reserve_skill"]["components"]["skill_loss"]["value"]
+        expected_keys = {
+            identity_field, "world", "evidence_id", "q95_feasible",
+            "reserve_skill_pass", "q95_sum", "allocation_sum", "reserve_total",
+            "total_minus_q95_sum",
+        }
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != expected_keys:
+                raise EvidenceError("reserve qualification result fields differ")
+            identity = _identifier(
+                row.get(identity_field),
+                f"reserve qualification {identity_field}",
+            )
+            world = _identifier(row.get("world"), "reserve qualification world")
+            if row.get(identity_field) != identity or row.get("world") != world:
+                raise EvidenceError("reserve qualification identities are not canonical")
+            key = (identity, world)
+            if key not in expected or key in observed:
+                raise EvidenceError("reserve qualification identities differ")
+            source = expected[key]
+            receipt = source["reserve_q95_feasibility"]
+            if row.get("evidence_id") != source["evidence_id"] \
+                    or row.get("q95_feasible") is not True \
+                    or row.get("reserve_skill_pass") is not expected_skill_pass:
+                raise EvidenceError("reserve qualification outcome differs")
+            for field in (
+                "q95_sum", "allocation_sum", "reserve_total", "total_minus_q95_sum"
+            ):
+                value = _audit_number(
+                    row.get(field), f"reserve qualification {field}"
+                )
+                if not math.isclose(
+                    value, float(receipt[field]), rel_tol=1e-12, abs_tol=1e-9
+                ):
+                    raise EvidenceError("reserve qualification feasibility value differs")
+            observed.add(key)
+            actual_skill_pass = (
+                source["metrics"]["reserve_skill"]["skill_loss"] <= ceiling
+            )
+            if actual_skill_pass is not expected_skill_pass:
+                raise EvidenceError("reserve qualification skill result differs from the bars")
+        if observed != set(expected):
+            raise EvidenceError("reserve qualification results are incomplete")
+
+    references_by_key = {
+        (row["reference_line"], row["world"]): row for row in references
+    }
+    proportional_by_key = {
+        (row["control"], row["world"]): row
+        for row in controls
+        if row["control"] == "proportional_reserve"
+    }
+    check_rows(
+        normalized.get("reference_results"),
+        references_by_key,
+        identity_field="reference_line",
+        expected_skill_pass=True,
+    )
+    check_rows(
+        normalized.get("proportional_reserve_results"),
+        proportional_by_key,
+        identity_field="control",
+        expected_skill_pass=False,
+    )
+    return normalized
 
 
 def _valid_shock_ranges(value: Any) -> bool:
@@ -1073,13 +1589,26 @@ def _check_reference_design(references: list[dict[str, Any]],
         )
     lines = sorted({entry["reference_line"] for entry in references})
     worlds = sorted({entry["world"] for entry in references})
-    if len(lines) < MIN_REFERENCE_LINES:
+    if lines != list(REFERENCE_LINES):
         raise EvidenceError(
-            f"at least {MIN_REFERENCE_LINES} reference lines are required"
+            "reference lines must be exactly A, B, and C"
         )
-    if len(worlds) != expected_world_count:
+    if expected_world_count != EXPECTED_QUALIFICATION_WORLDS:
         raise EvidenceError(
-            f"expected {expected_world_count} qualification worlds, found {len(worlds)}"
+            f"the V4 freeze requires exactly {EXPECTED_QUALIFICATION_WORLDS} "
+            "qualification worlds"
+        )
+    if worlds != list(QUALIFICATION_WORLDS):
+        raise EvidenceError(
+            "qualification worlds must be exactly qual-0 through qual-5"
+        )
+    if len(references) != REFERENCE_REPORT_COUNT:
+        raise EvidenceError(
+            f"final reference evidence must contain exactly {REFERENCE_REPORT_COUNT} reports"
+        )
+    if len(replicates) != REPLICATE_REPORT_COUNT:
+        raise EvidenceError(
+            f"replicate evidence must contain exactly {REPLICATE_REPORT_COUNT} reports"
         )
     expected = {(line, world) for line in lines for world in worlds}
     final_groups: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -1107,10 +1636,10 @@ def _check_reference_design(references: list[dict[str, Any]],
             "so each pair has equal weight"
         )
     per_pair = next(iter(counts.values()))
-    if per_pair < MIN_REPLICATES_PER_LINE_WORLD:
+    if per_pair != REPLICATES_PER_LINE_WORLD:
         raise EvidenceError(
-            f"each reference-line and world pair needs at least "
-            f"{MIN_REPLICATES_PER_LINE_WORLD} deterministic replicates"
+            f"each reference-line and world pair needs exactly "
+            f"{REPLICATES_PER_LINE_WORLD} paired deterministic replicates"
         )
     if len(replicates) < MIN_P99_SAMPLE_COUNT:
         raise EvidenceError(
@@ -1334,6 +1863,7 @@ def _control_matrix(
                     "failed": failed,
                     "components": comparisons,
                     "evidence_id": row["evidence_id"],
+                    "reserve_q95_feasibility": row["reserve_q95_feasibility"],
                 }
             failed_worlds = [
                 world for world in worlds
@@ -1521,8 +2051,12 @@ def calibrate_composite_bars(
     replicate_reports: Sequence[Mapping[str, Any]] | None,
     control_reports: Sequence[Mapping[str, Any]],
     *,
+    development_diagnostic_reports: Sequence[Mapping[str, Any]] = (),
     elder_reconstruction_audit: Mapping[str, Any] | None = None,
     regime_identifiability_audit: Mapping[str, Any] | None = None,
+    reserve_qualification_audit: Mapping[str, Any] | None = None,
+    reserve_calibration_audit: Mapping[str, Any] | None = None,
+    reserve_red_team_audit: Mapping[str, Any] | None = None,
     expected_qualification_worlds: int = EXPECTED_QUALIFICATION_WORLDS,
     graded_world_count: int = GRADED_WORLD_COUNT,
     control_registry: Mapping[str, Sequence[str]] = SCIENTIFIC_CONTROLS_BY_GATE,
@@ -1535,14 +2069,35 @@ def calibrate_composite_bars(
     level and tail measurements.
     """
 
-    if expected_qualification_worlds <= 0 or graded_world_count <= 0:
+    if isinstance(expected_qualification_worlds, bool) \
+            or not isinstance(expected_qualification_worlds, int) \
+            or isinstance(graded_world_count, bool) \
+            or not isinstance(graded_world_count, int) \
+            or expected_qualification_worlds <= 0 \
+            or graded_world_count <= 0:
         return _empty_result(
             ["world counts must be positive"],
+            expected_world_count=EXPECTED_QUALIFICATION_WORLDS,
+            graded_world_count=GRADED_WORLD_COUNT,
+        )
+    if expected_qualification_worlds != EXPECTED_QUALIFICATION_WORLDS \
+            or graded_world_count != GRADED_WORLD_COUNT:
+        return _empty_result(
+            [
+                "V4 requires exactly six qualification worlds and three graded worlds"
+            ],
             expected_world_count=expected_qualification_worlds,
             graded_world_count=graded_world_count,
         )
     try:
         _validated_control_registry(control_registry)
+        if any(
+            tuple(control_registry[gate]) != SCIENTIFIC_CONTROLS_BY_GATE[gate]
+            for gate in GATE_COMPONENTS
+        ):
+            raise EvidenceError(
+                "the scientific-control registry differs from the fixed V4 battery"
+            )
         references = _normalize_entries(reference_reports, kind="reference")
         if replicate_reports is None:
             raise EvidenceError(
@@ -1551,11 +2106,25 @@ def calibrate_composite_bars(
             )
         replicates = _normalize_entries(replicate_reports, kind="replicate")
         controls = _normalize_entries(control_reports, kind="control")
+        diagnostics = _normalize_entries(
+            development_diagnostic_reports, kind="diagnostic"
+        )
         lines, worlds, replicates_per_pair = _check_reference_design(
             references, replicates, expected_qualification_worlds
         )
-        _check_binding_consistency(references, replicates, controls, lines, worlds)
+        if len(controls) != CONTROL_REPORT_COUNT:
+            raise EvidenceError(
+                f"qualification controls must contain exactly {CONTROL_REPORT_COUNT} reports"
+            )
+        _check_development_diagnostic_design(diagnostics)
+        _check_binding_consistency(
+            references, replicates, controls, diagnostics, lines, worlds
+        )
         evidence_provenance = _freeze_provenance(references, replicates, controls)
+        development_diagnostics = _development_diagnostic_block(diagnostics)
+        measurement_contract_digest = references[0]["binding"][
+            "measurement_contract_digest_sha256"
+        ]
         elder_audit = _validate_elder_audit(
             elder_reconstruction_audit, references, lines, worlds
         )
@@ -1568,6 +2137,21 @@ def calibrate_composite_bars(
         gates = _calibrate_components(
             references, replicates, lines, worlds, eligible_cells_by_world,
             eligibility_audit_by_world,
+        )
+        reserve_calibration = _validate_reserve_calibration_audit(
+            reserve_calibration_audit, references, measurement_contract_digest
+        )
+        reserve_red_team = _validate_reserve_red_team_audit(
+            reserve_red_team_audit, measurement_contract_digest
+        )
+        reserve_qualification = _validate_reserve_qualification_audit(
+            reserve_qualification_audit,
+            references,
+            controls,
+            gates,
+            measurement_contract_digest,
+            reserve_calibration,
+            reserve_red_team,
         )
     except EvidenceError as exc:
         return _empty_result(
@@ -1642,13 +2226,26 @@ def calibrate_composite_bars(
         "qualification_world_count": len(worlds),
         "graded_world_count": graded_world_count,
         "replicates_per_reference_line_and_world": replicates_per_pair,
+        "paired_resamples_per_world": replicates_per_pair,
+        "paired_resample_count": replicates_per_pair * len(worlds),
         "equal_weighting": "equal replicate count for every reference-line and world pair",
         "reference_report_count": len(references),
         "replicate_report_count": len(replicates),
         "control_report_count": len(controls),
+        "development_diagnostic_report_count": len(diagnostics),
+        "run_receipt_count": len(references) + len(replicates) + len(controls)
+        + len(diagnostics),
+        "runner_digest_sha256": references[0]["binding"]["runner_digest_sha256"],
+        "measurement_contract_digest_sha256": measurement_contract_digest,
         "evidence_provenance": evidence_provenance,
+        "development_diagnostics": development_diagnostics,
         "elder_reconstruction_audit": elder_audit,
         "regime_identifiability_audit": regime_audit,
+        "reserve_audits": {
+            "qualification": reserve_qualification,
+            "calibration": reserve_calibration,
+            "red_team": reserve_red_team,
+        },
         "reference_failures": reference_failures,
         "control_support": control_support,
         "achieved_false_fail_rates": gate_rates,
@@ -1793,18 +2390,23 @@ def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> Non
         "",
         "A gate is retained only when every control registered to that gate is a",
         "hard-valid submission and fails the gate on every qualification world.",
-        "The component value and frozen ceiling below are the deletion-test numbers.",
+        "Every control is reported against every gate. The primary marker identifies",
+        "the registered deletion test; the component values and frozen ceilings are",
+        "the deletion-test numbers.",
         "",
     ])
     for gate in GATE_COMPONENTS:
         lines.append(f"- {gate}")
-        names = registry.get(gate, [])
-        for name in names if isinstance(names, list) else []:
+        registered_names = registry.get(gate, [])
+        registered_set = set(registered_names) \
+            if isinstance(registered_names, list) else set()
+        for name in sorted(matrix):
             record = matrix.get(name, {})
             result = record.get("gates", {}).get(gate, {}) \
                 if isinstance(record, Mapping) else {}
             lines.append(
-                f"  - {name}: failed worlds "
+                f"  - {name}{' [primary]' if name in registered_set else ''}: "
+                "failed worlds "
                 f"{', '.join(result.get('failed_worlds', [])) or 'none'}; "
                 f"passed worlds {', '.join(result.get('passed_worlds', [])) or 'none'}; "
                 "hard-invalid worlds "
@@ -1833,6 +2435,14 @@ def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> Non
                     f"    - {world}: {comparison.get('outcome', 'missing')}; "
                     + "; ".join(values)
                 )
+                feasibility = comparison.get("reserve_q95_feasibility")
+                if isinstance(feasibility, Mapping):
+                    lines.append(
+                        f"      q95 sum {feasibility.get('q95_sum')}; reserve total "
+                        f"{feasibility.get('reserve_total')}; q95 feasibility margin "
+                        f"{feasibility.get('total_minus_q95_sum')}; feasible "
+                        f"{str(bool(feasibility.get('feasible'))).lower()}"
+                    )
     candidates = support.get("deletion_candidates", [])
     lines.extend(["", "Deletion candidates:"])
     if isinstance(candidates, list) and candidates:
@@ -1888,6 +2498,84 @@ def _append_regime_identifiability(lines: list[str], bars: Mapping[str, Any]) ->
     ])
 
 
+def _append_authenticated_evidence(lines: list[str], bars: Mapping[str, Any]) -> None:
+    diagnostics = bars.get("development_diagnostics")
+    reserve = bars.get("reserve_audits")
+    lines.extend([
+        "## Authenticated evidence design",
+        "",
+        f"- measurement contract digest: `"
+        f"{bars.get('measurement_contract_digest_sha256', 'missing')}`",
+        f"- common runner digest: `{bars.get('runner_digest_sha256', 'missing')}`",
+        f"- final reference reports: {bars.get('reference_report_count', 0)}",
+        f"- paired replicate reports: {bars.get('replicate_report_count', 0)}; "
+        f"{bars.get('paired_resamples_per_world', 0)} resamples per world",
+        f"- qualification control reports: {bars.get('control_report_count', 0)}",
+        f"- development diagnostic reports: "
+        f"{bars.get('development_diagnostic_report_count', 0)}; these do not count as "
+        "qualification controls",
+        f"- unique run receipts: {bars.get('run_receipt_count', 0)}",
+    ])
+    if isinstance(diagnostics, Mapping):
+        lines.append(
+            f"- development diagnostic digest: `"
+            f"{diagnostics.get('digest_sha256', 'missing')}`"
+        )
+    if isinstance(reserve, Mapping):
+        for name in ("qualification", "calibration", "red_team"):
+            audit = reserve.get(name)
+            if isinstance(audit, Mapping):
+                lines.append(
+                    f"- reserve {name.replace('_', '-')} audit digest: `"
+                    f"{audit.get('digest_sha256', 'missing')}`"
+                )
+    lines.append("")
+
+
+def _append_reference_gate_results(
+    lines: list[str],
+    bars: Mapping[str, Any],
+    gate: str,
+    gate_record: Mapping[str, Any],
+) -> None:
+    components = gate_record.get("components")
+    if not isinstance(components, Mapping):
+        return
+    by_component: dict[str, dict[tuple[str, str], Mapping[str, Any]]] = {}
+    for component in GATE_COMPONENTS[gate]:
+        record = components.get(component)
+        witnesses = record.get("reference_witnesses") \
+            if isinstance(record, Mapping) else None
+        if not isinstance(witnesses, list):
+            return
+        by_component[component] = {
+            (row.get("reference_line"), row.get("world")): row
+            for row in witnesses
+            if isinstance(row, Mapping)
+        }
+    rate = bars.get("achieved_false_fail_rates", {}).get(gate)
+    rendered_rate = f"{float(rate):.6%}" \
+        if isinstance(rate, (int, float)) and not isinstance(rate, bool) else "missing"
+    lines.append(f"  reference results at false-fail rate {rendered_rate}:")
+    for line in bars.get("reference_lines", []):
+        for world in bars.get("qualification_worlds", []):
+            pair = (line, world)
+            rows = [by_component[component].get(pair) for component in GATE_COMPONENTS[gate]]
+            passed = bool(rows) and all(
+                isinstance(row, Mapping) and row.get("pass") is True for row in rows
+            )
+            evidence_ids = sorted({
+                str(row.get("evidence_id"))
+                for row in rows
+                if isinstance(row, Mapping)
+            })
+            evidence = evidence_ids[0] if len(evidence_ids) == 1 else "missing"
+            lines.append(
+                f"    - {line}/{world}: {'pass' if passed else 'fail'}; "
+                f"evidence `{evidence}`"
+            )
+
+
 def render_freeze_report(bars: Mapping[str, Any]) -> str:
     lines = ["# Version-four composite bar freeze report", ""]
     lines.append("RESULT: " + ("FROZEN" if bars.get("frozen") else "NOT FROZEN"))
@@ -1934,8 +2622,10 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
                             + json.dumps(cells, separators=(",", ":"))
                         )
                     _append_eligibility_audit(lines, eligible, "    ")
+            _append_reference_gate_results(lines, bars, gate, record)
         lines.append("")
     _append_control_separation(lines, bars)
+    _append_authenticated_evidence(lines, bars)
     lines.extend(["## Empirical tail definition", "", *TAIL_DEFINITION_LINES, ""])
     _append_mortality_identification(lines, bars)
     _append_elder_audit(lines, bars)
@@ -2021,7 +2711,9 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                             + json.dumps(cells, separators=(",", ":"))
                         )
                     _append_eligibility_audit(lines, eligible, "    ")
+            _append_reference_gate_results(lines, bars, gate, record)
     _append_control_separation(lines, bars)
+    _append_authenticated_evidence(lines, bars)
     lines.extend(["", "## Empirical tail definition", "", *TAIL_DEFINITION_LINES, ""])
     _append_mortality_identification(lines, bars)
     _append_elder_audit(lines, bars)
@@ -2048,12 +2740,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-report", action="append", default=[])
     parser.add_argument("--replicate-report", action="append", default=[])
     parser.add_argument("--control-report", action="append", default=[])
+    parser.add_argument("--development-diagnostic-report", action="append", default=[])
     parser.add_argument("--elder-audit",
                         help="machine-readable elder reconstruction qualification report")
     parser.add_argument(
         "--regime-identifiability-audit",
         help="machine-readable participant-trace and hidden-axis policy report",
     )
+    parser.add_argument("--reserve-qualification-audit")
+    parser.add_argument("--reserve-calibration-audit")
+    parser.add_argument("--reserve-red-team-audit")
     parser.add_argument("--qualification-world-count", type=int,
                         default=EXPECTED_QUALIFICATION_WORLDS)
     parser.add_argument("--graded-world-count", type=int, default=GRADED_WORLD_COUNT)
@@ -2071,8 +2767,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     references: list[dict[str, Any]] = []
     replicates: list[dict[str, Any]] = []
     controls: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
     elder_audit: dict[str, Any] | None = None
     regime_audit: dict[str, Any] | None = None
+    reserve_qualification_audit: dict[str, Any] | None = None
+    reserve_calibration_audit: dict[str, Any] | None = None
+    reserve_red_team_audit: dict[str, Any] | None = None
     try:
         for path in args.evidence:
             payload = json.loads(Path(path).read_text())
@@ -2095,10 +2795,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "exactly one regime_identifiability_audit object may be supplied"
                     )
                 regime_audit = dict(embedded_regime_audit)
+            for key, current in (
+                ("reserve_qualification_audit", reserve_qualification_audit),
+                ("reserve_calibration_audit", reserve_calibration_audit),
+                ("reserve_red_team_audit", reserve_red_team_audit),
+            ):
+                embedded = payload.get(key)
+                if embedded is not None:
+                    if current is not None or not isinstance(embedded, Mapping):
+                        raise EvidenceError(
+                            f"exactly one {key} object may be supplied"
+                        )
+                    if key == "reserve_qualification_audit":
+                        reserve_qualification_audit = dict(embedded)
+                    elif key == "reserve_calibration_audit":
+                        reserve_calibration_audit = dict(embedded)
+                    else:
+                        reserve_red_team_audit = dict(embedded)
             for key, target in (
                 ("reference_reports", references),
                 ("replicate_reports", replicates),
                 ("control_reports", controls),
+                ("development_diagnostic_reports", diagnostics),
             ):
                 rows = payload.get(key, [])
                 if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
@@ -2107,6 +2825,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         references.extend(_load_entries(args.reference_report))
         replicates.extend(_load_entries(args.replicate_report))
         controls.extend(_load_entries(args.control_report))
+        diagnostics.extend(_load_entries(args.development_diagnostic_report))
         if args.elder_audit:
             if elder_audit is not None:
                 raise EvidenceError("elder audit was supplied more than once")
@@ -2121,12 +2840,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not isinstance(payload, Mapping):
                 raise EvidenceError("regime identifiability audit must be a JSON object")
             regime_audit = dict(payload)
+        for argument, current, label in (
+            (args.reserve_qualification_audit, reserve_qualification_audit,
+             "reserve qualification audit"),
+            (args.reserve_calibration_audit, reserve_calibration_audit,
+             "reserve calibration audit"),
+            (args.reserve_red_team_audit, reserve_red_team_audit,
+             "reserve red-team audit"),
+        ):
+            if not argument:
+                continue
+            if current is not None:
+                raise EvidenceError(f"{label} was supplied more than once")
+            payload = json.loads(Path(argument).read_text())
+            if not isinstance(payload, Mapping):
+                raise EvidenceError(f"{label} must be a JSON object")
+            if label == "reserve qualification audit":
+                reserve_qualification_audit = dict(payload)
+            elif label == "reserve calibration audit":
+                reserve_calibration_audit = dict(payload)
+            else:
+                reserve_red_team_audit = dict(payload)
         bars = calibrate_composite_bars(
             references,
             replicates if replicates else None,
             controls,
+            development_diagnostic_reports=diagnostics,
             elder_reconstruction_audit=elder_audit,
             regime_identifiability_audit=regime_audit,
+            reserve_qualification_audit=reserve_qualification_audit,
+            reserve_calibration_audit=reserve_calibration_audit,
+            reserve_red_team_audit=reserve_red_team_audit,
             expected_qualification_worlds=args.qualification_world_count,
             graded_world_count=args.graded_world_count,
         )
