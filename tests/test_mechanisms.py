@@ -14,6 +14,7 @@ and that what replaced it is estimable from files the participant receives.
 """
 
 import itertools
+import json
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from meridia.events import EVENT_TYPES, replay_event_history
 from meridia.mechanisms import (COEFFICIENT_RANGES, DEVELOPMENT_BAND, DEVELOPMENT_DESIGN,
+                                ELIGIBILITY_MIN_CORRELATION,
                                 HIDDEN_LEVEL_PATTERNS, N_HIDDEN_OUTSIDE_AXES,
                                 MECHANISM_AXES,
                                 N_DEVELOPMENT_CELLS, OUTSIDE_ELIGIBLE_AXES,
@@ -558,10 +560,10 @@ def test_only_an_anchored_axis_leaves_the_development_band():
 
     An axis may be pushed past the development band once a statistic on the participant
     files tracks its realized intensity across worlds. Five of the six do.
-    ``missingness_target_dependence`` reads +0.14 against its realized value on eighteen
-    worlds, because the survey anchor's own sampling error at this world size is wider
-    than the gradient it has to resolve, so it stays inside the band a method can see on
-    the open worlds.
+    ``missingness_target_dependence`` reads -0.182 against its realized value on the
+    committed thirty worlds, because the survey anchor's own sampling error at this world
+    size is wider than the gradient it has to resolve, so it stays inside the band a
+    method can see on the open worlds.
     """
     assert "missingness_target_dependence" not in OUTSIDE_ELIGIBLE_AXES
     assert set(OUTSIDE_ELIGIBLE_AXES) < set(MECHANISM_AXES)
@@ -579,3 +581,39 @@ def test_only_an_anchored_axis_leaves_the_development_band():
     assert block["outside_eligible_axes"] == list(OUTSIDE_ELIGIBLE_AXES)
     assert block["n_outside_axes"] == N_HIDDEN_OUTSIDE_AXES
     assert "outside_eligible_axes" in block["outside_rule"]
+
+
+def test_the_eligible_axes_are_the_ones_the_measurement_clears():
+    """The list is held to the reading, and the reading is an interval.
+
+    Membership of ``OUTSIDE_ELIGIBLE_AXES`` decides how hard an evaluation world is
+    allowed to be, and until the bar was written down it was decided by a point estimate
+    whose own spread covered the line it was judged against. The bar is now a number, the
+    reading is a resampled interval in ``measurements/identifiability_v4.json``, and this
+    recomputes the verdict from the two rather than trusting either. An axis whose
+    interval covers the bar is undecided and stays inside the band, so the list can only
+    hold axes the measurement resolves.
+    """
+    record = json.loads(
+        (Path(__file__).resolve().parents[1] / "measurements"
+         / "identifiability_v4.json").read_text())
+    eligible, refused, undecided = [], [], []
+    for axis in MECHANISM_AXES:
+        low, high = record["axes"][axis]["pooled_interval"]
+        if low >= ELIGIBILITY_MIN_CORRELATION:
+            eligible.append(axis)
+        elif high < ELIGIBILITY_MIN_CORRELATION:
+            refused.append(axis)
+        else:
+            undecided.append(axis)
+    assert tuple(eligible) == OUTSIDE_ELIGIBLE_AXES
+    assert refused == ["missingness_target_dependence"]
+    assert undecided == []
+    assert set(OUTSIDE_ELIGIBLE_AXES).isdisjoint(refused + undecided)
+
+    # The bar is where a reading stops being one no ordering at all reproduces. Under
+    # independence a rank correlation over thirty worlds has a standard deviation of one
+    # over the square root of twenty-nine, and the bar is about one and a half of those.
+    null_spread = 1.0 / np.sqrt(len(record["worlds"]["development_seeds"])
+                                + len(record["worlds"]["hidden_seeds"]) - 1)
+    assert 1.4 <= ELIGIBILITY_MIN_CORRELATION / null_spread <= 1.8

@@ -21,17 +21,41 @@ One statistic per axis, all from files the agent receives:
                               health archive's admission rate and the anchor's,
                               corrected for its declared error
 
-Run it on development and qualification worlds. Graded worlds are not opened.
+Run it on development and hidden measurement worlds. Graded worlds are not opened.
+
+``--record`` writes the reading as a file the tree keeps: the seed set it was taken on,
+the world size, the six signed rank correlations, and a resampled interval for each. The
+seeds are the point. A correlation over thirty worlds is a claim about thirty definite
+worlds, every figure moves with which hidden worlds were drawn, and a set that lives only
+in one run is a claim no reader can rebuild. ``scripts/build_v4_worlds.py --family
+identifiability`` builds exactly the set the record names.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# Draws in the resample, and the ends of the interval it reports. The seed is fixed so
+# the record is a function of the worlds and not of the run.
+RESAMPLE_DRAWS = 2000
+RESAMPLE_ENDS = (5.0, 95.0)
+RESAMPLE_SEED = 20260903
+RECORD_SCHEMA = "meridia.identifiability.v1"
+
+
+def builder():
+    """The world-set builder, which is where the measurement's seeds are committed."""
+    path = Path(__file__).resolve().parent / "build_v4_worlds.py"
+    spec = importlib.util.spec_from_file_location("build_v4_worlds", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 AXES = ("mortality_improvement", "migration_age_pattern", "age_reporting_error",
         "linkage_urban_gradient", "administrative_completeness",
@@ -243,10 +267,92 @@ def statistics(packet: Path) -> dict:
     return out
 
 
+def signed_correlation(truth: np.ndarray, read: np.ndarray, axis: str) -> float:
+    """Rank correlation of one statistic with the intensity it reads, in the sign the
+    mechanism implies."""
+    truth, read = np.asarray(truth, dtype=np.float64), np.asarray(read, dtype=np.float64)
+    keep = np.isfinite(truth) & np.isfinite(read)
+    if keep.sum() <= 2:
+        return float("nan")
+    rho = float(np.corrcoef(_rank01(truth[keep]), _rank01(read[keep]))[0, 1])
+    return rho * EXPECTED_SIGN[axis]
+
+
+def resampled_interval(truth: np.ndarray, read: np.ndarray, axis: str,
+                       draws: int = RESAMPLE_DRAWS) -> tuple[float, float]:
+    """Where the reading would have landed had the worlds been drawn again.
+
+    The worlds are resampled with replacement and the correlation is retaken on each
+    draw. This is the spread the reading carries as a reading of the family, and it is
+    the quantity a decision about an axis has to clear, because a point estimate from
+    thirty worlds says nothing about how far the next thirty would move it. A resample
+    repeats worlds, so its ranks carry ties the original does not, and the interval it
+    gives is a little wider than the family's own.
+    """
+    truth, read = np.asarray(truth, dtype=np.float64), np.asarray(read, dtype=np.float64)
+    keep = np.isfinite(truth) & np.isfinite(read)
+    truth, read = truth[keep], read[keep]
+    if len(truth) <= 2:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(RESAMPLE_SEED)
+    values = []
+    for _ in range(int(draws)):
+        index = rng.integers(0, len(truth), len(truth))
+        if np.ptp(truth[index]) == 0 or np.ptp(read[index]) == 0:
+            continue
+        values.append(signed_correlation(truth[index], read[index], axis))
+    low, high = np.percentile(np.asarray(values, dtype=np.float64), list(RESAMPLE_ENDS))
+    return float(low), float(high)
+
+
+def measurement_record(frame: pd.DataFrame) -> dict:
+    """The reading as a file: the worlds it was taken on and what each axis read."""
+    build = builder()
+    world = build.WORLD
+    axes = {}
+    for axis in AXES:
+        truth = frame[f"true_{axis}"].to_numpy()
+        read = frame[f"read_{axis}"].to_numpy()
+        hidden = frame["regime"] == "hidden"
+        low, high = resampled_interval(truth, read, axis)
+        hidden_low, hidden_high = resampled_interval(truth[hidden], read[hidden], axis)
+        axes[axis] = {
+            "statistic": STATISTIC[axis],
+            "expected_sign": int(EXPECTED_SIGN[axis]),
+            "pooled": round(signed_correlation(truth, read, axis), 3),
+            "within_development": round(
+                signed_correlation(truth[~hidden], read[~hidden], axis), 3),
+            "within_hidden": round(signed_correlation(truth[hidden], read[hidden], axis), 3),
+            "pooled_interval": [round(low, 3), round(high, 3)],
+            "hidden_interval": [round(hidden_low, 3), round(hidden_high, 3)],
+            "intensity_spread": [round(float(np.nanmin(truth)), 3),
+                                 round(float(np.nanmax(truth)), 3)],
+        }
+    return {
+        "schema": RECORD_SCHEMA,
+        "worlds": {
+            "development_seeds": list(build.DEVELOPMENT_SEEDS),
+            "hidden_seeds": list(build.IDENTIFIABILITY_HIDDEN_SEEDS),
+            "grid": list(world.grid),
+            "total": int(world.total),
+            "n_states": int(world.n_states),
+            "observed_months": int(world.observed_months),
+            "horizon_months": int(world.horizon_months),
+            "ensemble_members": int(build.IDENTIFIABILITY_MEMBERS),
+            "build": "scripts/build_v4_worlds.py --family identifiability",
+        },
+        "resample": {"draws": RESAMPLE_DRAWS, "ends": list(RESAMPLE_ENDS),
+                     "seed": RESAMPLE_SEED, "unit": "world, with replacement"},
+        "axes": axes,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--packets", nargs="+", required=True)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--record", default=None,
+                    help="write the reading, and the seed set it was taken on, as JSON")
     args = ap.parse_args()
     rows = []
     for path in args.packets:
@@ -310,6 +416,9 @@ def main() -> None:
     if args.out:
         Path(args.out).write_text(text)
         frame.to_csv(Path(args.out).with_suffix(".csv"), index=False)
+    if args.record:
+        Path(args.record).write_text(
+            json.dumps(measurement_record(frame), indent=1, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

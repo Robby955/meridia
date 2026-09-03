@@ -1514,22 +1514,36 @@ Thirty worlds, built at the committed geometry: 96 by 128 cells, 60,000 persons,
 counties, 6 states, 180 ledger months, one world per row of the twelve-run design plus
 eighteen hidden-regime worlds. The continuation ensemble is cut to eight members, which is
 the whole cost of a packet and enters none of the six statistics, so the worlds are the
-committed object and the measurement runs in ninety seconds rather than four hours. The
-same thirty seeds were built on the phase-two tree for the comparison.
+committed object and the measurement runs in minutes rather than hours.
+
+The thirty seeds are committed, because a correlation over thirty worlds is a claim about
+thirty definite worlds and a set that lives only in one run is a claim no reader can
+rebuild. The twelve development seeds are 1101 to 1112 and the eighteen hidden seeds are
+4101 to 4118, both in `scripts/build_v4_worlds.py`. `--family identifiability` builds the
+set, `scripts/identifiability_v4.py --record` writes the reading and the seed set it was
+taken on to `measurements/identifiability_v4.json`, and `tests/test_identifiability_v4.py`
+holds the figures below to that file. Nothing is graded on these worlds and no threshold is
+frozen on them.
+
+An earlier version of this section reported six pooled figures taken on eighteen hidden
+worlds whose seeds were recorded nowhere. Its development-side figures rebuild exactly, and
+every pooled figure moves with the hidden draw, so the pooled six could not be checked
+against anything. The figures here replace them.
 
 `scripts/identifiability_v4.py`, signed rank correlation of each axis's statistic with its
-realized intensity, phase two in brackets:
+realized intensity, with the resampled interval in brackets beside it:
 
-    mortality_improvement            +0.491  [+0.464]
-    migration_age_pattern            +0.270  [+0.269]
-    age_reporting_error              +0.604  [+0.527]
-    linkage_urban_gradient           +0.774  [+0.755]
-    administrative_completeness      +0.859  [+0.157]
-    missingness_target_dependence    -0.004  [+0.134]
+    mortality_improvement            +0.754   [+0.554, +0.886]
+    migration_age_pattern            +0.599   [+0.331, +0.808]
+    age_reporting_error              +0.664   [+0.425, +0.814]
+    linkage_urban_gradient           +0.879   [+0.757, +0.920]
+    administrative_completeness      +0.640   [+0.408, +0.795]
+    missingness_target_dependence    -0.182   [-0.519, +0.166]
 
-The phase-two rebuild reported +0.50 and +0.53 for the first two axes on eighteen worlds.
-On thirty they read +0.46 and +0.27 on the same tree, so the second of those was small
-sample luck and not something this pass cost.
+The interval is the fifth to the ninety-fifth percentile of the reading over two thousand
+resamples of the thirty worlds, drawn with replacement. A reader needs it to compare a
+figure against anything, because a point estimate over thirty worlds says nothing about how
+far the next thirty would move it, and the widest of these six spans about seven tenths.
 
 #### The completeness axis gets the anchor protocol section 3 already lists
 
@@ -1552,8 +1566,8 @@ coverage moves by about two percent per band across the gradient, so a per-band 
 state spread would be the whole signal.
 
 Register persons over published persons, band by band, is then the gradient with nothing in
-between. The axis reads +0.859 pooled, +0.699 within the development worlds and +0.853
-within the hidden ones.
+between. The axis reads +0.640 pooled on the committed set, +0.699 within the development
+worlds and +0.618 within the hidden ones, with a resampled interval from 0.408 to 0.795.
 
 Nothing scored is handed over. The subgroup cuts across the states and counties the release
 is scored at, and four biased totals over eighteen counties do not place a county.
@@ -1572,8 +1586,11 @@ unit between a child and a person of eighty, so at the raw slope an axis in the 
 its band moved the inclusion share by six points across the whole age range. The slope is
 now scaled by two and the resulting shift is capped at plus or minus two logits, which keeps
 the far tail of the burden distribution from driving an inclusion probability to zero or
-one, a case protocol section 10 refuses. Against the retained truth on the thirty worlds the
-realized gradient now tracks the axis at +0.66 where it read +0.38 before.
+one, a case protocol section 10 refuses. The mechanism does leave a mark in the retained
+truth: the count-weighted slope of the log odds of the archive's retained share across the
+six actuarial age bands, in `retained/health_inclusion_truth.csv`, ranks with the realized
+coefficient at +0.59 over the committed set. Twenty-nine of the thirty worlds enter it; the
+remaining one has no archived admission in its oldest band.
 
 The statistic is a gradient rather than a level. The national gap between the archive's
 admission rate and the anchor's reads how much the source retains overall, which is a
@@ -1584,12 +1601,27 @@ over the two snapshots. `contract.json` states the comparison.
 
 The anchor still cannot resolve it. At about four thousand respondents the sampling error of
 one age group's admission rate is near seven percent and the whole gradient is near ten, so
-the statistic reads -0.004. A two-year anchor window was tried for exactly this reason,
-since doubling the rate cuts the error of the estimate, and it made the trace worse: nearly
-everyone frail enough to be admitted at all is admitted inside two years, so the wider
-window thins the very contrast being read. Raising the item's declared sensitivity and
-specificity was tried and reverted, because it buys a sharper anchor by softening a declared
-difficulty and it did not close the gap either.
+the statistic reads -0.182 on the committed set, with a resampled interval from -0.519 to
++0.166. A two-year anchor window was tried for exactly this reason, since doubling the rate
+cuts the error of the estimate, and it made the trace worse: nearly everyone frail enough to
+be admitted at all is admitted inside two years, so the wider window thins the very contrast
+being read. Raising the item's declared sensitivity and specificity was tried and reverted,
+because it buys a sharper anchor by softening a declared difficulty and it did not close the
+gap either.
+
+The bar that decides this is now a number in the tree, `ELIGIBILITY_MIN_CORRELATION` at
+`meridia/mechanisms.py`. Under no ordering at all a signed rank correlation over thirty
+worlds has a standard deviation of one over the square root of twenty-nine, which is 0.186,
+so a reading below about 0.30 is one a coin reproduces on this many worlds. An axis is
+eligible when the low end of its resampled interval is at or above 0.30, refused when the
+high end is below it, and held inside the band when the interval covers it, because listing
+an axis is the direction that makes a world harder for a reason no anchor reaches. Five axes
+clear the bar and the closest of them, `migration_age_pattern`, has a low end of 0.331. The
+whole interval of `missingness_target_dependence` is below the bar, so it is refused rather
+than undecided, and a decision that used to rest on one point estimate of -0.004 now rests
+on where the interval sits. `tests/test_mechanisms.py` recomputes the verdict from
+`measurements/identifiability_v4.json` and the bar, so the list cannot drift from the
+measurement without a test failing.
 
 So the axis is held inside the development band on evaluation worlds.
 `mechanisms.OUTSIDE_ELIGIBLE_AXES` is the list of axes a hidden world may push past the
@@ -1597,7 +1629,7 @@ band, it holds the other five, and the contract publishes it beside the rule. Th
 still runs and still recombines into a joint configuration the design does not spend, and
 the axis's realized coefficient still leaves the band, because the declared interaction with
 `administrative_completeness` scales it and that axis is anchored: over the eighteen hidden
-worlds the realized coefficient runs 0.263 to 2.103 against a band of 0.20 to 1.30.
+worlds the realized coefficient runs 0.157 to 1.738 against a band of 0.20 to 1.30.
 
 Development packets ship `truth/health_inclusion_truth.csv`, the archive's realized share of
 each age band's admissions. The worlds a method may tune on therefore show the quantity the

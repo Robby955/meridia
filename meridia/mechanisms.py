@@ -141,25 +141,42 @@ N_DEVELOPMENT_CELLS: Final = int(DEVELOPMENT_DESIGN.shape[0])
 # rather than a quantity a method has to estimate.
 N_HIDDEN_OUTSIDE_AXES: Final = 2
 
-# Which axes an evaluation world may push past the development band. Protocol section 10
-# refuses a regime whose difficulty comes from something no supplied anchor reaches, so an
-# axis is eligible only once a statistic on the participant files tracks its realized
-# intensity. Five of the six do. ``missingness_target_dependence`` does not, and it is
-# held inside the development band until it does.
+# Which axes an evaluation world may push past the development band, and the bar an axis
+# clears to get there. Protocol section 10 refuses a regime whose difficulty comes from
+# something no supplied anchor reaches, so an axis is eligible only once a statistic on the
+# participant files tracks its realized intensity across worlds.
+#
+# The bar is a number and the reading is an interval. Under no ordering at all a signed
+# rank correlation over thirty worlds has a standard deviation of one over the square root
+# of twenty-nine, which is 0.186, so a reading below about 0.30 is a reading a coin
+# reproduces. An axis is eligible when the low end of its resampled interval is at or above
+# that bar, so the whole interval sits clear of no ordering; it is refused when the high end
+# is below the bar; and an axis whose interval covers the bar is undecided and is held
+# inside the band, because listing it is the direction that makes a world harder for a
+# reason no anchor reaches. The reading, the worlds it was taken on and the interval of each
+# axis are in `measurements/identifiability_v4.json`, and
+# `tests/test_identifiability_v4.py` holds the list below to it.
+#
+# On the committed thirty-world set five axes clear the bar and the closest of them,
+# `migration_age_pattern`, reads 0.599 with an interval from 0.331.
+# `missingness_target_dependence` reads -0.182 with an interval from -0.519 to 0.166, which
+# is entirely below the bar, so it is refused rather than undecided.
 #
 # What was tried for it, all against the survey admission item and the health archive,
 # which is the anchor protocol section 3 gives that mechanism. The national gap between
 # the archive's admission rate and the anchor's reads how much the source retains overall
 # rather than the gradient, at -0.02 over twenty-one worlds. Comparing the two rates band
 # by band removes the level, and the realized inclusion gradient it targets does track the
-# axis: measured against the retained truth on eighteen worlds it reads +0.66 once the
-# frailty term carries the scale the source layer now gives it. The anchor cannot resolve
-# it. At four thousand respondents the sampling error of one age group's admission rate is
-# about seven percent and the whole gradient is about ten, so the statistic reads +0.14. A
+# axis: the count-weighted slope of the log odds of the archive's retained share across the
+# six actuarial age bands ranks with the realized coefficient at +0.59 over the committed
+# thirty worlds, once the frailty term carries the scale the source layer now gives it.
+# The anchor cannot resolve it. At four thousand respondents the sampling error of one age
+# group's admission rate is about seven percent and the whole gradient is about ten. A
 # two-year anchor window was tried for the same reason and made it worse, because nearly
-# everyone frail enough to be admitted at all is admitted inside two years. This is the
-# world size talking, the same wall the mortality trend hit, and it is recorded rather
-# than papered over with an axis a method is asked to read off nothing.
+# everyone frail enough to be admitted at all is admitted inside two years. This is the world size talking, the same
+# wall the mortality trend hit, and it is recorded rather than papered over with an axis a
+# method is asked to read off nothing.
+ELIGIBILITY_MIN_CORRELATION: Final = 0.30
 OUTSIDE_ELIGIBLE_AXES: Final = tuple(
     axis for axis in MECHANISM_AXES if axis != "missingness_target_dependence")
 

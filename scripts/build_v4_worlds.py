@@ -8,6 +8,9 @@ them.
   seeds are committed here.
 - ``qualification``: six worlds under the hidden source regime, minted before any graded
   world. Thresholds are frozen on these and on nothing else.
+- ``identifiability``: the twelve development worlds and the eighteen hidden worlds the
+  identifiability measurement is read against, built with a short continuation ensemble.
+  Their seeds are committed, nothing is graded on them, and no bar is frozen on them.
 - ``graded``: independent worlds under the hidden source regime, minted after the
   thresholds are frozen and never read back into them. Their seeds are read from a sealed
   file outside the repository and are never printed, written into a packet, or committed.
@@ -44,6 +47,19 @@ WORLD = GRADING_WORLD
 DEVELOPMENT_SEEDS = tuple(1101 + i for i in range(len(DEVELOPMENT_DESIGN)))
 QUALIFICATION_SEEDS = (2101, 2102, 2103, 2104, 2105, 2106)
 
+# The eighteen hidden-regime worlds the identifiability measurement is read against, and
+# the size of the continuation ensemble that measurement builds them at. Nothing is
+# graded on these worlds and no bar is frozen on them, so their seeds are committed here:
+# the six pooled correlations in the decisions record are a claim about a definite set of
+# worlds, and a set that lives only in one run is a claim a reader cannot check. The
+# values sit clear of the development band at 1101, the qualification band at 2101 and
+# the three burned values 3101 to 3103. A graded seed is a sixty-three bit digest of the
+# master secret, so no small committed value can name a graded world.
+IDENTIFIABILITY_HIDDEN_SEEDS = tuple(4101 + i for i in range(18))
+# The ensemble enters none of the six statistics and is the whole cost of a packet, so the
+# measurement builds the committed world with a short one.
+IDENTIFIABILITY_MEMBERS = 8
+
 # The sealed file holding the graded seeds, one JSON list of integers. It lives outside
 # the repository so that a clone carries the surface without carrying the worlds it is
 # graded on. Override with MERIDIA_GRADED_SEED_FILE.
@@ -78,6 +94,19 @@ def family_plan(family: str, graded_seed_file: Path | None = None) -> list[dict]
                  "params": PacketParams(**{**WORLD.__dict__, "design_cell": cell}),
                  "development": True, "public_seed": True}
                 for cell, seed in enumerate(DEVELOPMENT_SEEDS)]
+    if family == "identifiability":
+        members = {"ensemble_members": IDENTIFIABILITY_MEMBERS}
+        development = [
+            {"name": f"ident-dev-{cell:02d}", "seed": seed,
+             "params": PacketParams(**{**WORLD.__dict__, "design_cell": cell, **members}),
+             "development": True, "public_seed": True}
+            for cell, seed in enumerate(DEVELOPMENT_SEEDS)]
+        hidden = [
+            {"name": f"ident-hidden-{i:02d}", "seed": seed,
+             "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden", **members}),
+             "development": False, "public_seed": False}
+            for i, seed in enumerate(IDENTIFIABILITY_HIDDEN_SEEDS)]
+        return development + hidden
     if family == "qualification":
         return [{"name": f"qual-{i}", "seed": seed,
                  "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden"}),
@@ -92,6 +121,10 @@ def family_plan(family: str, graded_seed_file: Path | None = None) -> list[dict]
 
 
 FAMILIES = ("development", "qualification", "graded")
+# Built on request and never part of ``--family all``: the measurement set is not a world
+# a method is handed or graded on, and rebuilding it costs the same as rebuilding the
+# committed set.
+BUILDABLE = FAMILIES + ("identifiability",)
 
 
 def progress_line(family: str, entry: dict, n_files: int, seconds: float) -> str:
@@ -121,7 +154,7 @@ def build_one(job: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--family", default="all", choices=("all",) + FAMILIES)
+    parser.add_argument("--family", default="all", choices=("all",) + BUILDABLE)
     parser.add_argument("--workers", type=int, default=1,
                         help="processes inside one world's continuation ensemble")
     parser.add_argument("--world-workers", type=int, default=1,
