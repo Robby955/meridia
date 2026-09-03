@@ -9,10 +9,12 @@ them.
 - ``qualification``: six worlds under the hidden source regime, minted before any graded
   world. Thresholds are frozen on these and on nothing else.
 - ``graded``: independent worlds under the hidden source regime, minted after the
-  thresholds are frozen and never read back into them. Their seeds are read from a sealed
-  file outside the repository and are never printed, written into a packet, or committed.
-  A world's whole configuration follows from its seed, so a graded seed in the tree is
-  the graded configuration in the tree.
+  thresholds are frozen and never read back into them. Their seeds are derived from a
+  keyed V4 seal only after the frozen-bar and reserve-rate receipts authenticate both the
+  seal and the exact hidden packet law. They are never printed, written to the participant
+  packet, or committed. A seed remains in retained metadata needed to authenticate the
+  sealed packet. A world's whole configuration follows from its seed, so a graded seed in
+  the participant tree or a build log would disclose the graded configuration.
 
 Every packet is a deterministic function of its seed and the shared parameters. Two
 flags divide the work and neither changes the output. ``--workers`` divides one world's
@@ -30,48 +32,60 @@ reads takes the futures off the shelf instead of paying for them again.
 from __future__ import annotations
 
 import argparse
-import json
-import os
+import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from meridia.graded_readiness import validate_graded_readiness
 from meridia.mechanisms import DEVELOPMENT_DESIGN
-from meridia.packet import GRADING_WORLD, PacketParams, build_packet
+from meridia.packet import (
+    GRADING_WORLD,
+    PacketParams,
+    _finalize_packet_build_intent,
+    build_packet,
+    validate_packet_directory,
+)
+from meridia.sealing import (V4PublicationAuthorization, V4WorldAuthorization,
+                             verify_and_derive_v4_seed)
 
 WORLD = GRADING_WORLD
 
 DEVELOPMENT_SEEDS = tuple(1101 + i for i in range(len(DEVELOPMENT_DESIGN)))
 QUALIFICATION_SEEDS = (2101, 2102, 2103, 2104, 2105, 2106)
-
-# The sealed file holding the graded seeds, one JSON list of integers. It lives outside
-# the repository so that a clone carries the surface without carrying the worlds it is
-# graded on. Override with MERIDIA_GRADED_SEED_FILE.
-GRADED_SEED_FILE = Path(
-    os.environ.get("MERIDIA_GRADED_SEED_FILE",
-                   Path.home() / ".config" / "meridia" / "v4_graded_seeds.json")
-).expanduser()
+GRADED_AUTHORIZATION_FIELDS = {
+    "bars_path",
+    "reserve_calibration_path",
+    "seal_manifest_path",
+    "key_path",
+}
 
 
-def graded_seeds(path: Path | None = None) -> tuple[int, ...]:
-    """The graded seeds, read from the sealed file. Never logged and never committed."""
-    source = Path(path) if path is not None else GRADED_SEED_FILE
-    if not source.is_file():
-        raise FileNotFoundError(
-            f"the graded seed file is missing at {source}. Write a JSON list of "
-            "integers there, or point MERIDIA_GRADED_SEED_FILE at it. It stays outside "
-            "the repository."
-        )
-    values = json.loads(source.read_text())
-    if not isinstance(values, list) or not values or not all(
-            isinstance(v, int) and not isinstance(v, bool) for v in values):
-        raise ValueError(f"{source} must hold a non-empty JSON list of integers")
-    if len(set(values)) != len(values):
-        raise ValueError(f"{source} repeats a seed")
-    return tuple(int(v) for v in values)
+def _authorization_paths(
+    bars_path: Path,
+    reserve_calibration_path: Path,
+    seal_manifest_path: Path,
+    key_path: Path,
+) -> dict[str, str]:
+    """Serializable paths a worker must revalidate; none contains seed material."""
+    return {
+        "bars_path": str(Path(bars_path)),
+        "reserve_calibration_path": str(Path(reserve_calibration_path)),
+        "seal_manifest_path": str(Path(seal_manifest_path)),
+        "key_path": str(Path(key_path)),
+    }
 
 
-def family_plan(family: str, graded_seed_file: Path | None = None) -> list[dict]:
+def family_plan(
+    family: str,
+    *,
+    bars_path: Path | None = None,
+    reserve_calibration_path: Path | None = None,
+    seal_manifest_path: Path | None = None,
+    key_path: Path | None = None,
+) -> list[dict]:
     """The worlds of one family, with the parameters each is built under."""
     if family == "development":
         return [{"name": f"dev-{cell:02d}", "seed": seed,
@@ -84,58 +98,251 @@ def family_plan(family: str, graded_seed_file: Path | None = None) -> list[dict]
                  "development": False, "public_seed": False}
                 for i, seed in enumerate(QUALIFICATION_SEEDS)]
     if family == "graded":
-        return [{"name": f"graded-{i}", "seed": seed,
-                 "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden"}),
+        if any(path is None for path in (
+            bars_path,
+            reserve_calibration_path,
+            seal_manifest_path,
+            key_path,
+        )):
+            raise ValueError(
+                "graded worlds require bars, reserve calibration, a V4 seal, and its key"
+            )
+        params = PacketParams(**{**WORLD.__dict__, "regime": "hidden"})
+        # This validation is deliberately inside the public planning API, not just its
+        # CLI caller. No seal or key read is permitted before it succeeds.
+        readiness = validate_graded_readiness(
+            Path(bars_path),
+            Path(reserve_calibration_path),
+            expected_rate_per_person_year=params.reserve_rate_per_person_year,
+        )
+        authorizations = []
+        for index in range(readiness.graded_world_count):
+            authorizations.append(verify_and_derive_v4_seed(
+                index,
+                Path(seal_manifest_path),
+                Path(key_path),
+                params=params,
+                readiness=readiness,
+            ))
+        bindings = {authorization.binding_sha256 for authorization in authorizations}
+        if len(bindings) != 1:
+            raise RuntimeError("V4 seal changed while the graded plan was authorized")
+        return [{"name": f"graded-{index}",
+                 "index": index,
+                 "authorization_binding_sha256": authorization.binding_sha256,
+                 "params": params,
                  "development": False, "public_seed": False}
-                for i, seed in enumerate(graded_seeds(graded_seed_file))]
+                for index, authorization in enumerate(authorizations)]
     raise ValueError(f"unknown world family {family!r}")
 
 
 FAMILIES = ("development", "qualification", "graded")
 
 
+def positive_integer(value: str) -> int:
+    """An argparse type for a nonzero process count."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _worker_count(value: object, label: str) -> int:
+    """Validate process counts supplied through the Python API as strictly as the CLI."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
 def progress_line(family: str, entry: dict, n_files: int, seconds: float) -> str:
     """One line of build log. A seed reaches it only for the worlds a method may tune on."""
-    named = f"seed {entry['seed']} " if entry["public_seed"] else ""
+    # The family, not caller-supplied entry metadata, is the disclosure boundary. This
+    # prevents a malformed or hand-built graded job from opting its seed into a log.
+    named = f"seed {entry['seed']} " if family == "development" else ""
     return f"{family}/{entry['name']}: {named}files {n_files} {seconds:.0f}s"
+
+
+def _authorize_graded_job(job: dict, entry: dict) -> V4WorldAuthorization:
+    """Revalidate every graded-build authority inside the worker process."""
+    expected_entry_fields = {
+        "name",
+        "index",
+        "authorization_binding_sha256",
+        "params",
+        "development",
+        "public_seed",
+    }
+    if not isinstance(entry, dict) or set(entry) != expected_entry_fields \
+            or isinstance(entry.get("index"), bool) \
+            or not isinstance(entry.get("index"), int) \
+            or entry.get("index") < 0 \
+            or entry.get("name") != f"graded-{entry.get('index')}" \
+            or not isinstance(entry.get("authorization_binding_sha256"), str) \
+            or len(entry.get("authorization_binding_sha256")) != 64 \
+            or not set(entry.get("authorization_binding_sha256")) \
+            <= set("0123456789abcdef") \
+            or entry.get("development") is not False \
+            or entry.get("public_seed") is not False:
+        raise ValueError("graded job entry is not a canonical sealed-world entry")
+    paths = job.get("graded_authorization")
+    if not isinstance(paths, dict) or set(paths) != GRADED_AUTHORIZATION_FIELDS:
+        raise ValueError("graded job lacks complete freeze and seal authorization")
+    params = entry["params"]
+    if not isinstance(params, PacketParams):
+        raise ValueError("graded job parameters are malformed")
+    readiness = validate_graded_readiness(
+        Path(paths["bars_path"]),
+        Path(paths["reserve_calibration_path"]),
+        expected_rate_per_person_year=params.reserve_rate_per_person_year,
+    )
+    authorization = verify_and_derive_v4_seed(
+        entry["index"],
+        Path(paths["seal_manifest_path"]),
+        Path(paths["key_path"]),
+        params=params,
+        readiness=readiness,
+    )
+    if authorization.binding_sha256 != entry["authorization_binding_sha256"]:
+        raise RuntimeError("graded authorization differs from the approved build plan")
+    return authorization
+
+
+def _graded_publication_authority(
+    before: V4WorldAuthorization,
+    job: dict,
+    entry: dict,
+) -> V4PublicationAuthorization:
+    paths = job["graded_authorization"]
+    return V4PublicationAuthorization(
+        before=before,
+        index=entry["index"],
+        seal_manifest_path=Path(paths["seal_manifest_path"]),
+        key_path=Path(paths["key_path"]),
+        bars_path=Path(paths["bars_path"]),
+        reserve_calibration_path=Path(paths["reserve_calibration_path"]),
+    )
 
 
 def build_one(job: dict) -> str:
     """Build one world and return its log line. Runs in this process or a worker."""
     family, entry = job["family"], job["entry"]
+    workers = _worker_count(job.get("workers"), "workers")
+    world_workers = _worker_count(job.get("world_workers", 1), "world_workers")
+    if workers > 1 and world_workers > 1:
+        raise ValueError("workers and world_workers cannot both exceed one")
+    if family not in FAMILIES:
+        raise ValueError(f"unknown world family {family!r}")
+    authorization = _authorize_graded_job(job, entry) if family == "graded" else None
+    seed = authorization.seed if authorization is not None else entry["seed"]
+    publication_authority = (
+        _graded_publication_authority(authorization, job, entry)
+        if authorization is not None else None
+    )
     directory = Path(job["out"]) / family / entry["name"]
     if directory.exists():
+        validate_packet_directory(
+            directory,
+            expected_packet_class=family,
+            expected_params=entry["params"],
+            expected_seed=seed,
+        )
+        if publication_authority is not None:
+            publication_authority.confirm(seed=seed, params=entry["params"])
+        _finalize_packet_build_intent(
+            directory,
+            seed=seed,
+            params=entry["params"],
+            packet_class=family,
+            development=entry["development"],
+            graded_authorization=publication_authority,
+        )
         return f"{family}/{entry['name']}: already built"
     start = time.time()
-    manifest = build_packet(entry["seed"], directory, entry["params"],
-                            development=entry["development"],
-                            workers=job["workers"],
-                            cache_dir=Path(job["cache"]) if job["cache"] else None)
+    build_packet(
+        seed,
+        directory,
+        entry["params"],
+        development=entry["development"],
+        workers=workers,
+        cache_dir=Path(job["cache"]) if job.get("cache") else None,
+        packet_class=family,
+        graded_authorization=publication_authority,
+    )
+    manifest = validate_packet_directory(
+        directory,
+        expected_packet_class=family,
+        expected_params=entry["params"],
+        expected_seed=seed,
+    )
     if manifest["development"] != entry["development"]:
         raise RuntimeError(f"{family}/{entry['name']} was written on the wrong side")
-    digest = json.loads((directory / "manifest.json").read_text())
-    n_files = len(digest["participant"]) + len(digest["retained"])
+    n_files = len(manifest["participant"]) + len(manifest["retained"])
     return progress_line(family, entry, n_files, time.time() - start)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--family", default="all", choices=("all",) + FAMILIES)
-    parser.add_argument("--workers", type=int, default=1,
+    parser.add_argument("--family", required=True, choices=FAMILIES)
+    parser.add_argument("--workers", type=positive_integer, default=1,
                         help="processes inside one world's continuation ensemble")
-    parser.add_argument("--world-workers", type=int, default=1,
+    parser.add_argument("--world-workers", type=positive_integer, default=1,
                         help="worlds built at once, each on its own process")
     parser.add_argument("--cache", type=Path, default=None,
                         help="directory of continuation ensembles, keyed on the "
                              "baseline ledger digest")
+    parser.add_argument("--bars", type=Path,
+                        help="frozen composite-bar receipt (required for graded)")
+    parser.add_argument(
+        "--reserve-calibration-audit",
+        type=Path,
+        help="accepted reserve-rate audit frozen into the bars (required for graded)",
+    )
+    parser.add_argument("--seal-manifest", type=Path,
+                        help="params-aware V4 seal manifest (required for graded)")
+    parser.add_argument("--key", type=Path,
+                        help="master key for the V4 seal (required for graded)")
     args = parser.parse_args()
-    families = list(FAMILIES) if args.family == "all" else [args.family]
+    if args.workers > 1 and args.world_workers > 1:
+        parser.error("--workers and --world-workers cannot both exceed one")
+
+    if args.family == "graded":
+        if any(value is None for value in (
+            args.bars,
+            args.reserve_calibration_audit,
+            args.seal_manifest,
+            args.key,
+        )):
+            parser.error(
+                "graded builds require --bars, --reserve-calibration-audit, "
+                "--seal-manifest, and --key"
+            )
+    plan = family_plan(
+        args.family,
+        bars_path=args.bars,
+        reserve_calibration_path=args.reserve_calibration_audit,
+        seal_manifest_path=args.seal_manifest,
+        key_path=args.key,
+    )
     args.out.mkdir(parents=True, exist_ok=True)
-    jobs = [{"family": family, "entry": entry, "out": str(args.out),
+    graded_authorization = None
+    if args.family == "graded":
+        graded_authorization = _authorization_paths(
+            args.bars,
+            args.reserve_calibration_audit,
+            args.seal_manifest,
+            args.key,
+        )
+    jobs = [{"family": args.family, "entry": entry, "out": str(args.out),
              "workers": args.workers,
-             "cache": str(args.cache) if args.cache else None}
-            for family in families for entry in family_plan(family)]
+             "world_workers": args.world_workers,
+             "cache": str(args.cache) if args.cache else None,
+             **({"graded_authorization": graded_authorization}
+                if graded_authorization is not None else {})}
+            for entry in plan]
     if args.world_workers > 1:
         with ProcessPoolExecutor(max_workers=args.world_workers) as pool:
             for line in pool.map(build_one, jobs):
