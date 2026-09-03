@@ -23,6 +23,7 @@ Everything here reads participant files and public contract fields only.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -131,6 +132,58 @@ SHOCK_TARGETS = {"mortality_multiplier": "mortality",
                  "leave_home_multiplier": "migration",
                  "fertility_multiplier": "fertility"}
 
+# The generator publishes this expression as prose rather than executable code.  The
+# reader recognizes the one supported expression instead of evaluating packet text.
+# Keeping the canonical spelling here also gives the evidence receipt an unambiguous
+# statement of the model it used.
+REGIONAL_LOADING_FORMULA = "1 + L_r * (m - 1)"
+REGIONAL_LOADING_TARGETS = ("mortality", "incidence")
+REGIONAL_LOADING_IDENTIFICATION_THRESHOLD = 0.80
+
+
+def _parse_regional_loading(block: dict) -> dict:
+    """Parse the public regional-loading band and its declared formula.
+
+    Older V4 packets have neither field and remain valid with a national shock.  A
+    packet with only half of the declaration is rejected: silently assuming a formula
+    for a published band would make the participant contract incomplete.  Packet prose
+    is never executed; it must contain the canonical affine rule the generator uses.
+    """
+    raw_band = block.get("regional_loading_band")
+    raw_rule = block.get("regional_loading_formula", block.get("regional_loading"))
+    if raw_band is None and raw_rule is None:
+        return {}
+    if raw_band is None or raw_rule is None:
+        raise MissingActuarialInputs(
+            "shock_family regional loading needs both a band and a formula"
+        )
+    if not isinstance(raw_band, (list, tuple)) or len(raw_band) != 2:
+        raise MissingActuarialInputs(
+            "shock_family.regional_loading_band must contain two bounds"
+        )
+    band = (float(raw_band[0]), float(raw_band[1]))
+    if not np.isfinite(band).all() or band[0] < 0.0 or band[1] <= band[0]:
+        raise MissingActuarialInputs(
+            "shock_family.regional_loading_band must be finite, nonnegative, and ordered"
+        )
+    if isinstance(raw_rule, dict):
+        raw_rule = raw_rule.get("formula")
+    if not isinstance(raw_rule, str):
+        raise MissingActuarialInputs(
+            "shock_family regional-loading formula must be public text"
+        )
+    normalized = "".join(raw_rule.split())
+    expected = "".join(REGIONAL_LOADING_FORMULA.split())
+    if expected not in normalized:
+        raise MissingActuarialInputs(
+            "unsupported regional-loading formula; expected "
+            f"{REGIONAL_LOADING_FORMULA!r}"
+        )
+    return {
+        "regional_loading_band": band,
+        "regional_loading_formula": REGIONAL_LOADING_FORMULA,
+    }
+
 
 def read_shock_family(contract: dict) -> dict | None:
     """The published shock family, parsed into the form the continuation draws from.
@@ -162,7 +215,9 @@ def read_shock_family(contract: dict) -> dict | None:
             parsed.append(entry)
     if not parsed:
         return None
-    return {"annual_rate": float(block.get("annual_rate", 0.0)), "kinds": parsed}
+    family = {"annual_rate": float(block.get("annual_rate", 0.0)), "kinds": parsed}
+    family.update(_parse_regional_loading(block))
+    return family
 
 
 def shock_range_for(shock_family: dict | None, target: str = "mortality"):
@@ -942,6 +997,264 @@ def estimate_improvement(exposure: np.ndarray, counts: np.ndarray,
             "year_effect": effect, "shock_posterior": posterior}
 
 
+def _participant_experience_digest(experience: dict) -> str:
+    """Digest the public arrays that identify the regional-loading fit."""
+    digest = hashlib.sha256()
+    for name in ("years", "exposure", "deaths", "qualifying_events"):
+        value = np.ascontiguousarray(np.asarray(experience[name]))
+        digest.update(name.encode("utf-8") + b"\0")
+        digest.update(str(value.dtype).encode("ascii") + b"\0")
+        digest.update(np.asarray(value.shape, dtype=np.int64).tobytes())
+        digest.update(value.tobytes())
+    return digest.hexdigest()
+
+
+def _joint_shock_kind(shock_family: dict | None) -> tuple[dict | None, float]:
+    """Return the published kind visible in both priced experience signals.
+
+    ``annual_rate`` is the chance of drawing any kind.  The identifiable prior is the
+    chance of drawing one that moves mortality and admissions together, so a family
+    with three uniformly selected kinds contributes one third of that annual rate.
+    """
+    if not shock_family or not shock_family.get("kinds"):
+        return None, 0.0
+    kinds = list(shock_family["kinds"])
+    joint = [kind for kind in kinds if all(target in kind for target in REGIONAL_LOADING_TARGETS)]
+    if not joint:
+        return None, 0.0
+    probability = float(shock_family.get("annual_rate", 0.0)) * len(joint) / len(kinds)
+    return joint[0], float(np.clip(probability, 0.0, 1.0))
+
+
+def _combine_shock_posteriors(
+    mortality: np.ndarray, incidence: np.ndarray, prior: float
+) -> np.ndarray:
+    """Combine conditionally independent target posteriors without counting the prior twice."""
+    mortality = np.asarray(mortality, dtype=np.float64)
+    incidence = np.asarray(incidence, dtype=np.float64)
+    if mortality.shape != incidence.shape:
+        raise ValueError("mortality and incidence shock posteriors must align")
+    if not 0.0 < prior < 1.0:
+        return np.zeros_like(mortality)
+    epsilon = 1e-12
+    p_m = np.clip(mortality, epsilon, 1.0 - epsilon)
+    p_i = np.clip(incidence, epsilon, 1.0 - epsilon)
+    prior_odds = prior / (1.0 - prior)
+    odds = (p_m / (1.0 - p_m)) * (p_i / (1.0 - p_i)) / prior_odds
+    return odds / (1.0 + odds)
+
+
+def _counterfactual_state_lift(
+    exposure: np.ndarray, counts: np.ndarray, shock_year_index: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """State rate lift in one year against a leave-that-year-out trend.
+
+    Counts and exposures are collapsed over public age bands and sex.  The fitted
+    counterfactual uses every other public year.  The returned precision includes a
+    small ordinary-year process floor, so large states do not claim that a five-point
+    trend is known to machine precision merely because its Poisson count is large.
+    """
+    exposure = np.asarray(exposure, dtype=np.float64).sum(axis=(2, 3))
+    counts = np.asarray(counts, dtype=np.float64).sum(axis=(2, 3))
+    if exposure.shape != counts.shape or exposure.ndim != 2:
+        raise ValueError("experience counts and exposure must be [year, state, band, sex]")
+    n_years, n_states = exposure.shape
+    if not 0 <= int(shock_year_index) < n_years:
+        raise ValueError("shock year index is outside the experience window")
+    year = np.arange(n_years, dtype=np.float64)
+    lift = np.zeros(n_states)
+    precision = np.zeros(n_states)
+    for state in range(n_states):
+        valid = (exposure[:, state] > 0.0) & np.isfinite(exposure[:, state]) & \
+            np.isfinite(counts[:, state])
+        fit = valid.copy()
+        fit[int(shock_year_index)] = False
+        if fit.sum() < 2 or not valid[int(shock_year_index)]:
+            continue
+        t = year[fit]
+        observed_count = np.maximum(counts[fit, state], 0.0)
+        y = np.log((observed_count + 0.5) / np.maximum(exposure[fit, state], 1.0))
+        weight = observed_count + 0.5
+        centre = float(np.average(t, weights=weight))
+        denominator = float((weight * (t - centre) ** 2).sum())
+        slope = 0.0 if denominator <= 0.0 else float(
+            (weight * (t - centre) * (y - np.average(y, weights=weight))).sum()
+            / denominator
+        )
+        slope = float(np.clip(slope, -0.15, 0.15))
+        intercept = float(np.average(y - slope * (t - centre), weights=weight))
+        expected_rate = float(np.exp(intercept + slope * (year[shock_year_index] - centre)))
+        expected_count = max(expected_rate * exposure[shock_year_index, state], 0.0)
+        actual_count = max(counts[shock_year_index, state], 0.0)
+        ratio = (actual_count + 0.5) / (expected_count + 0.5)
+        lift[state] = ratio - 1.0
+        log_variance = 1.0 / (actual_count + 0.5) + 1.0 / (expected_count + 0.5)
+        precision[state] = 1.0 / (log_variance + 0.03 ** 2)
+    return lift, precision
+
+
+def _loading_posterior_grid(
+    experience: dict, shock_year_index: int, shock_kind: dict,
+    band: tuple[float, float]
+) -> dict:
+    """Fit the public affine regional loading over the shared shock-magnitude grid."""
+    mortality_lift, mortality_precision = _counterfactual_state_lift(
+        experience["exposure"], experience["deaths"], shock_year_index
+    )
+    incidence_lift, incidence_precision = _counterfactual_state_lift(
+        experience["exposure"], experience["qualifying_events"], shock_year_index
+    )
+    u = np.linspace(0.005, 0.995, 100)
+    mortality_range = shock_kind["mortality"]
+    incidence_range = shock_kind["incidence"]
+    mortality_national_lift = (
+        mortality_range[0] + u * (mortality_range[1] - mortality_range[0]) - 1.0
+    )
+    incidence_national_lift = (
+        incidence_range[0] + u * (incidence_range[1] - incidence_range[0]) - 1.0
+    )
+    n_states = mortality_lift.shape[0]
+    loading = np.zeros((len(u), n_states))
+    loading_se = np.zeros_like(loading)
+    score = np.zeros(len(u))
+    for index, (mortality_x, incidence_x) in enumerate(
+        zip(mortality_national_lift, incidence_national_lift)
+    ):
+        denominator = (
+            mortality_precision * mortality_x ** 2
+            + incidence_precision * incidence_x ** 2
+        )
+        numerator = (
+            mortality_precision * mortality_x * mortality_lift
+            + incidence_precision * incidence_x * incidence_lift
+        )
+        raw = np.where(denominator > 0.0, numerator / np.maximum(denominator, 1e-12),
+                       0.5 * (band[0] + band[1]))
+        loading[index] = np.clip(raw, *band)
+        loading_se[index] = np.where(
+            denominator > 0.0,
+            np.sqrt(1.0 / np.maximum(denominator, 1e-12)),
+            (band[1] - band[0]) / np.sqrt(12.0),
+        )
+        score[index] = float(
+            (mortality_precision * (mortality_lift - loading[index] * mortality_x) ** 2).sum()
+            + (incidence_precision * (incidence_lift - loading[index] * incidence_x) ** 2).sum()
+        )
+    relative = -0.5 * (score - float(np.nanmin(score)))
+    probability = np.exp(np.clip(relative, -700.0, 0.0))
+    probability = probability / max(float(probability.sum()), 1e-300)
+    mean = (probability[:, None] * loading).sum(axis=0)
+    second = (probability[:, None] * (loading ** 2 + loading_se ** 2)).sum(axis=0)
+    standard_deviation = np.sqrt(np.maximum(second - mean ** 2, 0.0))
+    return {
+        "magnitude_grid": u,
+        "grid_probability": probability,
+        "loading_grid": loading,
+        "loading_se_grid": loading_se,
+        "loading_mean": np.clip(mean, *band),
+        "loading_sd": np.clip(standard_deviation, 1e-6, band[1] - band[0]),
+        "mortality_observed_lift": mortality_lift,
+        "incidence_observed_lift": incidence_lift,
+    }
+
+
+def infer_regional_shock_loadings(
+    experience: dict,
+    shock_family: dict | None,
+    identification_threshold: float = REGIONAL_LOADING_IDENTIFICATION_THRESHOLD,
+) -> dict:
+    """Infer the predictive regional-loading law from participant-visible evidence.
+
+    With no identifiable mortality/admission shock, the realized world loading is not
+    identified.  The honest predictive distribution therefore integrates over the
+    uniform public band separately for every outer path.  With a jointly identifiable
+    shock year, a magnitude/loading grid is fitted to state death and qualifying-event
+    lifts and paths sample that participant-data posterior, clipped to the same band.
+    No path or parameter accepts a retained realized loading.
+    """
+    required = ("years", "exposure", "deaths", "qualifying_events")
+    missing = [name for name in required if name not in experience]
+    if missing:
+        raise MissingActuarialInputs(
+            f"regional shock loading needs participant experience fields {missing}"
+        )
+    digest = _participant_experience_digest(experience)
+    band = None if not shock_family else shock_family.get("regional_loading_band")
+    shock_kind, target_probability = _joint_shock_kind(shock_family)
+    base = {
+        "band": None if band is None else tuple(float(v) for v in band),
+        "formula": None if band is None else shock_family.get("regional_loading_formula"),
+        "evidence_source": "participant experience_history and public shock_family",
+        "experience_digest": digest,
+        "input_fields": list(required),
+        "uses_retained_realized_loadings": False,
+        "target_shock_annual_probability": target_probability,
+        "identification_threshold": float(identification_threshold),
+    }
+    exposure = np.asarray(experience["exposure"], dtype=np.float64)
+    if exposure.ndim != 4:
+        raise ValueError("experience exposure must be [year, state, band, sex]")
+    n_years, n_states = exposure.shape[:2]
+    if band is None or shock_kind is None:
+        return {
+            **base,
+            "mode": "national_only",
+            "shock_year_posterior": np.zeros(n_years),
+            "identified_year_index": None,
+            "identified_year": None,
+            "loading_mean": np.ones(n_states),
+            "loading_sd": np.zeros(n_states),
+        }
+    band = tuple(float(v) for v in band)
+    if not 0.0 <= float(identification_threshold) <= 1.0:
+        raise ValueError("identification threshold must be between zero and one")
+    target_family = {"annual_rate": target_probability, "kinds": [shock_kind]}
+    mortality = estimate_improvement(
+        exposure,
+        np.asarray(experience["deaths"], dtype=np.float64),
+        shock_family=target_family,
+        shock_range=shock_kind["mortality"],
+    )
+    incidence = estimate_improvement(
+        exposure,
+        np.asarray(experience["qualifying_events"], dtype=np.float64),
+        shock_family=target_family,
+        shock_range=shock_kind["incidence"],
+    )
+    joint = _combine_shock_posteriors(
+        mortality.get("shock_posterior", np.zeros(n_years)),
+        incidence.get("shock_posterior", np.zeros(n_years)),
+        target_probability,
+    )
+    selected = int(np.argmax(joint)) if len(joint) else None
+    identified = selected is not None and float(joint[selected]) >= identification_threshold
+    years = np.asarray(experience["years"])
+    midpoint = 0.5 * (band[0] + band[1])
+    if not identified:
+        return {
+            **base,
+            "mode": "public_band_marginalization",
+            "shock_year_posterior": joint,
+            "mortality_shock_posterior": np.asarray(mortality["shock_posterior"]),
+            "incidence_shock_posterior": np.asarray(incidence["shock_posterior"]),
+            "identified_year_index": None,
+            "identified_year": None,
+            "loading_mean": np.full(n_states, midpoint),
+            "loading_sd": np.full(n_states, (band[1] - band[0]) / np.sqrt(12.0)),
+        }
+    posterior = _loading_posterior_grid(experience, selected, shock_kind, band)
+    return {
+        **base,
+        **posterior,
+        "mode": "participant_experience_posterior",
+        "shock_year_posterior": joint,
+        "mortality_shock_posterior": np.asarray(mortality["shock_posterior"]),
+        "incidence_shock_posterior": np.asarray(incidence["shock_posterior"]),
+        "identified_year_index": selected,
+        "identified_year": int(years[selected]),
+    }
+
+
 def experience_state_shares(experience: dict) -> np.ndarray:
     """How the last published year splits each band and sex across the states.
 
@@ -958,12 +1271,234 @@ def experience_state_shares(experience: dict) -> np.ndarray:
     """
     last = np.asarray(experience["exposure"], dtype=np.float64)[-1]
     total = last.sum(axis=0)
-    return np.where(total[None] > 0, last / np.maximum(total[None], 1e-9),
-                    1.0 / max(last.shape[0], 1))
+    return np.where(
+        total[None] > 0,
+        last / np.maximum(total[None], 1e-9),
+        1.0 / max(last.shape[0], 1),
+    )
 
 
-def rake_to_state_shares(paths: np.ndarray, county_state: np.ndarray,
-                         shares: np.ndarray, bound: tuple[float, float] = (0.5, 2.0)) -> np.ndarray:
+def advanced_experience_state_exposure(
+    experience: dict,
+    years_ahead: float,
+    age_profile: np.ndarray | None = None,
+    mortality_drift: float = 0.0,
+) -> np.ndarray:
+    """Advance the last published exposure level to the reconstruction date.
+
+    The annual exposure is an average stock centred six months before the end of its
+    year. ``years_ahead`` therefore includes that half year as well as the publication
+    lag. The stock advances one month at a time with the last observed deaths and net
+    migration. A participant-side state by single-age by sex profile can split each
+    broad experience band before ageing; without one, the split is uniform.
+
+    This is a cohort-component level, not a share. Keeping that distinction matters for
+    the elder obligation: a state share can be accurate while every state's 65-plus
+    population is low by the same amount.
+    """
+    exposure = np.asarray(experience["exposure"], dtype=np.float64)
+    deaths = np.asarray(experience["deaths"], dtype=np.float64)
+    migration = np.asarray(experience["net_migration"], dtype=np.float64)
+    stock = np.zeros((exposure.shape[1], MAX_AGE + 1, exposure.shape[3]))
+    mortality = np.zeros_like(stock)
+    migration_rate = np.zeros_like(stock)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        band_mortality = deaths[-1] / np.maximum(exposure[-1], 1e-9)
+        band_migration = migration[-1] / np.maximum(exposure[-1], 1e-9)
+    profile = None if age_profile is None else np.asarray(age_profile, dtype=np.float64)
+    if profile is not None and profile.shape != stock.shape:
+        raise ValueError("age_profile must be (states, ages, sexes)")
+    for band, (low, high) in enumerate(ACTUARIAL_AGE_BANDS):
+        ages = np.arange(low, min(high, MAX_AGE) + 1)
+        if profile is None:
+            share = np.full((stock.shape[0], len(ages), stock.shape[2]), 1.0 / len(ages))
+        else:
+            raw = np.maximum(profile[:, ages, :], 0.0)
+            total = raw.sum(axis=1, keepdims=True)
+            share = np.where(
+                total > 0,
+                raw / np.maximum(total, 1e-9),
+                1.0 / len(ages),
+            )
+        stock[:, ages, :] = exposure[-1, :, band, None, :] * share
+        mortality[:, ages, :] = band_mortality[:, band, None, :]
+        migration_rate[:, ages, :] = band_migration[:, band, None, :]
+    for month in range(max(int(round(12.0 * years_ahead)), 0)):
+        q = mortality * np.exp(float(mortality_drift) * ((month + 0.5) / 12.0))
+        after = stock * np.maximum(1.0 + (migration_rate - q) / 12.0, 0.0)
+        aged = after * (11.0 / 12.0)
+        aged[:, 1:, :] += after[:, :-1, :] / 12.0
+        aged[:, -1, :] += after[:, -1, :] / 12.0
+        stock = aged
+    collapse = band_matrix()
+    return np.einsum("ba,sax->sbx", collapse, stock)
+
+
+def advanced_experience_state_shares(
+    experience: dict, years_ahead: float
+) -> np.ndarray:
+    """Advance the experience stock and return its state shares.
+
+    This compatibility path is the former third-line strategy. It retains only the
+    state composition; ``advanced_experience_state_exposure`` retains the absolute
+    cohort-component level used by the revised third line.
+    """
+    banded = advanced_experience_state_exposure(experience, years_ahead)
+    total = banded.sum(axis=0)
+    return np.where(
+        total[None] > 0,
+        banded / np.maximum(total[None], 1e-9),
+        1.0 / max(banded.shape[0], 1),
+    )
+
+
+def rake_to_cohort_component(
+    paths: np.ndarray,
+    county_state: np.ndarray,
+    state_exposure: np.ndarray,
+    survey,
+    survey_weights: np.ndarray | None = None,
+    minimum_level_age: int = 65,
+) -> tuple[np.ndarray, dict]:
+    """Reconcile cohort-component state levels with register and survey county shares.
+
+    The experience file supplies absolute levels for bands beginning at
+    ``minimum_level_age``. Younger bands use its state composition while keeping the
+    reconstructed national level. Inside a state, the reconstructed county share is
+    corrected toward the survey share only when the county differences exceed the
+    survey's own design variance. This is an empirical small-area shrinkage step: thin
+    survey cells leave the linked-register reconstruction in place.
+    """
+    paths = np.asarray(paths, dtype=np.float64)
+    county_state = np.asarray(county_state, dtype=np.int64)
+    target = np.asarray(state_exposure, dtype=np.float64).copy()
+    if paths.ndim != 4:
+        raise ValueError("paths must be (draws, counties, ages, sexes)")
+    n_states = int(county_state.max()) + 1
+    n_bands = len(ACTUARIAL_AGE_BANDS)
+    if target.shape != (n_states, n_bands, paths.shape[3]):
+        raise ValueError("state_exposure must be (states, bands, sexes)")
+
+    collapse = band_matrix(paths.shape[2] - 1)
+    mean_cube = paths.mean(axis=0)
+    register = np.einsum("ba,cas->cbs", collapse, mean_cube)
+    current_state = np.zeros_like(target)
+    np.add.at(current_state, county_state, register)
+    for band, (low, _) in enumerate(ACTUARIAL_AGE_BANDS):
+        if low >= minimum_level_age:
+            continue
+        for sex_index in range(paths.shape[3]):
+            total = float(current_state[:, band, sex_index].sum())
+            proposed = float(target[:, band, sex_index].sum())
+            if proposed > 0:
+                target[:, band, sex_index] *= total / proposed
+            else:
+                target[:, band, sex_index] = current_state[:, band, sex_index]
+
+    survey_count = np.zeros_like(register)
+    survey_w2 = np.zeros_like(register)
+    county = survey["county"].to_numpy(dtype=np.int64)
+    band = band_of_age(survey["age"].to_numpy(dtype=np.int64))
+    sex = survey["sex"].to_numpy(dtype=np.int64)
+    if survey_weights is None:
+        column = "weight" if "weight" in survey.columns else "design_weight"
+        weight = survey[column].to_numpy(dtype=np.float64)
+    else:
+        weight = np.asarray(survey_weights, dtype=np.float64)
+        if weight.shape != (len(survey),):
+            raise ValueError("survey_weights must have one value per survey row")
+    valid = (
+        (county >= 0)
+        & (county < paths.shape[1])
+        & (band >= 0)
+        & (sex >= 0)
+        & (sex < paths.shape[3])
+        & np.isfinite(weight)
+        & (weight > 0)
+    )
+    flat = (county[valid] * n_bands + band[valid]) * paths.shape[3] + sex[valid]
+    size = paths.shape[1] * n_bands * paths.shape[3]
+    survey_count = np.bincount(flat, weights=weight[valid], minlength=size).reshape(
+        survey_count.shape
+    )
+    survey_w2 = np.bincount(
+        flat, weights=weight[valid] ** 2, minlength=size
+    ).reshape(survey_w2.shape)
+
+    county_share = np.zeros_like(register)
+    survey_influence = np.zeros_like(register)
+    for state in range(n_states):
+        members = np.flatnonzero(county_state == state)
+        for band_index in range(n_bands):
+            for sex_index in range(paths.shape[3]):
+                r = np.maximum(register[members, band_index, sex_index], 0.0)
+                sw = np.maximum(survey_count[members, band_index, sex_index], 0.0)
+                sw2 = np.maximum(survey_w2[members, band_index, sex_index], 0.0)
+                if r.sum() <= 0:
+                    continue
+                r_share = r / r.sum()
+                if sw.sum() <= 0 or len(members) < 2:
+                    county_share[members, band_index, sex_index] = r_share
+                    continue
+                s_share = sw / sw.sum()
+                state_neff = sw.sum() ** 2 / max(float(sw2.sum()), 1e-9)
+                usable = (r_share > 0) & (s_share > 0)
+                sampling = np.full(len(members), np.inf)
+                sampling[usable] = (1.0 - s_share[usable]) / np.maximum(
+                    s_share[usable] * state_neff, 1e-9
+                )
+                log_ratio = np.zeros(len(members))
+                log_ratio[usable] = np.log(s_share[usable] / r_share[usable])
+                finite = usable & np.isfinite(sampling)
+                if finite.sum() >= 2:
+                    observed = float(np.var(log_ratio[finite], ddof=1))
+                    sampling_mean = float(np.mean(sampling[finite]))
+                    between = max(observed - sampling_mean, 0.0)
+                else:
+                    between = 0.0
+                influence = np.zeros(len(members))
+                influence[finite] = between / np.maximum(
+                    between + sampling[finite], 1e-9
+                )
+                adjusted = r_share * np.exp(influence * log_ratio)
+                adjusted[r <= 0] = 0.0
+                county_share[members, band_index, sex_index] = (
+                    adjusted / adjusted.sum() if adjusted.sum() > 0 else r_share
+                )
+                survey_influence[members, band_index, sex_index] = influence
+
+    county_target = target[county_state] * county_share
+    factor = np.ones_like(register)
+    usable = register > 0
+    factor[usable] = county_target[usable] / register[usable]
+    per_age = np.einsum("ba,cbs->cas", collapse, factor)
+    result = paths * per_age[None]
+    after_register = np.einsum("ba,cas->cbs", collapse, result.mean(axis=0))
+    after_state = np.zeros_like(target)
+    np.add.at(after_state, county_state, after_register)
+    elder = np.asarray(
+        [low >= minimum_level_age for low, _ in ACTUARIAL_AGE_BANDS], dtype=bool
+    )
+    return result, {
+        "minimum_level_age": int(minimum_level_age),
+        "state_target": target.tolist(),
+        "state_before": current_state.tolist(),
+        "state_after": after_state.tolist(),
+        "elder_before": current_state[:, elder, :].sum(axis=(1, 2)).tolist(),
+        "elder_target": target[:, elder, :].sum(axis=(1, 2)).tolist(),
+        "elder_after": after_state[:, elder, :].sum(axis=(1, 2)).tolist(),
+        "mean_survey_influence": (
+            float(np.mean(survey_influence[usable])) if np.any(usable) else 0.0
+        ),
+    }
+
+
+def rake_to_state_shares(
+    paths: np.ndarray,
+    county_state: np.ndarray,
+    shares: np.ndarray,
+    bound: tuple[float, float] = (0.5, 2.0),
+) -> np.ndarray:
     """Move each state's share of a band and sex onto the experience file's, in place of
     the register's, and leave every national band total where the reconstruction put it.
 
@@ -1270,27 +1805,43 @@ def rate_release_rows(exposure: np.ndarray, deaths: np.ndarray, events: np.ndarr
                     path_total = e_cube[:, u, x, list(members)].sum(axis=1)
                     lo, hi = _percentile_pair(path_total, total)
                     emit(EXPOSURE_ESTIMAND, level, u, x, broad, total, lo, hi)
-                for estimand, count_cube in ((MORTALITY_ESTIMAND, d_cube),
-                                             (INCIDENCE_ESTIMAND, n_cube)):
+                for estimand, count_cube in (
+                    (MORTALITY_ESTIMAND, d_cube),
+                    (INCIDENCE_ESTIMAND, n_cube),
+                ):
                     for b, band in enumerate(ACTUARIAL_AGE_BAND_LABELS):
                         e = float(e_point[u, x, b])
                         if e <= 0.0:
                             fallback = float(national_rate[estimand][x, b])
-                            emit(estimand, level, u, x, band, fallback, 0.0,
-                                 max(2.0 * fallback, 1e-6))
+                            emit(
+                                estimand,
+                                level,
+                                u,
+                                x,
+                                band,
+                                fallback,
+                                0.0,
+                                max(2.0 * fallback, 1e-6),
+                            )
                             continue
                         point = float(count_cube[:, u, x, b].mean()) / e
                         with np.errstate(invalid="ignore", divide="ignore"):
                             per_path = count_cube[:, u, x, b] / np.maximum(
-                                e_cube[:, u, x, b], 1e-9)
+                                e_cube[:, u, x, b], 1e-9
+                            )
                         lo, hi = _percentile_pair(per_path, point)
                         emit(estimand, level, u, x, band, point, lo, hi)
     return rows
 
 
-def state_rates_from_experience(experience: dict, ac: ActuarialContract,
-                                years_ahead: float, kind: str,
-                                shock_family: dict | None = None) -> dict:
+def state_rates_from_experience(
+    experience: dict,
+    ac: ActuarialContract,
+    years_ahead: float,
+    kind: str,
+    shock_family: dict | None = None,
+    improvement_override: dict | None = None,
+) -> dict:
     """State by band by sex rate for the release window, from the experience file.
 
     All five years contribute. Each year's exposure is put on the last year's level by
@@ -1300,12 +1851,31 @@ def state_rates_from_experience(experience: dict, ac: ActuarialContract,
     Poisson noise. Partial pooling across states then follows, and ``years_ahead``
     carries the level to a release window that sits after the file's last year.
     """
-    counts = experience["deaths"] if kind == "mortality" else experience["qualifying_events"]
+    counts = (
+        experience["deaths"] if kind == "mortality" else experience["qualifying_events"]
+    )
     exposure = experience["exposure"]
     target = "mortality" if kind == "mortality" else "incidence"
-    improvement = estimate_improvement(
-        exposure, counts, shock_family=shock_family,
-        shock_range=shock_range_for(shock_family, target))
+    detected = estimate_improvement(
+        exposure,
+        counts,
+        shock_family=shock_family,
+        shock_range=shock_range_for(shock_family, target),
+    )
+    if improvement_override is None:
+        improvement = detected
+    else:
+        improvement = {
+            "drift": float(improvement_override["mortality_drift"]),
+            "drift_se": float(improvement_override["mortality_drift_se"]),
+            # The third line keeps its independent trend estimator.  It still removes
+            # an identifiable published-family shock from the starting level before
+            # the continuation redraws future shocks; otherwise that line would charge
+            # the same observed event twice.
+            "shock_posterior": np.asarray(detected["shock_posterior"]),
+            "fitted": bool(improvement_override.get("fitted", True)),
+            "strategy": str(improvement_override.get("strategy", "external")),
+        }
     n_years = exposure.shape[0]
     offset = np.arange(n_years) - (n_years - 1)
     adjusted = exposure * np.exp(improvement["drift"] * offset)[:, None, None, None]
@@ -1474,8 +2044,116 @@ def draw_shock_year(rng: np.random.Generator, n: int, family: dict | None,
     return out
 
 
+def sample_regional_loading_paths(
+    rng: np.random.Generator,
+    n_paths: int,
+    n_regions: int,
+    shock_family: dict | None,
+    evidence: dict | None = None,
+) -> np.ndarray:
+    """One participant-identifiable regional-loading vector per predictive path.
+
+    A clean history cannot identify the realized world vector, so every path draws a
+    fresh vector from the uniform public band.  An identified history instead draws
+    from the magnitude/loading posterior fitted above.  There is deliberately no mode
+    that accepts a retained or caller-supplied realized vector.
+    """
+    if int(n_paths) < 1 or int(n_regions) < 1:
+        raise ValueError("regional-loading draws need positive path and region counts")
+    band = None if not shock_family else shock_family.get("regional_loading_band")
+    if band is None:
+        return np.ones((int(n_paths), int(n_regions)))
+    low, high = (float(band[0]), float(band[1]))
+    mode = "public_band_marginalization" if evidence is None else evidence.get("mode")
+    if mode == "national_only":
+        return np.ones((int(n_paths), int(n_regions)))
+    if mode == "public_band_marginalization":
+        return rng.uniform(low, high, size=(int(n_paths), int(n_regions)))
+    if mode != "participant_experience_posterior":
+        raise ValueError(f"unknown regional-loading evidence mode {mode!r}")
+    probability = np.asarray(evidence.get("grid_probability"), dtype=np.float64)
+    loading = np.asarray(evidence.get("loading_grid"), dtype=np.float64)
+    loading_se = np.asarray(evidence.get("loading_se_grid"), dtype=np.float64)
+    if probability.ndim != 1 or len(probability) == 0:
+        raise ValueError("participant regional-loading posterior is malformed")
+    expected_shape = (len(probability), int(n_regions))
+    if (
+        loading.shape != expected_shape
+        or loading_se.shape != expected_shape
+        or not np.isfinite(probability).all()
+        or not np.isfinite(loading).all()
+        or not np.isfinite(loading_se).all()
+        or float(probability.sum()) <= 0.0
+    ):
+        raise ValueError("participant regional-loading posterior is malformed")
+    probability = probability / probability.sum()
+    grid_index = rng.choice(len(probability), size=int(n_paths), p=probability)
+    draws = rng.normal(loading[grid_index], np.maximum(loading_se[grid_index], 1e-9))
+    return np.clip(draws, low, high)
+
+
+def regionalize_shock_multiplier(
+    national_multiplier: np.ndarray, loading: np.ndarray
+) -> np.ndarray:
+    """Apply the public ``1 + L_r * (m - 1)`` rule to path-region pairs."""
+    multiplier = np.asarray(national_multiplier, dtype=np.float64)
+    loading = np.asarray(loading, dtype=np.float64)
+    if multiplier.ndim != 1 or loading.ndim != 2 or loading.shape[0] != len(multiplier):
+        raise ValueError("shock multiplier must align with path by region loadings")
+    return 1.0 + loading * (multiplier[:, None] - 1.0)
+
+
+def regional_loading_diagnostics(
+    evidence: dict, draws: np.ndarray, held_years: int
+) -> dict:
+    """Serializable receipt for the loading evidence and predictive draws."""
+    draws = np.ascontiguousarray(np.asarray(draws, dtype=np.float64))
+    if draws.ndim != 2 or len(draws) == 0:
+        raise ValueError("regional-loading diagnostics need path by region draws")
+    posterior = np.asarray(evidence.get("shock_year_posterior", []), dtype=np.float64)
+    mortality = np.asarray(
+        evidence.get("mortality_shock_posterior", []), dtype=np.float64
+    )
+    incidence = np.asarray(
+        evidence.get("incidence_shock_posterior", []), dtype=np.float64
+    )
+    return {
+        "mode": evidence["mode"],
+        "evidence_source": evidence["evidence_source"],
+        "experience_digest": evidence["experience_digest"],
+        "input_fields": list(evidence["input_fields"]),
+        "uses_retained_realized_loadings": bool(
+            evidence["uses_retained_realized_loadings"]
+        ),
+        "band": None if evidence["band"] is None else list(evidence["band"]),
+        "formula": evidence["formula"],
+        "target_shock_annual_probability": float(
+            evidence["target_shock_annual_probability"]
+        ),
+        "identification_threshold": float(evidence["identification_threshold"]),
+        "shock_year_posterior": posterior.tolist(),
+        "mortality_shock_posterior": mortality.tolist(),
+        "incidence_shock_posterior": incidence.tolist(),
+        "identified_year_index": evidence.get("identified_year_index"),
+        "identified_year": evidence.get("identified_year"),
+        "loading_mean": np.asarray(evidence["loading_mean"], dtype=np.float64).tolist(),
+        "loading_sd": np.asarray(evidence["loading_sd"], dtype=np.float64).tolist(),
+        "predictive_draw_min": draws.min(axis=0).tolist(),
+        "predictive_draw_max": draws.max(axis=0).tolist(),
+        "predictive_draw_mean": draws.mean(axis=0).tolist(),
+        "predictive_draw_digest": hashlib.sha256(draws.tobytes()).hexdigest(),
+        "predictive_paths": int(draws.shape[0]),
+        "regions": int(draws.shape[1]),
+        "one_vector_per_outer_path": True,
+        "held_across_horizon": True,
+        "held_years": int(held_years),
+        "distinct_loading_vectors": int(np.unique(draws, axis=0).shape[0]),
+    }
+
+
 def simulate_liabilities(age_sex_paths: np.ndarray, rates: dict, ac: ActuarialContract,
-                         params: SimulationParams = SimulationParams()) -> dict:
+                         params: SimulationParams = SimulationParams(),
+                         regional_loading_evidence: dict | None = None) -> dict:
     """Simulated present value of the region's obligations over the horizon.
 
     One path per population draw, so the spread carries reconstruction uncertainty; on
@@ -1504,6 +2182,19 @@ def simulate_liabilities(age_sex_paths: np.ndarray, rates: dict, ac: ActuarialCo
     mig_base = np.asarray(rates["migration"], dtype=np.float64)
     not_yet = np.asarray(rates["not_yet"], dtype=np.float64)
     region_of_county = np.asarray(ac.region_of_county, dtype=np.int64)
+    # Loading uncertainty is outside the year process: one vector belongs to one whole
+    # predictive path.  Its separate stream makes the draw reproducible and invariant
+    # to ``path_chunk`` while the vector is held unchanged through every horizon year.
+    loading_rng = np.random.default_rng(
+        np.random.SeedSequence([int(params.seed), 0x10AD])
+    )
+    regional_loading = sample_regional_loading_paths(
+        loading_rng,
+        n_paths,
+        ac.n_regions,
+        ac.shock_family,
+        regional_loading_evidence,
+    )
 
     def level_draw(rng, chunk, national_sd, regional_sd):
         """A common level error and one per region, both on the log scale.
@@ -1533,6 +2224,7 @@ def simulate_liabilities(age_sex_paths: np.ndarray, rates: dict, ac: ActuarialCo
         rng = np.random.default_rng([params.seed, start])
         state = paths[start:stop].copy()
         pending = state * not_yet[None]
+        path_loading = regional_loading[start:stop]
         if params.parameter_noise:
             level_q = level_draw(rng, chunk, rates.get("mortality_log_sd", 0.05),
                                  rates.get("mortality_log_sd_region", 0.0))
@@ -1558,12 +2250,18 @@ def simulate_liabilities(age_sex_paths: np.ndarray, rates: dict, ac: ActuarialCo
             else:
                 shock = {name: np.ones(chunk) for name in
                          ("mortality", "incidence", "migration", "fertility")}
+            mortality_shock = regionalize_shock_multiplier(
+                shock["mortality"], path_loading
+            )[:, region_of_county]
+            incidence_shock = regionalize_shock_multiplier(
+                shock["incidence"], path_loading
+            )[:, region_of_county]
             elapsed = year + 0.5
             q = np.clip(q_base[None] * np.exp(drift_q * elapsed)[:, None, None, None] *
-                        (level_q * shock["mortality"][:, None])[:, :, None, None],
+                        (level_q * mortality_shock)[:, :, None, None],
                         0.0, 0.98)
             lam = np.clip(lam_base[None] * np.exp(drift_l * elapsed)[:, None, None, None] *
-                          (level_l * shock["incidence"][:, None])[:, :, None, None],
+                          (level_l * incidence_shock)[:, :, None, None],
                           0.0, 1.0)
             if params.process_noise:
                 deaths = np.minimum(rng.poisson(np.maximum(state * q, 0.0)), state)
@@ -1613,12 +2311,23 @@ def simulate_liabilities(age_sex_paths: np.ndarray, rates: dict, ac: ActuarialCo
             liability[start:stop] += (stock + event_flow + death_flow) @ region
             state, pending = aged, aged_pending
     return {"liability": liability, "n_paths": n_paths, "exposure": exposure_acc,
-            "deaths": death_acc, "events": event_acc}
+            "deaths": death_acc, "events": event_acc,
+            "regional_loading": regional_loading,
+            "regional_loading_draws_per_path": 1,
+            "regional_loading_held_years": n_years}
 
 
 def tail_summary(liability: np.ndarray, alpha: float = 0.95) -> dict:
-    """Region liability mean, value at risk and expected shortfall at ``alpha``."""
+    """Empirical mean, order-statistic quantile, and tied-tail expected shortfall.
+
+    The quantile is observation ``ceil(alpha * M)`` in one-based indexing. Expected
+    shortfall is the mean of every member at or above that value, including ties.
+    """
     liability = np.asarray(liability, dtype=np.float64)
+    if liability.ndim != 2 or liability.shape[0] == 0:
+        raise ValueError("liability must be a nonempty (members, regions) array")
+    if not np.isfinite(alpha) or not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must be finite and between zero and one")
     mean = liability.mean(axis=0)
     q, es = empirical_tail(liability, alpha)
     return {"mean": mean, "q": q, "es": es}
@@ -1856,9 +2565,101 @@ def _band_to_ages(values: np.ndarray) -> np.ndarray:
 
 # --------------------------------------------------------------- vintage linkage
 
-def vintage_death_counts(preliminary, revised, tick_pre: int, tick_rev: int,
-                         county_state: np.ndarray, rng: np.random.Generator,
-                         n_imputations: int = 6, deterministic: bool = False) -> dict:
+
+def _clerical_bootstrap_survival(
+    pre, rev, rng: np.random.Generator, n_imputations: int
+) -> list[np.ndarray]:
+    """Deterministic exact links plus a comparison-field bootstrap for the rest.
+
+    Unique exact keys are clerical matches. Remaining records are blocked on sex and
+    birth year, require at least one name agreement, and are reduced one to one after a
+    weighted clerical score. Each imputation resamples the four comparison fields before
+    that reduction. The spread therefore measures whether the linkage conclusion depends
+    on a particular name, birth-month, or county comparison, without fitting the mixture
+    model used by the main reference line.
+    """
+    key = list(LINK_FIELDS)
+    left = pre[key + ["county"]].copy()
+    right = rev[key + ["county"]].copy()
+    left["_left_row"] = np.arange(len(left), dtype=np.int64)
+    right["_right_row"] = np.arange(len(right), dtype=np.int64)
+
+    left["_left_n"] = left.groupby(key, dropna=False)["_left_row"].transform("size")
+    right["_right_n"] = right.groupby(key, dropna=False)["_right_row"].transform("size")
+    left_unique = left
+    right_unique = right
+    left_unique = left_unique[
+        (left_unique["_left_n"] == 1)
+        & (left_unique["given_code"] > 0)
+        & (left_unique["family_code"] > 0)
+    ]
+    right_unique = right_unique[
+        (right_unique["_right_n"] == 1)
+        & (right_unique["given_code"] > 0)
+        & (right_unique["family_code"] > 0)
+    ]
+    exact = left_unique[key + ["_left_row"]].merge(
+        right_unique[key + ["_right_row"]], on=key
+    )
+    fixed_left = set(exact["_left_row"].to_numpy(dtype=np.int64))
+    fixed_right = set(exact["_right_row"].to_numpy(dtype=np.int64))
+
+    a = left[~left["_left_row"].isin(fixed_left)].copy()
+    b = right[~right["_right_row"].isin(fixed_right)].copy()
+    a["_id"], b["_id"] = a["_left_row"], b["_right_row"]
+    a["_county"] = a["county"]
+    b["_county"] = b["county"]
+    a["_block"] = (a["birth_tick"].to_numpy(dtype=np.int64) // 12) * 2 + a[
+        "sex"
+    ].to_numpy(dtype=np.int64)
+    b["_block"] = (b["birth_tick"].to_numpy(dtype=np.int64) // 12) * 2 + b[
+        "sex"
+    ].to_numpy(dtype=np.int64)
+    a = a[(a["given_code"] > 0) & (a["family_code"] > 0)]
+    b = b[(b["given_code"] > 0) & (b["family_code"] > 0)]
+    pairs = _candidate_pairs(a, b, "_id", "_id") if len(a) and len(b) else None
+
+    fixed = (
+        np.fromiter(fixed_left, dtype=np.int64, count=len(fixed_left))
+        if fixed_left
+        else np.zeros(0, dtype=np.int64)
+    )
+    if pairs is None or len(pairs) == 0:
+        survived = np.zeros(len(pre), dtype=bool)
+        survived[fixed] = True
+        return [survived]
+
+    agreement = _agreement(pairs)
+    weights = np.asarray([2.0, 2.5, 2.0, 0.5], dtype=np.float64)
+    draws = []
+    for _ in range(max(int(n_imputations), 1)):
+        picked = rng.integers(0, agreement.shape[1], size=agreement.shape[1])
+        sampled_weight = weights[picked]
+        score = (agreement[:, picked] * sampled_weight[None]).sum(axis=1)
+        score *= weights.sum() / max(float(sampled_weight.sum()), 1e-9)
+        eligible = score >= 4.0
+        survived = np.zeros(len(pre), dtype=bool)
+        survived[fixed] = True
+        if eligible.any():
+            candidate = pairs.loc[eligible].reset_index(drop=True)
+            candidate_score = score[eligible]
+            keep = _one_to_one(candidate, candidate_score)
+            survived[candidate.iloc[keep]["_id_l"].to_numpy(dtype=np.int64)] = True
+        draws.append(survived)
+    return draws
+
+
+def vintage_death_counts(
+    preliminary,
+    revised,
+    tick_pre: int,
+    tick_rev: int,
+    county_state: np.ndarray,
+    rng: np.random.Generator,
+    n_imputations: int = 6,
+    deterministic: bool = False,
+    linkage_strategy: str = "fellegi_sunter",
+) -> dict:
     """Disappearance counts between the two register vintages, by county, band and sex.
 
     Version four does not carry a record identifier across vintages, so the two files
@@ -1894,6 +2695,10 @@ def vintage_death_counts(preliminary, revised, tick_pre: int, tick_rev: int,
         survived = np.zeros(len(pre), dtype=bool)
         survived[:] = matched["_seen"].to_numpy() == 1
         draws = [survived]
+    elif linkage_strategy == "clerical_bootstrap":
+        draws = _clerical_bootstrap_survival(pre, rev, rng, n_imputations)
+    elif linkage_strategy != "fellegi_sunter":
+        raise ValueError(f"unknown linkage strategy {linkage_strategy!r}")
     else:
         result = probabilistic_links(pre, rev, "_row", "_row")
         links = result["links"]
@@ -2180,42 +2985,66 @@ def fit_churn(gone: np.ndarray, at_risk: np.ndarray, months: int,
     # correction good to a few percent of itself is still comparable with the whole
     # signal. Reporting it is what lets the county deviation be shrunk by evidence.
     left = residual - kappa[:, None, None] * shape[None]
-    residual_sd = np.sqrt(np.maximum(
-        (at_risk * left ** 2).sum(axis=(1, 2)) /
-        np.maximum(at_risk.sum(axis=(1, 2)), 1e-9), 0.0))
-    return {"churn": churn, "mix": mix, "kappa": kappa, "shape": shape,
-            "national_kappa": national_kappa, "fitted": True,
-            "residual_sd": residual_sd}
+    residual_sd = np.sqrt(
+        np.maximum(
+            (at_risk * left**2).sum(axis=(1, 2))
+            / np.maximum(at_risk.sum(axis=(1, 2)), 1e-9),
+            0.0,
+        )
+    )
+    return {
+        "churn": churn,
+        "mix": mix,
+        "kappa": kappa,
+        "shape": shape,
+        "national_kappa": national_kappa,
+        "fitted": True,
+        "residual_sd": residual_sd,
+    }
 
 
 # ------------------------------------------------------------------- the whole layer
+
 
 @dataclass(frozen=True)
 class LayerParams:
     """One switch per targeted ablation of protocol section 11, all false for the
     reference. Each switch removes exactly one step and nothing else, so a control that
     passes its gate says the gate is loose rather than that the control is subtle."""
+
     simulation: SimulationParams = SimulationParams()
-    deterministic_linkage: bool = False        # ablation 3, first half
-    archive_only_rates: bool = False           # ablation 3, second half
-    ignore_health_selection: bool = False      # ablation 4
-    regime_override: dict | None = None        # ablation 5: development-average regime
+    deterministic_linkage: bool = False  # ablation 3, first half
+    linkage_strategy: str = (
+        "fellegi_sunter"  # the independent third line uses clerical bootstrap
+    )
+    archive_only_rates: bool = False  # ablation 3, second half
+    ignore_health_selection: bool = False  # ablation 4
+    regime_override: dict | None = None  # ablation 5: development-average regime
+    mortality_improvement: dict | None = None  # third line's independent history fit
+    reconstruction_uncertainty: bool = True  # deletion test: one fixed population path
+    rake_to_experience: bool = True  # false only for the true-population control
+    experience_share_strategy: str = (
+        "published"  # third line advances an absolute elder cohort component
+    )
     # The experience file on its own: no register, no archive, no survey. The control
     # that files this is the one that says what the microdata is worth.
     experience_only: bool = False
-    tail: str = "simulated"                    # ablations 6 and 7
+    tail: str = "simulated"  # ablations 6 and 7
     padding: float = 1.6
-    allocation: str = "shortfall"              # ablation 8 uses "proportional"
+    allocation: str = "shortfall"  # ablation 8 uses "proportional"
     n_link_imputations: int = 6
     seed: int = 20260904
 
 
-def _rate_interval(counts: np.ndarray, exposure: np.ndarray, point: np.ndarray,
-                   k: float) -> tuple[np.ndarray, np.ndarray]:
+def _rate_interval(
+    counts: np.ndarray, exposure: np.ndarray, point: np.ndarray, k: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Gamma interval around a partially pooled rate."""
     if not np.isfinite(k):
         k = max(float(np.nanmax(exposure)), 1.0) * 10.0
-    alpha = np.asarray(counts, dtype=np.float64) + k * np.asarray(point, dtype=np.float64)
+    alpha = np.asarray(counts, dtype=np.float64) + k * np.asarray(
+        point, dtype=np.float64
+    )
     beta = np.asarray(exposure, dtype=np.float64) + k
     return _gamma_interval(alpha, beta)
 
@@ -2305,13 +3134,78 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     if paths.ndim != 4:
         raise ValueError("age_sex_paths must be (paths, counties, ages, sexes)")
     exp_arrays = experience_arrays(experience, n_states)
+    regional_loading_evidence = infer_regional_shock_loadings(
+        exp_arrays, ac.shock_family
+    )
+    if (
+        regional_loading_evidence["band"] is not None
+        and ac.n_regions != n_states
+    ):
+        raise MissingActuarialInputs(
+            "regional shock loadings are identified at state level, so reserve regions "
+            "must be states"
+        )
+    experience_last_tick = int(
+        (contract.get("experience_history") or {}).get(
+            "last_year_ends_at_tick", tick - 12
+        )
+    )
+    experience_level_years_ahead = max(
+        (tick - experience_last_tick) / 12.0 + 0.5, 0.0
+    )
 
     # 0. The composition of the priced population is raked to the experience file's own
-    #    state shares. The reconstruction sets how many people there are; the file, which
-    #    does not read the register, sets how they are spread across the regions whose
-    #    tails are scored.
-    paths = rake_to_state_shares(paths, county_state,
-                                 experience_state_shares(exp_arrays))
+    #    state evidence. The shared lines use state shares. The third line advances the
+    #    absolute elder stock over the publication lag, then reconciles its county split
+    #    between the linked-register reconstruction and the survey.
+    if not params.reconstruction_uncertainty:
+        paths = paths.mean(axis=0, keepdims=True)
+    response = None
+    survey = None
+    cohort_component = None
+    if params.rake_to_experience:
+        if params.experience_share_strategy == "published":
+            shares = experience_state_shares(exp_arrays)
+        elif params.experience_share_strategy == "advanced":
+            shares = advanced_experience_state_shares(
+                exp_arrays, experience_level_years_ahead
+            )
+        elif params.experience_share_strategy == "cohort_component":
+            initial_mean = paths.mean(axis=0)
+            state_age_profile = _state_sum(initial_mean, county_state, n_states)
+            improvement = params.mortality_improvement or {}
+            state_target = advanced_experience_state_exposure(
+                exp_arrays,
+                experience_level_years_ahead,
+                age_profile=state_age_profile,
+                mortality_drift=float(improvement.get("mortality_drift", 0.0)),
+            )
+            urbanity = _urbanity(data, initial_mean, n_counties)
+            register_ages = _register_head_ages(data.get("population"), tick)
+            response = fit_survey_response(
+                data["survey"], county_state, urbanity, register_ages
+            )
+            survey = data["survey"]
+            survey_weights = (
+                nonresponse_weights(survey, response)
+                if response.get("fitted")
+                else None
+            )
+            paths, cohort_component = rake_to_cohort_component(
+                paths,
+                county_state,
+                state_target,
+                survey,
+                survey_weights=survey_weights,
+                minimum_level_age=DEFAULT_ELIGIBLE_MIN_AGE,
+            )
+            shares = None
+        else:
+            raise ValueError(
+                f"unknown experience share strategy {params.experience_share_strategy!r}"
+            )
+        if shares is not None:
+            paths = rake_to_state_shares(paths, county_state, shares)
     mean_cube = paths.mean(axis=0)
 
     # 1. Current-period exposure. This is a denominator for the signals the projection
@@ -2331,12 +3225,13 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
         survey = None
         heaping = {"excess": 0.0, "fitted": False}
     else:
-        urbanity = _urbanity(data, mean_cube, n_counties)
-        register_ages = _register_head_ages(data.get("population"), tick)
-        response = fit_survey_response(data["survey"], county_state, urbanity,
-                                       register_ages)
-        survey = data["survey"]
-        if response.get("fitted"):
+        if response is None:
+            urbanity = _urbanity(data, mean_cube, n_counties)
+            register_ages = _register_head_ages(data.get("population"), tick)
+            response = fit_survey_response(data["survey"], county_state, urbanity,
+                                           register_ages)
+            survey = data["survey"]
+        if response.get("fitted") and "weight" not in survey.columns:
             survey = survey.assign(weight=nonresponse_weights(survey, response))
         heaping = age_heaping_intensity(survey["age"].to_numpy(dtype=np.int64)) \
             if "age" in survey.columns else {"excess": 0.0, "fitted": False}
@@ -2366,12 +3261,26 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
                                           completeness)
     pi = np.asarray(inclusion["pi"], dtype=np.float64)
 
-    # 4. Regime from the historical experience file. The file's last year is centred half
-    #    a year before the revised snapshot, so its level is carried that far forward and
-    #    the simulation carries the drift from there.
+    # 4. Regime from the historical experience file. Its last annual average is centred
+    #    six months before that year ends, and the publication lag sits between that end
+    #    and the revised snapshot. The level is carried across both intervals before the
+    #    simulation carries the drift through the projection.
     slope = gompertz_slope(exp_arrays)
-    mortality_state = state_rates_from_experience(exp_arrays, ac, 0.5, "mortality")
-    incidence_state = state_rates_from_experience(exp_arrays, ac, 0.5, "incidence")
+    mortality_state = state_rates_from_experience(
+        exp_arrays,
+        ac,
+        experience_level_years_ahead,
+        "mortality",
+        shock_family=ac.shock_family,
+        improvement_override=params.mortality_improvement,
+    )
+    incidence_state = state_rates_from_experience(
+        exp_arrays,
+        ac,
+        experience_level_years_ahead,
+        "incidence",
+        shock_family=ac.shock_family,
+    )
     migration = estimate_migration_profile(exp_arrays)
     override = params.regime_override or {}
     mortality_drift = float(override.get("mortality_drift",
@@ -2395,18 +3304,34 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     #    patterns, and both are fitted here.
     if params.experience_only:
         shape = (n_counties, n_bands, 2)
-        vintages = {"gone": np.zeros(shape), "at_risk": np.zeros(shape),
-                    "linkage_spread": np.zeros(shape), "months": 12,
-                    "n_imputations": 0}
-        age_error = {"rate": np.zeros(n_bands), "share": 0.0, "sd_years": 0.0,
-                     "fitted": False}
+        vintages = {
+            "gone": np.zeros(shape),
+            "at_risk": np.zeros(shape),
+            "linkage_spread": np.zeros(shape),
+            "months": 12,
+            "n_imputations": 0,
+        }
+        age_error = {
+            "rate": np.zeros(n_bands),
+            "share": 0.0,
+            "sd_years": 0.0,
+            "fitted": False,
+        }
     else:
-        vintages = vintage_death_counts(data["population_preliminary"], data["population"],
-                                        tick_pre, tick, county_state, rng,
-                                        n_imputations=params.n_link_imputations,
-                                        deterministic=params.deterministic_linkage)
-        age_error = estimate_age_error(data["population_preliminary"], data["population"],
-                                       tick_pre)
+        vintages = vintage_death_counts(
+            data["population_preliminary"],
+            data["population"],
+            tick_pre,
+            tick,
+            county_state,
+            rng,
+            n_imputations=params.n_link_imputations,
+            deterministic=params.deterministic_linkage,
+            linkage_strategy=params.linkage_strategy,
+        )
+        age_error = estimate_age_error(
+            data["population_preliminary"], data["population"], tick_pre
+        )
     months = vintages["months"]
     at_risk = vintages["at_risk"]
     mobility = mobility_profile(exp_arrays)
@@ -2573,7 +3498,9 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     sim = params.simulation
     n_paths = sim.n_paths
     index = np.arange(n_paths) % paths.shape[0]
-    simulated = simulate_liabilities(paths[index], rates, ac, sim)
+    simulated = simulate_liabilities(
+        paths[index], rates, ac, sim, regional_loading_evidence
+    )
     liability = simulated["liability"]
     rate_rows = rate_release_rows(simulated["exposure"], simulated["deaths"],
                                   simulated["events"], county_state)
@@ -2623,11 +3550,23 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
     diagnostics = {
         "inclusion_pooled": float(inclusion["pooled"]),
         "selection_adjusted": bool(inclusion["available"]),
-        "mortality_drift": mortality_drift, "incidence_drift": incidence_drift,
+        "mortality_drift": mortality_drift,
+        "incidence_drift": incidence_drift,
         "linkage_imputations": int(vintages["n_imputations"]),
+        "linkage_strategy": params.linkage_strategy,
         "linkage_spread": float(np.mean(vintages["linkage_spread"])),
+        "reconstruction_uncertainty": bool(params.reconstruction_uncertainty),
+        "experience_share_strategy": params.experience_share_strategy,
+        "experience_level_years_ahead": experience_level_years_ahead,
+        "cohort_component": cohort_component,
+        "mortality_history_strategy": str(
+            mortality_state["improvement"].get("strategy", "shared")
+        ),
+        "tail_calibrated_to_total": False,
         "objective": shortfall_objective(allocation, liability, ac.reserve_weights),
-        "objective_baseline": shortfall_objective(baseline, liability, ac.reserve_weights),
+        "objective_baseline": shortfall_objective(
+            baseline, liability, ac.reserve_weights
+        ),
         "exceedance": exceedance_probability(q_hat, liability).tolist(),
         "quantile_score": quantile_score(q_hat, liability).tolist(),
         "reserve_feasible": bool(allocation_detail.get("feasible", True)),
@@ -2654,6 +3593,11 @@ def actuarial_layer(data: dict, county_state: np.ndarray, age_sex_paths: np.ndar
         "incidence_log_sd": float(rates["incidence_log_sd"]),
         "mortality_log_sd_region": np.asarray(
             uncertainty["mortality_region"]).tolist(),
+        "regional_shock_loading": regional_loading_diagnostics(
+            regional_loading_evidence,
+            simulated["regional_loading"],
+            simulated["regional_loading_held_years"],
+        ),
     }
     return {"rate_rows": rate_rows, "reserve": rows, "liability": liability,
             "summary": summary_out, "raw_summary": summary, "allocation": allocation,

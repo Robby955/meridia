@@ -15,8 +15,8 @@ means the gate it targets is too loose.
   Targets the interval-score ceiling.
 - ``static_projection``: method A now, projection equal to the present. Targets the
   projection accuracy bar on elders and children.
-- ``uniform_allocation``: method A with the budget spread equally over counties.
-  Targets the allocation regret ceiling.
+- ``uniform_allocation``: method A with reserve slack above the submitted regional
+  q95 floors spread equally across regions. Targets the reserve-skill ceiling.
 - ``benchmark_only``: the benchmark nation total spread over counties in proportion
   to raw register counts, with tight intervals. Targets the accuracy bar on national
   counts (the benchmark carries its own bias) and the county bars.
@@ -72,31 +72,48 @@ says the gate is loose rather than that the control was subtle.
 - ``version_three_recipe``: the recipe that solved version three, on the
   version-four surface.
   Longitudinal matching on the within-source identifier, one national growth factor for
-  every county, one global register income scale from a single national ratio, counts
-  built as a national total times register county shares, archive rates with no
-  selection correction, and a normal tail. Proof obligation 2. Targets the county count
-  and rate gates, then the tail and reserve gates.
+  every county, one decoded global income scale, counts built from an equal blend of the
+  income and population source county shares, deterministic register-vintage mortality,
+  archive incidence with no selection correction, and point tails. Proof obligation 2.
+  Targets the county count and rate gates, then the tail and reserve gates.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
-from ..release import AGE_BAND_LABELS, ESTIMAND_IDS, SEX_LABELS
+from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, SEX_LABELS
 from . import actuarial_reference as AR
 from . import design_based as A
-from .common import COUNT_ITEMS, load_packet, rows_from_draws, write_submission
+from .common import COUNT_ITEMS, load_packet
 
-CONTROLS = ("register_only", "survey_only", "no_dedup", "inflated_intervals",
-            "static_projection", "uniform_allocation", "benchmark_only", "exact_key_union")
-ACTUARIAL_CONTROLS = ("deterministic_linkage", "ignore_health_selection",
-                      "development_average_regime", "mean_only_tail", "normal_tail",
-                      "padded_tail", "proportional_reserve", "version_three_recipe",
-                      "experience_history_only")
+CONTROLS = (
+    "register_only",
+    "survey_only",
+    "no_dedup",
+    "inflated_intervals",
+    "static_projection",
+    "uniform_allocation",
+    "benchmark_only",
+    "exact_key_union",
+)
+ACTUARIAL_CONTROLS = (
+    "deterministic_linkage",
+    "ignore_health_selection",
+    "development_average_regime",
+    "mean_only_tail",
+    "normal_tail",
+    "padded_tail",
+    "proportional_reserve",
+    "version_three_recipe",
+    "experience_history_only",
+)
 ALL_CONTROLS = CONTROLS + ACTUARIAL_CONTROLS
 
 # One layer switch per version-four control. version_three_recipe also rebuilds the release
@@ -104,20 +121,90 @@ ALL_CONTROLS = CONTROLS + ACTUARIAL_CONTROLS
 # handled apart from this table. development_average_regime's override is not a constant
 # either: it is the development-world average, built at run time.
 ACTUARIAL_SWITCHES = {
-    "deterministic_linkage": {"deterministic_linkage": True, "archive_only_rates": True},
+    "deterministic_linkage": {
+        "deterministic_linkage": True,
+        "archive_only_rates": True,
+    },
     "ignore_health_selection": {"ignore_health_selection": True},
     "development_average_regime": {},
     "mean_only_tail": {"tail": "mean"},
     "normal_tail": {"tail": "normal"},
     "padded_tail": {"tail": "padded", "padding": 1.6},
     "proportional_reserve": {"allocation": "proportional"},
-    "version_three_recipe": {"deterministic_linkage": True, "archive_only_rates": True,
-                        "ignore_health_selection": True, "tail": "normal",
-                        "allocation": "proportional"},
+    "version_three_recipe": {
+        "deterministic_linkage": True,
+        "archive_only_rates": True,
+        "ignore_health_selection": True,
+        "tail": "mean",
+        "allocation": "proportional",
+        "reconstruction_uncertainty": False,
+        "rake_to_experience": False,
+        "simulation": AR.SimulationParams(process_noise=False, parameter_noise=False),
+    },
+}
+
+DELETION_CONTROLS = {
+    "reconstruction_uncertainty": {"reconstruction_uncertainty": False},
+    "informative_selection": {"ignore_health_selection": True},
+    "regime_recombination": {},
+    "predictive_tails": {"tail": "mean"},
+    "reserve_allocation": {"allocation": "proportional"},
+}
+DECOMPOSITION_CONTROLS = (
+    "design_reconstruction_oracle_tail",
+    "true_population_normal_tail",
+)
+
+CONTROL_TARGET_COMPOSITES = {
+    "register_only": "release_accuracy",
+    "survey_only": "release_accuracy",
+    "no_dedup": "release_accuracy",
+    "inflated_intervals": "interval_quality",
+    "static_projection": "release_accuracy",
+    "uniform_allocation": "reserve_skill",
+    "benchmark_only": "release_accuracy",
+    "exact_key_union": "release_accuracy",
+    "deterministic_linkage": "exposures_and_rates",
+    "ignore_health_selection": "exposures_and_rates",
+    "development_average_regime": "tail_calibration",
+    "mean_only_tail": "tail_calibration",
+    "normal_tail": "tail_calibration",
+    "padded_tail": "tail_calibration",
+    "proportional_reserve": "reserve_skill",
+    "version_three_recipe": "release_accuracy",
+    "experience_history_only": "release_accuracy",
+    "reconstruction_uncertainty": "interval_quality",
+    "informative_selection": "exposures_and_rates",
+    "regime_recombination": "tail_calibration",
+    "predictive_tails": "tail_calibration",
+    "reserve_allocation": "reserve_skill",
+}
+QUALIFICATION_CONTROLS = ALL_CONTROLS + tuple(DELETION_CONTROLS)
+if set(CONTROL_TARGET_COMPOSITES) != set(QUALIFICATION_CONTROLS):
+    raise RuntimeError("every qualification control needs exactly one target composite")
+
+VERSION_THREE_DISCRETE_INCOME_SCALES = (0.55, 0.75, 1.0)
+VERSION_THREE_RELEASE_WIDTH = {
+    "count": 0.30,
+    "median_household_income": 0.12,
+    "mean_income_adults": 0.10,
+    "tertiary_share_25_plus": 0.008,
+    "low_income_household_share": 0.025,
+}
+VERSION_THREE_PROJECTION_WIDTH = {
+    "count": 0.32,
+    "median_household_income": 0.20,
+    "mean_income_adults": 0.15,
+    "tertiary_share_25_plus": 0.030,
+    "low_income_household_share": 0.050,
 }
 
 EXACT_KEY = ["given_code", "family_code", "birth_tick", "sex"]
-UNION_WIDTH = {"nation": 2.5, "state": 2.2, "county": 2.0}   # multiples of the development spread
+UNION_WIDTH = {
+    "nation": 2.5,
+    "state": 2.2,
+    "county": 2.0,
+}  # multiples of the development spread
 UNION_MIN_HALF = 0.004
 
 
@@ -287,74 +374,692 @@ def development_regime_override(contract: dict, calibration: dict | None) -> dic
     """
     fitted = (calibration or {}).get("development_regime")
     if fitted and "mortality_drift" in fitted:
-        return {"mortality_drift": float(fitted["mortality_drift"]),
-                "mortality_drift_se": float(fitted["mortality_drift_se"]),
-                "incidence_drift": float(fitted.get("incidence_drift", 0.0)),
-                "incidence_drift_se": float(fitted.get("incidence_drift_se",
-                                                       fitted["mortality_drift_se"]))}
-    band = (((contract.get("mechanisms") or {}).get("development_band") or {})
-            .get("mortality_improvement"))
+        return {
+            "mortality_drift": float(fitted["mortality_drift"]),
+            "mortality_drift_se": float(fitted["mortality_drift_se"]),
+            "incidence_drift": float(fitted.get("incidence_drift", 0.0)),
+            "incidence_drift_se": float(
+                fitted.get("incidence_drift_se", fitted["mortality_drift_se"])
+            ),
+        }
+    band = ((contract.get("mechanisms") or {}).get("development_band") or {}).get(
+        "mortality_improvement"
+    )
     if not band:
-        raise ValueError("development_average_regime needs either the development-world "
-                         "average in calibration A or the published development band")
+        raise ValueError(
+            "development_average_regime needs either the development-world "
+            "average in calibration A or the published development band"
+        )
     low, high = float(band[0]), float(band[1])
     drift = float(np.log(max(1.0 - 0.5 * (low + high), 1e-6)))
     spread = float((high - low) / np.sqrt(12.0))
-    return {"mortality_drift": drift, "mortality_drift_se": spread,
-            "incidence_drift": 0.0, "incidence_drift_se": spread}
+    return {
+        "mortality_drift": drift,
+        "mortality_drift_se": spread,
+        "incidence_drift": 0.0,
+        "incidence_drift_se": spread,
+    }
 
 
 def _read_rows(path: Path) -> list[dict]:
     import pandas as pd
+
     return pd.read_csv(path).to_dict("records")
 
 
-def _version_three_release(data: dict, tick: int, county_state: np.ndarray, register: dict,
-                    stats: dict, horizon_months: int) -> tuple[list[dict], list[dict]]:
-    """The version-three recipe: one national total split on register county shares, one
-    global income scale, one growth factor for every county.
+def _version_three_count_vectors(
+    frame, id_column: str, tick: int, n_counties: int
+) -> dict[str, np.ndarray]:
+    """One record per within-source identifier, as used by the version-three recipe."""
+    person = frame.drop_duplicates(id_column).copy()
+    person = person[(person["county"] >= 0) & (person["county"] < n_counties)]
+    county = person["county"].to_numpy(dtype=np.int64)
+    age = (tick - person["birth_tick"].to_numpy(dtype=np.int64)) // 12
+    household = person.drop_duplicates("household_id")
+    return {
+        "persons": np.bincount(county, minlength=n_counties).astype(np.float64),
+        "households": np.bincount(
+            household["county"].to_numpy(dtype=np.int64), minlength=n_counties
+        ).astype(np.float64),
+        "children_under_16": np.bincount(
+            county, weights=age <= 15, minlength=n_counties
+        ).astype(np.float64),
+        "elders_65_plus": np.bincount(
+            county, weights=age >= 65, minlength=n_counties
+        ).astype(np.float64),
+    }
 
-    Longitudinal matching is the within-source identifier, which version four no longer
-    keeps across vintages, so the growth factor is read off a join that mostly fails; one
-    income scale is a single national ratio, so a scale that varies by county and income
-    band collapses to its average; and every county moves by the same factor, so the
-    projection carries no structure at all. The counts add exactly by construction, which
-    is the point: arithmetic additivity was free in version three and stays free here.
+
+def _version_three_transition_ratios(
+    preliminary, revised, tick_pre: int, tick_rev: int, horizon_months: int
+) -> dict:
+    """Repeat the within-source cohort transition that solved version three.
+
+    Retention and arrivals are measured by the source's own identifier in one observed
+    interval, smoothed over neighbouring age bins, and repeated to the horizon. Version
+    four reissues that identifier, so the same arithmetic is intentionally brittle here.
     """
+    id_column = "taxpayer_id"
+    pre = preliminary.drop_duplicates(id_column)
+    rev = revised.drop_duplicates(id_column)
+    step_months = max(tick_rev - tick_pre, 1)
+    steps = max(int(round(horizon_months / step_months)), 1)
+    n_bins = max(int(np.ceil((AR.MAX_AGE + 10) * 12 / step_months)), 32)
+    pre_bin = np.clip(
+        ((tick_pre - pre["birth_tick"].to_numpy(dtype=np.int64)) / step_months).astype(
+            np.int64
+        ),
+        0,
+        n_bins - 1,
+    )
+    rev_bin = np.clip(
+        ((tick_rev - rev["birth_tick"].to_numpy(dtype=np.int64)) / step_months).astype(
+            np.int64
+        ),
+        0,
+        n_bins - 1,
+    )
+    pre_ids = set(pre[id_column].to_numpy())
+    rev_ids = set(rev[id_column].to_numpy())
+    pre_count = np.bincount(pre_bin, minlength=n_bins).astype(np.float64)
+    current = np.bincount(rev_bin, minlength=n_bins).astype(np.float64)
+    retained = pre[id_column].isin(rev_ids).to_numpy()
+    retained_count = np.bincount(pre_bin[retained], minlength=n_bins).astype(np.float64)
+    arrived = ~rev[id_column].isin(pre_ids).to_numpy()
+    arrivals = np.bincount(rev_bin[arrived], minlength=n_bins).astype(np.float64)
+    kernel = np.ones(5)
+    retention = np.convolve(retained_count, kernel, mode="same") / np.maximum(
+        np.convolve(pre_count, kernel, mode="same"), 1.0
+    )
+    retention = np.clip(retention, 0.0, 1.0)
+    forecast = current.copy()
+    for _ in range(steps):
+        moved = np.zeros_like(forecast)
+        moved[1:] = forecast[:-1] * retention[:-1]
+        moved[-1] += forecast[-1] * retention[-1]
+        forecast = moved + arrivals
+    child_end = int(np.ceil(16 * 12 / step_months))
+    elder_start = int(np.floor(65 * 12 / step_months))
+    current_values = {
+        "persons": float(current.sum()),
+        "children_under_16": float(current[:child_end].sum()),
+        "elders_65_plus": float(current[elder_start:].sum()),
+    }
+    future_values = {
+        "persons": float(forecast.sum()),
+        "children_under_16": float(forecast[:child_end].sum()),
+        "elders_65_plus": float(forecast[elder_start:].sum()),
+    }
+    return {
+        item: float(
+            np.clip(future_values[item] / max(current_values[item], 1.0), 0.5, 2.0)
+        )
+        for item in current_values
+    }
+
+
+def _version_three_income(
+    data: dict, tick: int, county_state: np.ndarray, survey_stats: dict | None = None
+) -> tuple[dict, dict, float]:
+    """Decode one discrete money unit and compute source-only income summaries."""
+    frame = data["income"].drop_duplicates("taxpayer_id").copy()
+    frame = frame[(frame["county"] >= 0) & (frame["county"] < len(county_state))]
+    frame["age"] = (tick - frame["birth_tick"]) // 12
+    raw = (
+        frame.loc[
+            (frame["age"] >= 16) & frame["employment_income_cents"].notna(),
+            "employment_income_cents",
+        ].to_numpy(dtype=np.float64)
+        / 100.0
+    )
+    raw_mean = float(raw.mean()) if len(raw) else 1.0
+    survey_mean = (
+        float(survey_stats["mean_income_adults"]["nation"])
+        if survey_stats is not None
+        else raw_mean
+    )
+    observed = raw_mean / max(survey_mean, 1e-9)
+    scale = min(
+        VERSION_THREE_DISCRETE_INCOME_SCALES,
+        key=lambda candidate: abs(np.log(max(observed, 1e-9) / candidate)),
+    )
+    frame["decoded_income"] = frame["employment_income_cents"].fillna(0.0) / (
+        100.0 * scale
+    )
+    n_counties = len(county_state)
+    adult = frame[frame["age"] >= 16]
+    mean = (
+        adult.groupby("county")["decoded_income"]
+        .mean()
+        .reindex(range(n_counties))
+        .to_numpy(dtype=np.float64)
+    )
+    household = frame.groupby("household_id", sort=False).agg(
+        county=("county", "first"), income=("decoded_income", "sum")
+    )
+    national_median = float(household["income"].median()) if len(household) else 0.0
+    median = (
+        household.groupby("county")["income"]
+        .median()
+        .reindex(range(n_counties))
+        .to_numpy(dtype=np.float64)
+    )
+    low = (
+        household.assign(low=household["income"] < 0.6 * national_median)
+        .groupby("county")["low"]
+        .mean()
+        .reindex(range(n_counties))
+        .to_numpy(dtype=np.float64)
+    )
+    mean = np.nan_to_num(mean, nan=raw_mean / scale)
+    median = np.nan_to_num(median, nan=national_median)
+    low = np.nan_to_num(
+        low, nan=float(np.nanmean(low)) if np.isfinite(low).any() else 0.0
+    )
+
     n_states = int(county_state.max()) + 1
-    shares = {}
-    for item in COUNT_ITEMS:
-        raw = np.asarray(register[item], dtype=np.float64)
-        shares[item] = np.maximum(raw, 1e-9) / max(raw.sum(), 1e-9)
-    nation = {item: float(np.asarray(register[item], dtype=np.float64).sum())
-              for item in COUNT_ITEMS}
-    pre = data["population_preliminary"].drop_duplicates("person_id")
-    rev = data["population"].drop_duplicates("person_id")
-    matched = len(rev.merge(pre[["person_id"]], on="person_id", how="inner"))
-    months = max(tick - int(data["contract"]["ticks"]["preliminary"]), 1)
-    ratio = len(rev) / max(matched, 1) if matched else 1.0
-    growth = float(np.clip(ratio ** (horizon_months / months), 0.5, 2.0))
-    scale = A.register_income_scale(data["income"], stats["mean_income_adults"]["nation"])
+    median_level = {"nation": national_median}
+    for state in range(n_states):
+        members = set(np.flatnonzero(county_state == state))
+        values = household.loc[household["county"].isin(members), "income"]
+        median_level[state] = float(values.median()) if len(values) else national_median
+    return (
+        {
+            "median_household_income": median,
+            "mean_income_adults": mean,
+            "low_income_household_share": np.clip(low, 0.0, 1.0),
+        },
+        median_level,
+        float(scale),
+    )
+
+
+def _version_three_tertiary(population, tick: int, n_counties: int) -> np.ndarray:
+    frame = population.drop_duplicates("person_id").copy()
+    frame["age"] = (tick - frame["birth_tick"]) // 12
+    frame = frame[
+        (frame["county"] >= 0)
+        & (frame["county"] < n_counties)
+        & (frame["age"] >= 25)
+        & (frame["education"] >= 0)
+    ]
+    share = (
+        frame.assign(tertiary=frame["education"] >= 2)
+        .groupby("county")["tertiary"]
+        .mean()
+        .reindex(range(n_counties))
+        .to_numpy(dtype=np.float64)
+    )
+    return np.nan_to_num(
+        share, nan=float(np.nanmean(share)) if np.isfinite(share).any() else 0.0
+    )
+
+
+def _version_three_aggregate(
+    county: dict, county_state: np.ndarray, median_level: dict
+) -> dict:
+    n_states = int(county_state.max()) + 1
+    persons = np.maximum(np.asarray(county["persons"], dtype=np.float64), 0.0)
+    out = {}
+    for estimand in ESTIMAND_IDS:
+        values = np.asarray(county[estimand], dtype=np.float64)
+        for c, value in enumerate(values):
+            out[(estimand, "county", c)] = float(value)
+        if estimand in COUNT_ITEMS:
+            state = np.bincount(county_state, weights=values, minlength=n_states)
+            nation = float(state.sum())
+        elif estimand == "median_household_income":
+            state = np.asarray([median_level[s] for s in range(n_states)])
+            nation = float(median_level["nation"])
+        else:
+            denominator = np.bincount(county_state, weights=persons, minlength=n_states)
+            state = np.bincount(
+                county_state, weights=values * persons, minlength=n_states
+            ) / np.maximum(denominator, 1e-9)
+            nation = float((values * persons).sum() / max(persons.sum(), 1e-9))
+        for s, value in enumerate(state):
+            out[(estimand, "state", s)] = float(value)
+        out[(estimand, "nation", 0)] = nation
+    return out
+
+
+def _version_three_rows(point: dict, widths: dict) -> list[dict]:
+    rows = []
+    for key in sorted(point):
+        estimand, level, unit = key
+        value = float(np.nan_to_num(point[key]))
+        width = widths["count"] if estimand in COUNT_ITEMS else widths[estimand]
+        half = (
+            width * abs(value)
+            if estimand not in ("tertiary_share_25_plus", "low_income_household_share")
+            else width
+        )
+        lower, upper = max(value - half, 0.0), value + half
+        if estimand.endswith("share") or estimand.startswith("tertiary"):
+            upper = min(upper, 1.0)
+        rows.append(
+            {
+                "estimand": estimand,
+                "level": level,
+                "unit": int(unit),
+                "estimate": value,
+                "lower": float(lower),
+                "upper": float(upper),
+            }
+        )
+    return rows
+
+
+def fit_version_three_recipe(dev_packet_dirs) -> dict:
+    """Fit only the constants and discrete choices used by the passed version-three line."""
+    import pandas as pd
+
+    samples = []
+    for packet in map(Path, dev_packet_dirs):
+        data = load_packet(packet)
+        tick = int(data["contract"]["ticks"]["revised"])
+        tick_pre = int(data["contract"]["ticks"]["preliminary"])
+        horizon_months = int(data["contract"]["ticks"]["horizon"]) - tick
+        income_count = _version_three_count_vectors(
+            data["income"], "taxpayer_id", tick, len(data["county_state"])
+        )
+        truth_now = pd.read_csv(packet / "participant" / "truth" / "truth_revised.csv")
+        truth_future = pd.read_csv(
+            packet / "participant" / "truth" / "truth_horizon.csv"
+        )
+        now = truth_now[truth_now["level"] == "nation"].set_index("estimand")["value"]
+        future = truth_future[truth_future["level"] == "nation"].set_index("estimand")[
+            "value"
+        ]
+        survey = A.impute_income(
+            data["survey"].assign(weight=data["survey"]["design_weight"])
+        )
+        survey_stats = A.survey_statistics(survey, data["county_state"])
+        income, median_level, decoded = _version_three_income(
+            data, tick, data["county_state"], survey_stats
+        )
+        tertiary = _version_three_tertiary(
+            data["population"], tick, len(data["county_state"])
+        )
+        county = (
+            {item: income_count[item] for item in COUNT_ITEMS}
+            | income
+            | {"tertiary_share_25_plus": tertiary}
+        )
+        estimate = _version_three_aggregate(county, data["county_state"], median_level)
+        transition = _version_three_transition_ratios(
+            data["income_preliminary"], data["income"], tick_pre, tick, horizon_months
+        )
+        row = {"decoded_scale": decoded}
+        for item in COUNT_ITEMS:
+            row[f"current/{item}"] = float(
+                now[item] / max(income_count[item].sum(), 1.0)
+            )
+        for item in ("persons", "children_under_16", "elders_65_plus"):
+            row[f"transition/{item}"] = float(
+                (future[item] / max(now[item], 1.0)) / max(transition[item], 1e-9)
+            )
+        row["household_growth"] = float(
+            future["households"] / max(now["households"], 1.0)
+        )
+        for item in ("median_household_income", "mean_income_adults"):
+            raw = estimate[(item, "nation", 0)]
+            row[f"income/{item}"] = float(now[item] / max(raw, 1e-9))
+            row[f"forecast/{item}"] = float(future[item] / max(now[item], 1e-9))
+        for item in ("low_income_household_share", "tertiary_share_25_plus"):
+            row[f"income/{item}"] = float(now[item] - estimate[(item, "nation", 0)])
+            row[f"forecast/{item}"] = float(future[item] - now[item])
+        samples.append(row)
+    keys = sorted({key for row in samples for key in row if key != "decoded_scale"})
+    return {
+        "n_worlds": len(samples),
+        "discrete_income_scales": list(VERSION_THREE_DISCRETE_INCOME_SCALES),
+        **{key: float(np.mean([row[key] for row in samples])) for key in keys},
+    }
+
+
+def _version_three_release(
+    data: dict, tick: int, county_state: np.ndarray, horizon_months: int, fit: dict
+) -> tuple[list[dict], list[dict]]:
+    """The registered version-three recipe, reproduced from its transcript evidence."""
+    n_counties = len(county_state)
+    tick_pre = int(data["contract"]["ticks"]["preliminary"])
+    income_counts = _version_three_count_vectors(
+        data["income"], "taxpayer_id", tick, n_counties
+    )
+    population_counts = _version_three_count_vectors(
+        data["population"], "person_id", tick, n_counties
+    )
+    survey = A.impute_income(
+        data["survey"].assign(weight=data["survey"]["design_weight"])
+    )
+    survey_stats = A.survey_statistics(survey, county_state)
+    income, median_level, _ = _version_three_income(
+        data, tick, county_state, survey_stats
+    )
+    transition = _version_three_transition_ratios(
+        data["income_preliminary"], data["income"], tick_pre, tick, horizon_months
+    )
+
     now, future = {}, {}
     for item in COUNT_ITEMS:
-        now[item] = nation[item] * shares[item]
-        future[item] = now[item] * growth
-    for target in (now, future):
-        target["tertiary_share_25_plus"] = register["tertiary_share_25_plus"]
-        for e in ("median_household_income", "mean_income_adults",
-                  "low_income_household_share"):
-            level = np.asarray([stats[e][s] for s in range(n_states)])[county_state]
-            target[e] = np.clip(level * scale, 0.0, 1.0) if e.endswith("share") \
-                else level * scale
-    release = _rows_with_relative_half(
-        A.aggregate(now, county_state, stats, now["persons"]), 0.01)
-    projection = _rows_with_relative_half(
-        A.aggregate(future, county_state, stats, future["persons"]), 0.02)
-    return release, projection
+        inc = np.maximum(income_counts[item], 0.0)
+        pop = np.maximum(population_counts[item], 0.0)
+        share = 0.5 * inc / max(inc.sum(), 1.0) + 0.5 * pop / max(pop.sum(), 1.0)
+        share /= max(share.sum(), 1e-9)
+        nation = float(inc.sum() * fit[f"current/{item}"])
+        now[item] = nation * share
+        if item == "households":
+            ratio = fit["household_growth"]
+        else:
+            ratio = transition[item] * fit[f"transition/{item}"]
+        future[item] = now[item] * float(np.clip(ratio, 0.5, 2.0))
+
+    for item in ("median_household_income", "mean_income_adults"):
+        now[item] = income[item] * fit[f"income/{item}"]
+        future[item] = now[item] * fit[f"forecast/{item}"]
+        median_level = dict(median_level)
+        if item == "median_household_income":
+            for level in list(median_level):
+                median_level[level] *= fit[f"income/{item}"]
+    for item in ("low_income_household_share", "tertiary_share_25_plus"):
+        source = (
+            income[item]
+            if item in income
+            else _version_three_tertiary(data["population"], tick, n_counties)
+        )
+        now[item] = np.clip(source + fit[f"income/{item}"], 0.0, 1.0)
+        future[item] = np.clip(now[item] + fit[f"forecast/{item}"], 0.0, 1.0)
+
+    point_now = _version_three_aggregate(now, county_state, median_level)
+    future_median = {
+        key: value * fit["forecast/median_household_income"]
+        for key, value in median_level.items()
+    }
+    point_future = _version_three_aggregate(future, county_state, future_median)
+    return (
+        _version_three_rows(point_now, VERSION_THREE_RELEASE_WIDTH),
+        _version_three_rows(point_future, VERSION_THREE_PROJECTION_WIDTH),
+    )
 
 
-def experience_only_cube(arrays: dict, county_state: np.ndarray, land: np.ndarray,
-                         years_ahead: float) -> np.ndarray:
+def _development_control_inputs(packet_dir: Path) -> tuple[Path, Path]:
+    """Return the two retained inputs permitted for development controls only.
+
+    Qualification and graded packets do not expose participant truth. Requiring that
+    development-only marker before opening a retained file makes these controls fail
+    closed when they are pointed at any other packet class.
+    """
+    packet_dir = Path(packet_dir).resolve()
+    if any(part.lower().startswith("graded") for part in packet_dir.parts):
+        raise ValueError("decomposition controls refuse graded packet paths")
+    manifest_path = packet_dir / "manifest.json"
+    if manifest_path.is_symlink() or manifest_path.resolve().parent != packet_dir:
+        raise ValueError("decomposition controls refuse a linked packet manifest")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, ValueError) as error:
+        raise ValueError(
+            "decomposition controls require a valid development packet manifest"
+        ) from error
+    if manifest.get("development") is not True:
+        raise ValueError("decomposition controls require a development packet")
+    for side in ("participant", "retained"):
+        side_path = packet_dir / side
+        if side_path.is_symlink() or side_path.resolve().parent != packet_dir:
+            raise ValueError(
+                f"decomposition controls refuse a linked {side} directory"
+            )
+        linked = [
+            str(path.relative_to(side_path))
+            for path in side_path.rglob("*")
+            if path.is_symlink()
+        ]
+        if linked:
+            raise ValueError(
+                f"decomposition controls refuse linked {side} paths: {sorted(linked)}"
+            )
+    truth = packet_dir / "participant" / "truth"
+    ensemble = packet_dir / "retained" / "continuation_liabilities.npz"
+    participant_root = (packet_dir / "participant").resolve()
+    retained_root = (packet_dir / "retained").resolve()
+    if truth.is_symlink() or truth.resolve().parent != participant_root:
+        raise ValueError("decomposition controls refuse a linked truth directory")
+    required = (truth / "truth_revised.csv", truth / "detailed_revised.csv", ensemble)
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise ValueError(
+            "decomposition controls require a development packet with "
+            "participant truth and a retained continuation ensemble"
+        )
+    for path in required:
+        participant_file = path.is_relative_to(packet_dir / "participant")
+        side = "participant" if participant_file else "retained"
+        expected_root = truth.resolve() if participant_file else retained_root
+        if path.is_symlink() or path.resolve().parent != expected_root:
+            raise ValueError(
+                f"decomposition controls refuse a linked {side} input: {path.name}"
+            )
+        name = str(path.relative_to(packet_dir / side))
+        claim = (manifest.get(side) or {}).get(name)
+        if not isinstance(claim, dict):
+            raise ValueError(f"development manifest does not bind {side}/{name}")
+        with path.open("rb") as handle:
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        if claim.get("bytes") != path.stat().st_size or claim.get("sha256") != digest:
+            raise ValueError(f"development manifest hash mismatch for {side}/{name}")
+    return truth, ensemble
+
+
+def _truth_release_rows(truth_dir: Path) -> list[dict]:
+    """Exact current release rows supplied to the true-population control."""
+    import pandas as pd
+
+    truth = pd.read_csv(Path(truth_dir) / "truth_revised.csv")
+    return [
+        {
+            "estimand": str(row.estimand),
+            "level": str(row.level),
+            "unit": int(row.unit),
+            "estimate": float(row.value),
+            "lower": float(row.value),
+            "upper": float(row.value),
+        }
+        for row in truth.itertuples()
+    ]
+
+
+def _truth_population_cubes(
+    truth_dir: Path, n_counties: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Expand development detailed truth into a single-age cube.
+
+    Development truth identifies the published age bands, not single years inside a
+    band. The single-age cube therefore spreads each true band count evenly across its
+    included ages. The second return value preserves the exact submitted band counts.
+    """
+    import pandas as pd
+
+    frame = pd.read_csv(Path(truth_dir) / "detailed_revised.csv")
+    bands = {name: index for index, name in enumerate(AGE_BAND_LABELS)}
+    sexes = {name: index for index, name in enumerate(SEX_LABELS)}
+    band_cube = np.zeros((n_counties, len(AGE_BAND_LABELS), len(SEX_LABELS)))
+    seen = np.zeros_like(band_cube, dtype=bool)
+    for row in frame.itertuples():
+        county = int(row.county)
+        band = bands[str(row.age_band)]
+        sex = sexes[str(row.sex)]
+        if not 0 <= county < n_counties:
+            raise ValueError("development detailed truth has an invalid county")
+        band_cube[county, band, sex] = float(row.count)
+        seen[county, band, sex] = True
+    if not seen.all():
+        raise ValueError("development detailed truth does not contain every cell")
+    single_age = np.zeros((n_counties, AR.MAX_AGE + 1, len(SEX_LABELS)))
+    for band, (low, high) in enumerate(AGE_BANDS):
+        ages = np.arange(low, min(high, AR.MAX_AGE) + 1)
+        single_age[:, ages, :] = band_cube[:, band, None, :] / len(ages)
+    return single_age, band_cube
+
+
+def run_decomposition(
+    name: str,
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None = None,
+    bootstrap_replicates: int = 60,
+    simulation_paths: int = 2048,
+) -> dict:
+    """Run one development-only reconstruction and tail decomposition control."""
+    if name not in DECOMPOSITION_CONTROLS:
+        raise ValueError(f"unknown decomposition control {name!r}")
+    packet_dir, out_dir = Path(packet_dir), Path(out_dir)
+    truth_dir, ensemble_path = _development_control_inputs(packet_dir)
+    common_layer = AR.LayerParams(
+        simulation=AR.SimulationParams(n_paths=simulation_paths),
+    )
+
+    if name == "design_reconstruction_oracle_tail":
+        result = A.run(
+            packet_dir,
+            out_dir,
+            A.MethodParams(
+                bootstrap_replicates=bootstrap_replicates,
+                calibration_path=calibration_path,
+                actuarial="on",
+                actuarial_params=common_layer,
+            ),
+        )
+        with np.load(ensemble_path) as archive:
+            liability = np.asarray(archive["liability"], dtype=np.float64)
+            archive_weights = (
+                np.asarray(archive["weights"], dtype=np.float64)
+                if "weights" in archive
+                else None
+            )
+        data = load_packet(packet_dir)
+        reserve = data["contract"]["reserve"]
+        weights = archive_weights
+        if weights is None and reserve.get("weights"):
+            weights = np.asarray(reserve["weights"], dtype=np.float64)
+        design_rows = sorted(result["reserve"], key=lambda row: int(row["region"]))
+        design_mean = np.asarray(
+            [row["liability_mean"] for row in design_rows], dtype=np.float64
+        )
+        sealed_summary = AR.tail_summary(liability)
+        oracle_residual_paths = (
+            liability - sealed_summary["mean"][None, :] + design_mean[None, :]
+        )
+        summary = AR.tail_summary(oracle_residual_paths)
+        allocation_detail = AR.allocate_reserve(
+            oracle_residual_paths, summary["q"], float(reserve["total"]), weights
+        )
+        rows = AR.reserve_rows(summary, allocation_detail["allocation"])
+        import pandas as pd
+
+        pd.DataFrame(rows).to_csv(out_dir / "reserve.csv", index=False)
+        result["reserve"] = rows
+        result["reconstruction_actuarial_diagnostics"] = result.pop("actuarial", {})
+        result["decomposition"] = {
+            "name": name,
+            "oracle_tail_members": int(liability.shape[0]),
+            "oracle_component": "sealed centered regional tail residuals",
+            "level_component": "design reconstruction regional liability mean",
+            "design_liability_mean": design_mean.tolist(),
+            "sealed_liability_mean": sealed_summary["mean"].tolist(),
+            "submitted_liability_mean": summary["mean"].tolist(),
+            "reserve_feasible": bool(allocation_detail["feasible"]),
+        }
+        return result
+
+    data = load_packet(packet_dir)
+    county_state = np.asarray(data["county_state"], dtype=np.int64)
+    single_age, band_cube = _truth_population_cubes(truth_dir, len(county_state))
+    with tempfile.TemporaryDirectory(prefix="meridia-true-population-") as temporary:
+        base = A.run(
+            packet_dir,
+            Path(temporary),
+            A.MethodParams(
+                bootstrap_replicates=bootstrap_replicates,
+                calibration_path=calibration_path,
+                actuarial="off",
+            ),
+        )
+    contract = data["contract"]
+    layer = replace(
+        common_layer,
+        tail="normal",
+        reconstruction_uncertainty=False,
+        rake_to_experience=False,
+    )
+    result = AR.actuarial_submission(
+        packet_dir,
+        data,
+        county_state,
+        single_age[None],
+        float(base["fertility"]["fertility_rate"]),
+        _truth_release_rows(truth_dir),
+        base["projection"],
+        band_cube,
+        2.0 * int(contract.get("disclosure_threshold", 10)),
+        out_dir,
+        AGE_BAND_LABELS,
+        SEX_LABELS,
+        layer,
+    )
+    if result is None:
+        raise AR.MissingActuarialInputs(
+            "true_population_normal_tail needs version-four actuarial inputs"
+        )
+    result["decomposition"] = {
+        "name": name,
+        "truth_source": "development participant truth",
+        "single_age_rule": "uniform within each true published age band",
+    }
+    return result
+
+
+def run_deletion(
+    name: str,
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None = None,
+    bootstrap_replicates: int = 60,
+    simulation_paths: int = 2048,
+) -> dict:
+    """Run the design reference with exactly one named layer removed."""
+    if name not in DELETION_CONTROLS:
+        raise ValueError(f"unknown deletion control {name!r}")
+    switches = dict(DELETION_CONTROLS[name])
+    if name == "regime_recombination":
+        calibration = (
+            json.loads(Path(calibration_path).read_text()) if calibration_path else None
+        )
+        contract = json.loads(
+            (Path(packet_dir) / "participant" / "contract.json").read_text()
+        )
+        switches["regime_override"] = development_regime_override(contract, calibration)
+    layer = AR.LayerParams(
+        simulation=AR.SimulationParams(n_paths=simulation_paths),
+        **switches,
+    )
+    result = A.run(
+        packet_dir,
+        out_dir,
+        A.MethodParams(
+            bootstrap_replicates=bootstrap_replicates,
+            calibration_path=calibration_path,
+            actuarial="on",
+            actuarial_params=layer,
+        ),
+    )
+    result["deletion"] = name
+    return result
+
+
+def experience_only_cube(
+    arrays: dict, county_state: np.ndarray, land: np.ndarray, years_ahead: float
+) -> np.ndarray:
     """A county by age by sex population built from the experience file alone.
 
     The last published year's person-years are the state's stock at the middle of that
@@ -458,60 +1163,200 @@ def _experience_history_only(packet_dir: Path, out_dir: Path,
         inside = (ages >= lo) & (ages <= min(hi, AR.MAX_AGE))
         detail[:, b, :] = now[:, inside, :].sum(axis=1)
     data = {"contract": contract, "county_state": county_state, "land_cells": land}
-    layer = replace(layer, experience_only=True) if layer is not None \
+    layer = (
+        replace(layer, experience_only=True)
+        if layer is not None
         else AR.LayerParams(experience_only=True)
+    )
     result = AR.actuarial_submission(
-        Path(packet_dir), data, county_state, now[None], fertility, release, projection,
-        detail, 2.0 * int(contract.get("disclosure_threshold", 10)), Path(out_dir),
-        AGE_BAND_LABELS, SEX_LABELS, layer)
+        Path(packet_dir),
+        data,
+        county_state,
+        now[None],
+        fertility,
+        release,
+        projection,
+        detail,
+        2.0 * int(contract.get("disclosure_threshold", 10)),
+        Path(out_dir),
+        AGE_BAND_LABELS,
+        SEX_LABELS,
+        layer,
+    )
     if result is None:
         raise AR.MissingActuarialInputs(
-            "experience_history_only needs the reserve block in the contract")
+            "experience_history_only needs the reserve block in the contract"
+        )
 
 
-def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
-                       calibration_path: str | None) -> None:
+def _actuarial_control(
+    name: str,
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None,
+    simulation_paths: int | None,
+) -> None:
     """Run the strong design-based line with exactly one step removed."""
     if name == "experience_history_only":
-        _experience_history_only(Path(packet_dir), Path(out_dir))
+        simulation = AR.SimulationParams()
+        if simulation_paths is not None:
+            simulation = replace(simulation, n_paths=simulation_paths)
+        layer = AR.LayerParams(simulation=simulation)
+        _experience_history_only(Path(packet_dir), Path(out_dir), layer)
         return
     switches = dict(ACTUARIAL_SWITCHES[name])
+    if simulation_paths is not None:
+        simulation = switches.get("simulation", AR.SimulationParams())
+        switches["simulation"] = replace(simulation, n_paths=simulation_paths)
     if name == "development_average_regime":
-        calibration = json.loads(Path(calibration_path).read_text()) \
-            if calibration_path else None
+        calibration = (
+            json.loads(Path(calibration_path).read_text()) if calibration_path else None
+        )
         contract = json.loads(
-            (Path(packet_dir) / "participant" / "contract.json").read_text())
+            (Path(packet_dir) / "participant" / "contract.json").read_text()
+        )
         switches["regime_override"] = development_regime_override(contract, calibration)
     layer = AR.LayerParams(**switches)
     if name != "version_three_recipe":
-        A.run(packet_dir, out_dir,
-              A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path,
-                             actuarial="on", actuarial_params=layer))
+        A.run(
+            packet_dir,
+            out_dir,
+            A.MethodParams(
+                bootstrap_replicates=60,
+                calibration_path=calibration_path,
+                actuarial="on",
+                actuarial_params=layer,
+            ),
+        )
         return
     data = load_packet(packet_dir)
     contract, county_state = data["contract"], data["county_state"]
     tick = int(contract["ticks"]["revised"])
     horizon_months = int(contract["ticks"]["horizon"]) - tick
-    register_frame = A.deduplicate_population(data["population"], tick)
+    calibration = (
+        json.loads(Path(calibration_path).read_text()) if calibration_path else {}
+    )
+    fit = calibration.get("version_three_recipe")
+    if fit is None:
+        raise ValueError(
+            "version_three_recipe needs its development fit in calibration A"
+        )
+    register_frame = data["population"].drop_duplicates("person_id").copy()
+    register_frame = register_frame[
+        (register_frame["county"] >= 0)
+        & (register_frame["county"] < len(county_state))
+    ]
+    register_frame["age"] = (
+        tick - register_frame["birth_tick"].to_numpy(dtype=np.int64)
+    ) // 12
     register = A.register_counts(register_frame, len(county_state), 0.0)
-    survey = A.impute_income(data["survey"].assign(weight=data["survey"]["design_weight"]))
-    stats = A.survey_statistics(survey, county_state)
-    release, projection = _version_three_release(data, tick, county_state, register, stats,
-                                          horizon_months)
+    release, projection = _version_three_release(
+        data, tick, county_state, horizon_months, fit
+    )
     age_sex = np.asarray(register["age_sex"], dtype=np.float64)
+    submitted_persons = np.asarray(
+        [
+            next(
+                r["estimate"]
+                for r in release
+                if r["estimand"] == "persons"
+                and r["level"] == "county"
+                and r["unit"] == c
+            )
+            for c in range(len(county_state))
+        ],
+        dtype=np.float64,
+    )
+    county_persons = age_sex.sum(axis=(1, 2))
+    age_sex *= (submitted_persons / np.maximum(county_persons, 1.0))[:, None, None]
     result = AR.actuarial_submission(
-        Path(packet_dir), data, county_state, age_sex[None], 0.055, release, projection,
+        Path(packet_dir),
+        data,
+        county_state,
+        age_sex[None],
+        0.055,
+        release,
+        projection,
         np.asarray(register["cube"], dtype=np.float64),
-        2.0 * int(contract.get("disclosure_threshold", 10)), Path(out_dir),
-        AGE_BAND_LABELS, SEX_LABELS, layer)
+        2.0 * int(contract.get("disclosure_threshold", 10)),
+        Path(out_dir),
+        AGE_BAND_LABELS,
+        SEX_LABELS,
+        layer,
+    )
     if result is None:
         raise AR.MissingActuarialInputs(
-            "version_three_recipe needs a version-four packet with the experience file")
+            "version_three_recipe needs a version-four packet with the experience file"
+        )
 
 
-def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None = None) -> None:
+def _run_structural_base(
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None,
+    simulation_paths: int | None,
+) -> dict:
+    """Write the strong V4 rate and reserve blocks without public-total tail fitting."""
+    simulation = AR.SimulationParams()
+    if simulation_paths is not None:
+        simulation = replace(simulation, n_paths=simulation_paths)
+    return A.run(
+        packet_dir,
+        out_dir,
+        A.MethodParams(
+            bootstrap_replicates=60,
+            calibration_path=calibration_path,
+            actuarial="on",
+            actuarial_params=AR.LayerParams(simulation=simulation),
+        ),
+    )
+
+
+def _overlay_core_rows(
+    out_dir: Path, release_rows: list[dict], projection_rows: list[dict]
+) -> None:
+    """Replace only core rows and retain the structural base's V4 rate block."""
+    import pandas as pd
+
+    out_dir = Path(out_dir)
+    submitted_release = pd.read_csv(out_dir / "release.csv")
+    submitted_projection = pd.read_csv(out_dir / "projection.csv")
+    rate_rows = submitted_release[
+        submitted_release["estimand"].isin(AR.RATE_ESTIMANDS)
+    ]
+    core = pd.DataFrame(release_rows)
+    for column in submitted_release.columns:
+        if column not in core:
+            core[column] = "" if column in AR.RATE_EXTRA_COLUMNS else np.nan
+    combined = pd.concat(
+        [core[list(submitted_release.columns)], rate_rows], ignore_index=True
+    )
+    combined.to_csv(out_dir / "release.csv", index=False)
+
+    projection = pd.DataFrame(projection_rows)
+    for column in submitted_projection.columns:
+        if column not in projection:
+            projection[column] = ""
+    projection[list(submitted_projection.columns)].to_csv(
+        out_dir / "projection.csv", index=False
+    )
+
+
+def run(
+    name: str,
+    packet_dir: Path,
+    out_dir: Path,
+    calibration_path: str | None = None,
+    simulation_paths: int | None = None,
+) -> None:
     if name in ACTUARIAL_CONTROLS:
-        _actuarial_control(name, Path(packet_dir), Path(out_dir), calibration_path)
+        _actuarial_control(
+            name,
+            Path(packet_dir),
+            Path(out_dir),
+            calibration_path,
+            simulation_paths,
+        )
         return
     if name not in CONTROLS:
         raise ValueError(f"unknown control {name!r}")
@@ -520,12 +1365,12 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
     n_counties = len(county_state)
     tick = int(contract["ticks"]["revised"])
     horizon_months = int(contract["ticks"]["horizon"]) - tick
-    budget = float(contract["allocation"]["budget"])
-    threshold = int(contract.get("disclosure_threshold", 10))
     out_dir = Path(out_dir)
 
     if name in ("inflated_intervals", "static_projection", "uniform_allocation", "exact_key_union"):
-        base = A.run(packet_dir, out_dir, A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path))
+        base = _run_structural_base(
+            Path(packet_dir), out_dir, calibration_path, simulation_paths
+        )
         import pandas as pd
         if name == "exact_key_union":
             fit = None
@@ -536,32 +1381,58 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
                 raise ValueError("exact_key_union needs the development fit stored in calibration A")
             rows = [r for r in base["release"] if r["estimand"] not in COUNT_ITEMS]
             rows += _exact_key_union_rows(data, tick, county_state, fit)
-            pd.DataFrame(rows)[list(AR.V4_RELEASE_COLUMNS)].to_csv(
-                out_dir / "release.csv", index=False)
+            submitted = pd.read_csv(out_dir / "release.csv")
+            frame = pd.DataFrame(rows)
+            for column in submitted.columns:
+                if column not in frame:
+                    frame[column] = "" if column in AR.RATE_EXTRA_COLUMNS else np.nan
+            frame[list(submitted.columns)].to_csv(out_dir / "release.csv", index=False)
         elif name == "inflated_intervals":
             rows = pd.read_csv(out_dir / "release.csv")
-            half = 0.40 * rows["estimate"].abs()
-            rows["lower"] = np.maximum(rows["estimate"] - half, 0.0)
-            rows["upper"] = rows["estimate"] + half
-            rows[list(AR.V4_RELEASE_COLUMNS)].to_csv(out_dir / "release.csv", index=False)
+            core = ~rows["estimand"].isin(AR.RATE_ESTIMANDS)
+            estimate = rows.loc[core, "estimate"].to_numpy(dtype=np.float64)
+            proportion = rows.loc[core, "estimand"].isin(
+                ("tertiary_share_25_plus", "low_income_household_share")
+            ).to_numpy()
+            half = np.where(proportion, 0.40, 0.40 * np.abs(estimate))
+            rows.loc[core, "lower"] = np.maximum(
+                estimate - half, 0.0
+            )
+            upper = estimate + half
+            upper[proportion] = np.minimum(upper[proportion], 1.0)
+            rows.loc[core, "upper"] = upper
+            rows.to_csv(out_dir / "release.csv", index=False)
         elif name == "static_projection":
-            rows = pd.DataFrame(base["release"])
-            rows = rows[(rows["age_band"].isna()) | (rows["age_band"] == "")]
-            rows[list(AR.V4_PROJECTION_COLUMNS)].to_csv(
-                out_dir / "projection.csv", index=False)
-        else:   # uniform_allocation: a strong forecast with the reserve split evenly
+            release = pd.read_csv(out_dir / "release.csv")
+            projection = pd.read_csv(out_dir / "projection.csv")
+            core = release[~release["estimand"].isin(AR.RATE_ESTIMANDS)].copy()
+            core[list(projection.columns)].to_csv(
+                out_dir / "projection.csv", index=False
+            )
+        else:   # equal reserve slack above every submitted regional floor
             reserve_path = out_dir / "reserve.csv"
             if reserve_path.exists():
                 rows = pd.read_csv(reserve_path)
                 total = float(data["contract"]["reserve"]["total"])
-                even = np.full(len(rows), total / len(rows))
-                even[-1] = total - float(even[:-1].sum())
-                rows["allocation"] = even
+                floor = rows["q95"].to_numpy(dtype=np.float64)
+                slack = total - float(floor.sum())
+                if slack < -1e-6:
+                    # The legacy contract built R from sealed q95 and ES. Once the
+                    # prohibited tail-to-total fit is removed, a participant forecast can
+                    # therefore file floors whose sum exceeds R. There is no feasible
+                    # uniform allocation in that state. Keep the complete filing and let
+                    # the hard feasibility check report the contract obstruction. New
+                    # exposure-rule packets must instead demonstrate non-negative slack.
+                    allocation = floor
+                else:
+                    allocation = floor + max(slack, 0.0) / len(rows)
+                    allocation[-1] = total - float(allocation[:-1].sum())
+                rows["allocation"] = allocation
                 rows.to_csv(reserve_path, index=False)
             else:
-                pd.DataFrame({"county": np.arange(n_counties),
-                              "allocation": np.full(n_counties, np.floor(budget / n_counties * 1e6) / 1e6)}
-                             ).to_csv(out_dir / "allocation.csv", index=False)
+                raise RuntimeError(
+                    "uniform_allocation requires the structural V4 reserve.csv"
+                )
         return
 
     survey = A.impute_income(data["survey"].assign(weight=data["survey"]["design_weight"]))
@@ -578,7 +1449,7 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
                                     A.register_income_scale(data["income"], stats["mean_income_adults"]["nation"]))
 
     if name == "survey_only":
-        county = frame_counts = {}
+        county = {}
         w = survey["weight"].to_numpy(dtype=np.float64)
         c = survey["county"].to_numpy(dtype=np.int64)
         age = survey["age"].to_numpy()
@@ -613,8 +1484,11 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
     now = A.aggregate(county, county_state, stats, county["persons"])
     future = A.aggregate(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1)),
                          county_state, stats, county["persons"])
-    elders = np.maximum(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1))["elders_65_plus"], 0.0)
-    allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
-    write_submission(out_dir, _rows_with_relative_half(now, 0.01), _rows_with_relative_half(future, 0.02),
-                     register["cube"], 2.0 * threshold, allocation,
-                     deterministic_reserve_rows(contract, county_state, elders))
+    _run_structural_base(
+        Path(packet_dir), out_dir, calibration_path, simulation_paths
+    )
+    _overlay_core_rows(
+        out_dir,
+        _rows_with_relative_half(now, 0.01),
+        _rows_with_relative_half(future, 0.02),
+    )

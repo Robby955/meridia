@@ -1901,3 +1901,125 @@ The tail ceilings remain unchanged until the elder cohort-component report suppl
 six before-and-after exposure errors, regional liability means, and pooled exceedance
 deviations. A fresh freeze must then satisfy the one-percent false-fail condition and the
 all-control all-world separation condition at the same ceilings.
+
+### Phase-three methods integration
+
+Under the phase-three contract, the reserve total comes from the published exposure rule.
+It no longer identifies the sealed regional quantiles or expected shortfalls. The public
+contract now states that semantic explicitly, and the final method API has no
+tail-to-total calibration switch. The third line, decomposition controls, deletion
+controls, and their A and B comparators use the public total only as the required sum of
+regional allocations and keep each allocation above its submitted quantile. Tail-to-total
+calibration has been removed from the active V4 API.
+
+The detailed-table and disclosure stage is not part of the retained phase-three surface.
+The integrated verifier and method writers require exactly `release.csv`,
+`projection.csv`, and `reserve.csv`. `detailed.csv`, disclosure utility, and detailed
+accuracy are absent from the frozen report.
+
+The phase-three measurement preserves the verifier's structured `composite_metrics` and
+`gate_results` directly for five composites:
+
+- Rate/exposure composite (`exposures_and_rates`): exposure, mortality, incidence, and
+  coverage for a rate estimand;
+- `release_accuracy`: release accuracy and projection accuracy;
+- `interval_quality`: release and projection coverage and interval score;
+- `tail_calibration`: regional quantile and expected-shortfall calibration;
+- `reserve_skill`: expected uncovered obligation, regional shortfall, and allocation skill.
+
+No disclosure, detailed-table, or structural reason belongs to one of those composites. If
+any registered control passes its target composite on even one qualification world, that
+control and gate pair becomes a deletion candidate with the exact metrics preserved. A bar
+is never loosened to make the pair separate.
+
+The 24-control battery contains twenty-two primary control and gate pairs plus the two
+development-only oracle decompositions. Every primary pair must
+be structurally valid and fail its target composite on all six qualification worlds. A
+target pass on one world makes that pair a deletion candidate with its exact verifier
+metrics. Failure of another composite is diagnostic and does not rescue the target pair.
+The registered targets are:
+
+- `release_accuracy`: `register_only`, `survey_only`, `no_dedup`, `static_projection`,
+  `benchmark_only`, `exact_key_union`, `version_three_recipe`, and
+  `experience_history_only`;
+- `interval_quality`: `inflated_intervals` and `reconstruction_uncertainty`;
+- Rate/exposure controls (`exposures_and_rates`)
+  include `deterministic_linkage`, `ignore_health_selection`, and
+  `informative_selection`;
+- `tail_calibration`: `development_average_regime`, `mean_only_tail`, `normal_tail`,
+  `padded_tail`, `regime_recombination`, and `predictive_tails`;
+- `reserve_skill`: `uniform_allocation`, `proportional_reserve`, and
+  `reserve_allocation`.
+
+The two oracle decompositions do not contribute qualification separation evidence.
+
+File set, schema, additivity, rate consistency, and reserve feasibility remain hard checks.
+Their failures invalidate a submission and do not count as evidence that a scientific
+composite separates. The methods report records them under `hard_check_failures`.
+
+Each method output is first written to a same-directory staging path. A completed output is
+reused only when a run receipt binds the measurement contract, packet manifest, method
+configuration, and every submitted file hash. Linked packet or output paths are rejected
+before their contents are opened. Missing or unexpected flat submission files are still
+bound and passed to the verifier so their structural failure remains visible.
+
+Freeze calibration requires 126 balanced deterministic line reports: six worlds times
+seven paired resamples times reference lines A, B, and C. Every report has a unique
+`evidence_id`; A, B, and C intentionally share the same `replicate_id` and materialized
+resample digest within each world and replicate. Final qualification reports are a
+separate class. The methods resampling lane materializes and binds the paired inputs; the
+freeze lane authenticates and ingests them. A deterministic verifier result is never
+duplicated to meet the minimum.
+
+The empirical quantile has one contract definition: sort the M continuation values and take
+observation `ceil(alpha * M)` in one-based indexing. Expected shortfall averages every value
+at or above that observation, including ties. The integrated verifier and `tail_summary`
+use that rule. Its regression test includes an untied four-member boundary where NumPy's
+historical `higher` convention differs.
+
+Packet manifests currently distinguish development from non-development
+only. Qualification and graded packets both carry `development: false`, so that field cannot
+prove that a renamed packet is safe to inspect. The methods runner also requires the exact
+canonical `qualification/qual-0` through `qual-5` paths and refuses any resolved path with a
+graded component. The generator integration request is a signed packet-class field with
+distinct `development`, `qualification`, and `graded` values. The methods runner should bind
+that field after it exists; canonical path checking is only the current fail-closed bridge.
+
+The third line now treats elder exposure as a level rather than only a state share. It
+spreads the last annual state-band-sex exposure over single ages using the reconstructed
+age profile, advances the stock over the annual-exposure midpoint and publication lag with
+the file's deaths and net migration, and carries the independently fitted mortality trend
+over that interval. The resulting 65-plus state levels replace the register level. Within a
+state, linked-register county shares move toward direct survey shares only when their
+disagreement exceeds the survey design variance. Younger national levels remain those of
+the reconstruction.
+
+The scored elder rate cell request is one broad state by sex `65+` cell with a 500
+person-year floor. `65-74`, `75-84`, and `85+` remain report-only. No younger floor changes.
+The final measurement writes `elder_reconstruction_audit.json` and
+`elder_reconstruction_audit.txt`. Each of the six world records binds the before and after
+report evidence IDs, state elder exposures, regional liability means, pooled sealed
+exceedance deviation, and the mortality trend, shock, and publication-lag decomposition.
+The shock record states the public 0.20 annual probability, independent redraws for every
+continuation member, and the mortality and admission ranges read from
+`participant/contract.json:shock_family`.
+
+The first exact 2,048-member run stopped after `qual-0` and is not evidence. Its current
+packet still uses the legacy sealed-tail-derived reserve total of 246,948,000. Method A
+filed raw regional q95 values summing to 275,429,461.51700795, an excess of
+28,481,461.517007947 or 11.533384 percent. The third line filed q95 values summing to
+274,314,919.55508286, an excess of 27,366,919.555082858 or 11.082058 percent. In each
+filing the allocation already equals its q95 floor, so no allocation can both stay above
+every floor and sum to the published total. Fitting those q95 values back to the total would
+reintroduce the sealed-tail leakage that phase three removes. The partial tree at
+`/Users/robsneiderman/Projects/meridia-v4-methods-p3-evidence-20260903` is preserved as a
+failed checkpoint; it contains no final elder audit. The exposure-rule reserve contract is
+now integrated. The exact run must restart in a fresh directory after all six qualification
+packets are rebuilt.
+
+The administrative benchmark anchor is retained after measuring +0.715. The proposed
+health/survey anchor is removed after measuring only +0.020 and +0.139 in its two
+preflights. Both hidden-axis constraints remain in force. Neither administrative
+completeness nor missingness target dependence may receive an out-of-development-range
+hidden value. The phase-three methods make no unsupported separation claim for either
+axis.
