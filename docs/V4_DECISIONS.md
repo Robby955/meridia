@@ -2128,3 +2128,50 @@ recomputes the record instead of trusting the one it is handed, so a provenance 
 after the build intent was locked stops before any world is generated. A restart offered a
 build intent minted under a different generator refuses to adopt the staging and leaves it
 in place for diagnosis.
+
+## P4, 2026-09-03
+
+### The exact identifiability preflight
+
+Twelve development worlds and six qualification worlds were rebuilt at their committed
+seeds with one continuation member each, then read by `scripts/identifiability_v4.py`.
+One member is enough for this measurement. Every statistic the audit computes is read
+from participant files that the continuation ensemble never enters, so the six
+correlations do not move with the ensemble size. The preflight packets are not freeze
+inputs. `participant/contract.json` publishes the ensemble size, so a one-member packet
+carries a different participant digest from the committed one, and the receipt a freeze
+reads has to be minted again on the full build.
+
+`scripts/build_v4_worlds.py` gained one option, `--ensemble-members`, so that the
+preflight is reproducible from the repository rather than from a scratch driver. A graded
+world refuses it and the committed size remains the default. That is the smallest change
+which runs the preflight the resume order asks for, and it is recorded here because it
+widens what the builder accepts.
+
+The eighteen preflight worlds took 24 to 30 seconds each, twelve at a time and then six
+at a time on eighteen cores. The audit read them in 2.3 seconds. Its gate line, verbatim:
+
+    - migration_age_pattern: urban pull of net migration, young minus old; signed rank correlation +0.474 pooled, within regime development +0.252, hidden +0.257; raw axis spread 0.218 to 2.391; realized mechanism spread 0.218 to 2.391
+
+The registered gate asks that this axis read above +0.4 pooled against the realized
+mechanism. It reads +0.474, so the full build proceeded. Its margin of 0.074 is the
+smallest of the six. The six pooled signed rank correlations, each followed by its
+development and hidden within-regime values, are mortality improvement +0.441, then +0.503
+and -0.086; migration +0.474, then +0.252 and +0.257; age reporting +0.612, then +0.448 and
++0.886; the linkage gradient +0.798, then +0.790 and +0.771; administrative completeness
++0.676, then +0.699 and +0.943; and target dependence +0.401, then +0.301 and +0.771.
+
+Realized mechanism spreads over the eighteen worlds run -0.016 to 0.072 for mortality
+improvement, 0.218 to 2.391 for migration, 0.481 to 2.396 for age reporting, 0.131 to
+2.647 for the linkage gradient, 0.399 to 1.630 for administrative completeness, and 0.263
+to 1.332 for target dependence. The drift estimator's standard error averages 0.0122 over
+the worlds against a realized mortality spread of 0.0884.
+
+Administrative completeness and target dependence are held to development-range draws
+whatever they measure, so their values change no disposition. Of the four axes eligible
+for an out-of-band hidden draw, every one clears the threshold on this world set.
+
+The +0.474 pooled figure sits between the +0.195 the drifted in-flight build reported and
+the +0.445 the fixed-snapshot diagnostic recovered on the committed geometry. Source
+policy is consistent here: truth and participant files come from one snapshot of one
+generator, which is what the earlier cross identified as the difference that mattered.

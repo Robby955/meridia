@@ -27,6 +27,11 @@ oversubscribe the machine.
 ``--cache`` points at a directory of continuation ensembles keyed on the digest of the
 baseline ledger that produced them. A rebuild that changes only what a verifier or a bar
 reads takes the futures off the shelf instead of paying for them again.
+
+``--ensemble-members`` builds a world at a smaller continuation ensemble than the
+committed one. It exists for the identifiability preflight, which reads participant files
+the ensemble does not enter, and it is refused for a graded world. Evidence a bar reads is
+measured on the committed size.
 """
 
 from __future__ import annotations
@@ -85,16 +90,24 @@ def family_plan(
     reserve_calibration_path: Path | None = None,
     seal_manifest_path: Path | None = None,
     key_path: Path | None = None,
+    ensemble_members: int | None = None,
 ) -> list[dict]:
     """The worlds of one family, with the parameters each is built under."""
+    size = {}
+    if ensemble_members is not None:
+        if family == "graded":
+            raise ValueError("a graded world is built at the committed ensemble size")
+        size = {"ensemble_members": _worker_count(ensemble_members, "ensemble_members")}
     if family == "development":
         return [{"name": f"dev-{cell:02d}", "seed": seed,
-                 "params": PacketParams(**{**WORLD.__dict__, "design_cell": cell}),
+                 "params": PacketParams(**{**WORLD.__dict__, "design_cell": cell,
+                                           **size}),
                  "development": True, "public_seed": True}
                 for cell, seed in enumerate(DEVELOPMENT_SEEDS)]
     if family == "qualification":
         return [{"name": f"qual-{i}", "seed": seed,
-                 "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden"}),
+                 "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden",
+                                           **size}),
                  "development": False, "public_seed": False}
                 for i, seed in enumerate(QUALIFICATION_SEEDS)]
     if family == "graded":
@@ -294,6 +307,10 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=None,
                         help="directory of continuation ensembles, keyed on the "
                              "baseline ledger digest")
+    parser.add_argument("--ensemble-members", type=positive_integer, default=None,
+                        help="continuation members per world, for a preflight that "
+                             "reads participant files only; the committed size is the "
+                             "default and the only size a freeze may read")
     parser.add_argument("--bars", type=Path,
                         help="frozen composite-bar receipt (required for graded)")
     parser.add_argument(
@@ -320,12 +337,15 @@ def main() -> None:
                 "graded builds require --bars, --reserve-calibration-audit, "
                 "--seal-manifest, and --key"
             )
+    if args.family == "graded" and args.ensemble_members is not None:
+        parser.error("a graded world is built at the committed ensemble size")
     plan = family_plan(
         args.family,
         bars_path=args.bars,
         reserve_calibration_path=args.reserve_calibration_audit,
         seal_manifest_path=args.seal_manifest,
         key_path=args.key,
+        ensemble_members=args.ensemble_members,
     )
     args.out.mkdir(parents=True, exist_ok=True)
     graded_authorization = None
