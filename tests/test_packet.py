@@ -482,6 +482,11 @@ def test_the_benchmark_publishes_a_subgroup_count_on_the_economic_gradient(packe
     assert block["subgroup_item"] == "persons"
     assert block["n_economic_bands"] == 4
     assert block["reference_tick"] == contract["ticks"]["revised"]
+    assert block["bias_ranges"] == {
+        "nation_magnitude": [0.02, 0.07],
+        "state_sd": [0.03, 0.08],
+        "economic_band_sd": [0.004, 0.015],
+    }
     assert "payroll per resident adult" in block["subgroup_definition"]
 
     bench = pd.read_csv(out / "participant" / "sources" / "benchmark_revised.csv")

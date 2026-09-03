@@ -633,6 +633,7 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
                     "move together on a single draw; the five-year experience file "
                     "carries the realized years",
             "regional_loading_band": list(SHOCK_LOADING_BAND),
+            "regional_loading_formula": "1 + L_r * (m - 1)",
             "regional_loading": "a shock year is national, and its mortality and "
                                 "admission multipliers m land in region r as "
                                 "1 + L_r * (m - 1). One loading L_r per region is drawn "

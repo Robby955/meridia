@@ -71,6 +71,24 @@ Every value is finite and nonnegative. The ordering is
 allocations sum to `contract.json` `reserve.total` within the published numerical
 tolerance.
 
+The reserve total is reproducible from participant-visible quantities. The
+`contract.json` `reserve.total_rule` object contains these fields:
+
+- `file`: `experience_history.csv`;
+- `year`: the selection rule, `maximum published year`;
+- `year_column`: `year`;
+- `selected_year`: the resulting public year;
+- `exposure_column`: `exposure`;
+- `aggregation`: sum that column over every row in the selected year;
+- `exposure_person_years`: the serialized public sum;
+- `rate_per_person_year`: the frozen public calibration rate;
+- `rounding`: `up`;
+- `rounding_unit`: the public monetary unit.
+
+`reserve.total` is `exposure_person_years * rate_per_person_year`, rounded upward to
+`rounding_unit`. A participant can recompute the exposure sum from the named file and
+check it against the contract before allocating the total.
+
 The 0.95 truth quantile is the order statistic at one-based rank
 `ceiling(0.95 * M)` among the `M` continuation liabilities. Truth ES95 is the mean of all
 members at or above that order statistic, including every tie.
