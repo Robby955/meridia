@@ -1059,8 +1059,7 @@ def expected_uncovered(allocation: np.ndarray, liability: np.ndarray,
 
 
 def perfect_information_allocation(liability: np.ndarray, total: float,
-                                   weights: np.ndarray | None = None,
-                                   floors: np.ndarray | None = None) -> np.ndarray:
+                                   weights: np.ndarray | None = None) -> np.ndarray:
     """A*: the allocation of a fixed total that minimizes J against the sealed ensemble.
 
     J is separable, convex, and piecewise linear in A: raising A_r through the interval
@@ -1071,19 +1070,14 @@ def perfect_information_allocation(liability: np.ndarray, total: float,
     one. Anything left after every paying segment is spent goes to region zero, where it
     changes nothing.
 
-    ``floors`` is the feasible set the submission itself faces: A_r at or above its own
-    submitted quantile. The oracle has to stand on the same floors, or the skill score
-    stops measuring the allocation and starts measuring the floors a second time, which
-    the tail gates already score. A submission whose floors leave no room then has no
-    decision to make, and its skill says so.
+    The feasible set is the same one published to participants: finite nonnegative
+    allocations whose sum is ``total``. Submitted quantiles do not enter either the
+    oracle or the allocation constraint; the tail gate scores those forecasts directly.
     """
     liability = np.asarray(liability, dtype=np.float64)
     n_members, n_regions = liability.shape
     w = np.ones(n_regions) if weights is None else np.asarray(weights, dtype=np.float64)
-    base = np.zeros(n_regions, dtype=np.float64) if floors is None else \
-        np.maximum(np.asarray(floors, dtype=np.float64), 0.0)
-    if base.sum() > float(total):
-        base = np.zeros(n_regions, dtype=np.float64)
+    base = np.zeros(n_regions, dtype=np.float64)
     allocation = base.copy()
     remaining = float(total) - float(base.sum())
     if remaining <= 0:
@@ -1125,7 +1119,15 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
                   weights: np.ndarray | None = None,
                   scale: np.ndarray | None = None,
                   baseline_share: np.ndarray | None = None) -> dict:
-    """Feasibility, the tail diagnostics, and the decision value of one reserve file."""
+    """Feasibility, tail diagnostics, and decision value for one reserve file.
+
+    Allocation feasibility is independent of the submitted tail estimates. A legal
+    decision is finite, nonnegative, and spends the public total. The tail gate scores
+    q95 and ES95 directly against the continuation ensemble, so making q95 an allocation
+    floor would count the same forecast twice and could make a truthful allocation
+    impossible on a new world whose stand-alone regional quantiles sum above the fixed
+    national reserve.
+    """
     allocation = np.asarray(allocation, dtype=np.float64)
     q_hat = np.asarray(q_hat, dtype=np.float64)
     liability = np.asarray(liability, dtype=np.float64)
@@ -1135,11 +1137,16 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
     tolerance = thresholds.feasibility_tolerance
 
     reasons: list[str] = []
-    if (allocation < -tolerance).any():
+    if not np.isfinite(allocation).all():
+        reasons.append("non-finite allocation")
+    elif (allocation < -tolerance).any():
         reasons.append("negative allocation")
-    if (allocation + tolerance * np.maximum(np.abs(q_hat), 1.0) < q_hat).any():
-        reasons.append("an allocation falls below the region's own submitted q95")
-    if abs(float(allocation.sum()) - float(total)) > tolerance * max(1.0, abs(float(total))):
+    if not math.isfinite(float(total)):
+        reasons.append("non-finite reserve total")
+    elif np.isfinite(allocation).all() and (
+        abs(float(allocation.sum()) - float(total))
+        > tolerance * max(1.0, abs(float(total)))
+    ):
         reasons.append(f"allocations sum to {float(allocation.sum()):.6f}, not {float(total):.6f}")
     feasible = not reasons
 
@@ -1168,12 +1175,9 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
         if baseline_share is None else np.asarray(baseline_share, dtype=np.float64)
     baseline = proportional_baseline_allocation(share, total)
     oracle = perfect_information_allocation(liability, total, weights)
-    floored_oracle = perfect_information_allocation(liability, total, weights,
-                                                    floors=q_hat if feasible else None)
     j = expected_uncovered(allocation, liability, weights) if feasible else float("nan")
     j_baseline = expected_uncovered(baseline, liability, weights)
     j_oracle = expected_uncovered(oracle, liability, weights)
-    j_free_oracle = expected_uncovered(floored_oracle, liability, weights)
     shortfall_probability = (liability > allocation[None, :]).mean(axis=0) if feasible \
         else np.full(liability.shape[1], np.nan)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -1191,7 +1195,6 @@ def score_reserve(allocation: np.ndarray, q_hat: np.ndarray, es_hat: np.ndarray,
         "mean_es95_width_error": float(es_width_err.mean()),
         "ensemble_tail_width": relative_width,
         "J": j, "J_baseline": j_baseline, "J_oracle": j_oracle,
-        "J_floored_oracle": j_free_oracle,
         "baseline_allocation": baseline, "baseline_source": baseline_source,
         "skill": skill_score(j, j_baseline, j_oracle) if feasible else float("nan"),
         "regional_shortfall_probability": shortfall_probability,

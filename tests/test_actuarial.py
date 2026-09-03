@@ -31,6 +31,7 @@ from meridia.actuarial import (ACTUARIAL_AGE_BAND_LABELS, EXPOSURE_ESTIMAND,
                                score_rates, score_reserve,
                                shortfall_error, skill_score, width_relative_error)
 from meridia.events import EVENT_TYPES, _EVENT_DTYPES
+from meridia.packet import PARTICIPANT_CSV_SCHEMAS
 
 MALE, FEMALE = 0, 1
 
@@ -296,30 +297,6 @@ def test_the_perfect_information_allocation_beats_every_split_of_the_same_total(
         assert expected_uncovered(np.asarray(split), symmetric) >= j_oracle
 
 
-def test_the_oracle_stands_on_the_submission_own_floors():
-    """Skill has to measure the allocation, not the floors the tail gates already score.
-
-    An oracle free of the submitted quantiles would beat any feasible allocation by the
-    distance between the floors and the truth, so every submission would score near zero
-    and the decision gate would carry nothing. Constrained to the same floors, the oracle
-    spends only what the submission has left to spend.
-    """
-    liability = np.array([[10.0, 100.0], [20.0, 200.0], [30.0, 300.0], [40.0, 400.0]])
-    floors = np.array([25.0, 250.0])
-    total = 300.0
-    free = perfect_information_allocation(liability, total)
-    floored = perfect_information_allocation(liability, total, floors=floors)
-    assert (floored >= floors - 1e-9).all()
-    assert abs(floored.sum() - total) < 1e-9 and abs(free.sum() - total) < 1e-9
-    assert expected_uncovered(floored, liability) >= expected_uncovered(free, liability)
-    zero = perfect_information_allocation(liability, total, floors=np.zeros(2))
-    assert np.allclose(zero, free)
-    # Floors that already spend the total leave no decision, and the oracle says so.
-    tight = perfect_information_allocation(liability, total,
-                                           floors=np.array([100.0, 250.0]))
-    assert abs(tight.sum() - total) < 1e-9
-
-
 def test_the_oracle_spends_the_total_where_the_exceedance_is_widest():
     # Region one is ten times region zero, so its slope-one segment is ten times as long
     # and the whole slack after region zero's first ten units belongs to it.
@@ -344,13 +321,21 @@ def test_score_reserve_rejects_an_allocation_that_misses_the_fixed_total():
     assert any("sum to" in reason for reason in report["feasibility_reasons"])
 
 
-def test_score_reserve_rejects_an_allocation_below_the_submitted_quantile():
+def test_score_reserve_allows_an_allocation_below_the_submitted_quantile():
     report = score_reserve(np.asarray([10.0, 540.0]), np.asarray([40.0, 400.0]),
                            np.asarray([40.0, 400.0]), np.asarray([25.0, 250.0]),
                            LIABILITY, total=550.0, thresholds=RESERVE_THRESHOLDS)
+    assert report["feasible"]
+    assert report["feasibility_reasons"] == []
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_score_reserve_rejects_a_nonfinite_allocation(bad):
+    report = score_reserve(np.asarray([bad, 550.0]), np.asarray([40.0, 400.0]),
+                           np.asarray([40.0, 400.0]), np.asarray([25.0, 250.0]),
+                           LIABILITY, total=550.0, thresholds=RESERVE_THRESHOLDS)
     assert not report["feasible"]
-    assert any("below the region's own submitted q95" in r
-               for r in report["feasibility_reasons"])
+    assert "non-finite allocation" in report["feasibility_reasons"]
 
 
 def test_score_reserve_reports_skill_against_baseline_and_oracle():
@@ -611,9 +596,26 @@ def _write(path, table):
 TOY_EXPOSURE_SCALE = 4_000.0
 
 
+def _write_participant_inputs(packet):
+    """Header-only stand-ins for every participant CSV the contract has to publish.
+
+    The verifier compares the published column map against the files that are actually
+    on disk, so a toy packet has to carry all fourteen of them. Only the experience file
+    and the geography map are read for a number here, and both are written afterwards
+    with their own rows.
+    """
+    participant = packet / "participant"
+    for relative, columns in sorted(PARTICIPANT_CSV_SCHEMAS.items()):
+        path = participant / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(",".join(columns) + "\n")
+
+
 def _packet(tmp_path):
     """A minimal version-four packet: geography, contract, retained truth, ensemble."""
     from meridia.actuarial import ensemble_truth, reserve_total
+    from meridia.packet import continuation_source_law_digest
+    from meridia.projection import _shock_redraw_evidence
     from meridia.release import compute_detailed_table_truth, compute_truth
     admin = tiny_admin() | {"state": np.asarray([[0, 1]], dtype=np.int64)}
     person = {"household": np.asarray([0, 0, 1, 1]), "cell": np.asarray([0, 0, 1, 1]),
@@ -639,7 +641,10 @@ def _packet(tmp_path):
     packet = tmp_path / "packet"
     (packet / "participant").mkdir(parents=True)
     (packet / "retained").mkdir()
-    _write(packet / "participant" / "geography.csv", {"county": [0, 1], "state": [0, 1]})
+    _write_participant_inputs(packet)
+    _write(packet / "participant" / "geography.csv",
+           {"county": [0, 1], "state": [0, 1], "land_cells": [1, 1],
+            "economic_band": [0, 1]})
     (packet / "participant" / "contract.json").write_text(json.dumps({
         "schema": "meridia.packet.v4",
         "experience_history": {
@@ -647,6 +652,11 @@ def _packet(tmp_path):
             "columns": ["year", "age_band", "sex", "state", "exposure", "deaths",
                         "qualifying_events", "net_migration"],
         },
+        "participant_csv_schemas": {
+            name: list(columns)
+            for name, columns in sorted(PARTICIPANT_CSV_SCHEMAS.items())
+        },
+        "benchmark": {"file": "sources/benchmark_revised.csv"},
         "submission": {
             "files": {
                 "release.csv": ["estimand", "level", "unit", "sex", "age_band",
@@ -659,6 +669,13 @@ def _packet(tmp_path):
         },
         "reserve": {
             "total": total,
+            "members": len(liability),
+            "allocation_rule": {
+                "finite": True,
+                "minimum": 0.0,
+                "sum": "reserve.total",
+                "tolerance": ActuarialThresholds().feasibility_tolerance,
+            },
             "total_rule": {
                 "file": "experience_history.csv",
                 "year": "maximum published year",
@@ -691,6 +708,20 @@ def _packet(tmp_path):
         "value": [rate_truth[k] for k in rate_keys]})
     np.savez(packet / "retained" / "continuation_liabilities.npz", liability=liability,
              realized_member=np.asarray(0))
+    schedules = [(member, []) for member in range(len(liability))]
+    schedules[0][1].append({
+        "year": 2,
+        "kind": "mortality_spike",
+        "mortality_multiplier": 2.0,
+        "admission_multiplier": 2.0,
+    })
+    shock_evidence = _shock_redraw_evidence(
+        {"month": 24}, 12, len(liability), schedules,
+        continuation_source_law_digest(),
+    )
+    (packet / "retained" / "continuation_shock_redraw.json").write_text(
+        json.dumps(shock_evidence, indent=1, sort_keys=True) + "\n"
+    )
     return packet, admin, truth, detailed, rate_truth, liability, sealed, total
 
 
@@ -729,7 +760,7 @@ def test_the_version_four_verifier_scores_five_composites_from_three_files(tmp_p
     q_hat = np.asarray([1370.0, 13700.0])
     oracle = perfect_information_allocation(liability, total)
     participant_input = packet / "participant" / "sources" / "observed.csv"
-    participant_input.parent.mkdir()
+    participant_input.parent.mkdir(exist_ok=True)
     participant_input.write_text("value\n1\n")
     _oracle_submission(tmp_path / "submission", admin, truth, detailed, rate_truth,
                        sealed, total, oracle, q_hat)
@@ -768,6 +799,13 @@ def test_the_version_four_verifier_scores_five_composites_from_three_files(tmp_p
     assert q95_feasibility["all_regions_at_or_above_q95"] is True
     assert q95_feasibility["allocation_sums_to_total"] is True
     assert q95_feasibility["feasible"] is True
+    tail_evidence = report["reserve_tail_evidence"]
+    assert tail_evidence["schema"] == "meridia.v4.reserve-tail-evidence.v1"
+    assert tail_evidence["valid"] is True
+    assert tail_evidence["q95_sum"] == pytest.approx(float(q_hat.sum()))
+    assert tail_evidence["es95_sum"] == pytest.approx(float(sealed["es"].sum()))
+    assert tail_evidence["reserve_submission_sha256"] \
+        == report["evidence"]["submission_file_sha256"]["reserve.csv"]
     first_packet_digest = report["evidence"]["packet_digest_sha256"]
     participant_input.write_text("value\n2\n")
     rebound = verify_submission(packet, tmp_path / "submission")
@@ -802,6 +840,33 @@ def test_the_version_four_verifier_names_an_infeasible_reserve(tmp_path):
     report = verify_submission(packet, tmp_path / "submission")
     assert not report["pass"]
     assert any(r.startswith("reserve: infeasible") for r in report["reasons"])
+
+
+def test_verifier_rejects_a_relabelled_continuation_source_receipt(tmp_path):
+    from meridia.verify import verify_submission
+
+    packet, admin, truth, detailed, rate_truth, liability, sealed, total = _packet(
+        tmp_path
+    )
+    runtime_path = packet / "retained" / "continuation_shock_redraw.json"
+    runtime = json.loads(runtime_path.read_text())
+    runtime["continuation_source_law_sha256"] = "0" * 64
+    runtime_path.write_text(json.dumps(runtime, indent=1, sort_keys=True) + "\n")
+    _oracle_submission(
+        tmp_path / "submission",
+        admin,
+        truth,
+        detailed,
+        rate_truth,
+        sealed,
+        total,
+        perfect_information_allocation(liability, total),
+        np.asarray([1370.0, 13700.0]),
+    )
+
+    report = verify_submission(packet, tmp_path / "submission")
+    assert report["pass"] is False
+    assert any("source law differs" in error for error in report["schema_errors"])
 
 
 def test_the_version_four_verifier_fails_an_unexpected_file(tmp_path):
@@ -1008,7 +1073,10 @@ def test_an_unfrozen_bar_set_refuses_to_gate_a_version_four_submission(tmp_path)
                 "q95_width_relative_error": {"direction": "ceiling", "value": 1e9},
                 "es95_width_relative_error": {"direction": "ceiling", "value": 1e9}}},
             "reserve_skill": {"components": {
-                "skill_loss": {"direction": "ceiling", "value": 1e9}}},
+                "skill_loss": {"direction": "ceiling", "value": 1e9},
+                "worst_regional_shortfall_probability": {
+                    "direction": "ceiling", "value": 1.0,
+                }}},
         },
     }
     unfrozen = verify_submission(packet, tmp_path / "submission", bars)

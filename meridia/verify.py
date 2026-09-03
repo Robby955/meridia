@@ -13,6 +13,7 @@ additivity, rate consistency, and reserve feasibility).
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import math
@@ -75,6 +76,22 @@ def load_detailed(path: Path, n_counties: int) -> np.ndarray:
 CORE_SUBMISSION_FILES = ("release.csv", "projection.csv", "allocation.csv")
 ACTUARIAL_SUBMISSION_FILES = tuple(V4_SUBMISSION_COLUMNS)
 ACTUARIAL_PACKET_SCHEMA = "meridia.packet.v4"
+PARTICIPANT_CSV_FILES = (
+    "experience_history.csv",
+    "geography.csv",
+    "survey_preliminary.csv",
+    "survey_revised.csv",
+    "sources/benchmark_preliminary.csv",
+    "sources/benchmark_revised.csv",
+    "sources/business_preliminary.csv",
+    "sources/business_revised.csv",
+    "sources/health_preliminary.csv",
+    "sources/health_revised.csv",
+    "sources/income_preliminary.csv",
+    "sources/income_revised.csv",
+    "sources/population_preliminary.csv",
+    "sources/population_revised.csv",
+)
 SUBMISSION_FILES = ("release.csv", "detailed.csv", "projection.csv", "allocation.csv")
 OPTIONAL_FILES = ("totals.csv",)
 TOTAL_KINDS = {"county_age": ("county", "age_band"), "county_sex": ("county", "sex"),
@@ -82,12 +99,22 @@ TOTAL_KINDS = {"county_age": ("county", "age_band"), "county_sex": ("county", "s
 
 COMPOSITE_BAR_SCHEMA = "meridia.v4.composite-bars.v1"
 VERIFIER_EVIDENCE_SCHEMA = "meridia.v4.verifier-evidence.v1"
+RESERVE_TAIL_EVIDENCE_SCHEMA = "meridia.v4.reserve-tail-evidence.v1"
+ELDER_REFERENCE_EVIDENCE_SCHEMA = "meridia.v4.elder-reference-evidence.v1"
+SHOCK_REDRAW_REPORT_SCHEMA = "meridia.v4.continuation-shock-redraw-report.v1"
 FREEZE_PROVENANCE_SCHEMA = "meridia.v4.freeze-provenance.v1"
+FREEZE_EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v3"
 QUALIFICATION_WORLD_NAMES = tuple(f"qual-{index}" for index in range(6))
 REFERENCE_LINES = ("A", "B", "C")
-REPLICATES_PER_LINE_WORLD = 7
+REPLICATES_PER_LINE_WORLD = 17
 REFERENCE_REPORT_COUNT = len(REFERENCE_LINES) * len(QUALIFICATION_WORLD_NAMES)
 REPLICATE_REPORT_COUNT = REFERENCE_REPORT_COUNT * REPLICATES_PER_LINE_WORLD
+REGISTERED_MEASUREMENT_PARAMS = {
+    "bootstrap_replicates": 100,
+    "bayesian_sweeps": 400,
+    "simulation_paths": 2048,
+    "linkage_bootstraps": 12,
+}
 DEVELOPMENT_WORLD_NAMES = tuple(f"dev-{index:02d}" for index in range(12))
 DEVELOPMENT_DIAGNOSTICS = (
     "design_reconstruction_oracle_tail",
@@ -106,7 +133,11 @@ COMPOSITE_GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "interval_quality": ("coverage_deviation", "mean_interval_score"),
     "tail_calibration": ("pooled_exceedance_deviation",
                          "q95_width_relative_error", "es95_width_relative_error"),
-    "reserve_skill": ("skill_loss",),
+    "reserve_skill": ("skill_loss", "worst_regional_shortfall_probability"),
+}
+GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
+    gate: {component: 1.0 for component in components}
+    for gate, components in COMPOSITE_GATE_COMPONENTS.items()
 }
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": (
@@ -166,6 +197,47 @@ PUBLIC_AXIS_RANGES = {
     "administrative_completeness": [0.00, 2.80],
     "missingness_target_dependence": [0.00, 2.20],
 }
+REALIZED_MECHANISM_ENVELOPES = {
+    "mortality_improvement": {
+        "development": [-0.010, 0.048],
+        "public": [-0.030, 0.075],
+    },
+    "migration_age_pattern": {
+        "development": [0.25, 1.55],
+        "public": [0.00, 2.40],
+    },
+    "age_reporting_error": {
+        "development": [0.596, 2.4248571428571424],
+        "public": [0.298, 4.021714285714285],
+    },
+    "linkage_urban_gradient": {
+        "development": [0.13125, 2.189375],
+        "public": [0.0, 5.33],
+    },
+    "administrative_completeness": {
+        "development": [0.30, 1.70],
+        "public": [0.00, 2.80],
+    },
+    "missingness_target_dependence": {
+        "development": [0.074, 2.119],
+        "public": [0.0, 5.764],
+    },
+}
+REALIZED_MECHANISM_DEFINITIONS = {
+    axis: "axis_intensity" for axis in REGIME_AXES
+}
+REALIZED_MECHANISM_DEFINITIONS.update({
+    "age_reporting_error": "age_reporting_error * age_error_mortality_scale",
+    "linkage_urban_gradient": (
+        "linkage_urban_gradient * (1 + linkage_gradient_by_migration * "
+        "(migration_age_pattern - 1))"
+    ),
+    "missingness_target_dependence": (
+        "missingness_target_dependence * "
+        "(1 + health_inclusion_completeness_by_target * "
+        "(administrative_completeness - 1))"
+    ),
+})
 COMPOSITE_COMPONENT_RANGES: dict[tuple[str, str], tuple[float, float | None]] = {
     ("exposures_and_rates", "p95_relative_error"): (0.0, None),
     ("release_accuracy", "p95_relative_error"): (0.0, None),
@@ -175,6 +247,7 @@ COMPOSITE_COMPONENT_RANGES: dict[tuple[str, str], tuple[float, float | None]] = 
     ("tail_calibration", "q95_width_relative_error"): (0.0, None),
     ("tail_calibration", "es95_width_relative_error"): (0.0, None),
     ("reserve_skill", "skill_loss"): (0.0, None),
+    ("reserve_skill", "worst_regional_shortfall_probability"): (0.0, 1.0),
 }
 EXPERIENCE_HISTORY_COLUMNS = (
     "year", "age_band", "sex", "state", "exposure", "deaths",
@@ -225,6 +298,7 @@ def _v4_evidence(packet_dir: Path, submission_dir: Path) -> dict[str, object]:
 
     packet_files = _regular_tree_names(packet_dir, "participant") + (
         "retained/continuation_liabilities.npz",
+        "retained/continuation_shock_redraw.json",
         "retained/rate_truth_horizon.csv",
         "retained/truth_horizon.csv",
         "retained/truth_revised.csv",
@@ -334,7 +408,7 @@ def _reserve_q95_feasibility_evidence(
     reserve_total_value: float,
     tolerance: float,
 ) -> dict[str, object]:
-    """Record the submitted q95 floor check independently of the skill metric."""
+    """Record the submitted q95 floor as an authenticated diagnostic only."""
 
     if parsed is None or scored is None:
         return {"valid": False}
@@ -359,6 +433,32 @@ def _reserve_q95_feasibility_evidence(
         "all_regions_at_or_above_q95": all_above,
         "allocation_sums_to_total": sums_to_total,
         "feasible": bool(scored.get("feasible") is True and all_above and sums_to_total),
+    }
+
+
+def _reserve_tail_evidence(
+    parsed: dict | None, reserve_submission_sha256: object
+) -> dict[str, object]:
+    """Bind submitted q95 and ES95 totals to the exact reserve.csv bytes."""
+
+    invalid = {"schema": RESERVE_TAIL_EVIDENCE_SCHEMA, "valid": False}
+    if parsed is None or not isinstance(reserve_submission_sha256, str) \
+            or len(reserve_submission_sha256) != 64 \
+            or any(character not in "0123456789abcdef"
+                   for character in reserve_submission_sha256):
+        return invalid
+    q95 = np.asarray(parsed.get("q95"), dtype=np.float64)
+    es95 = np.asarray(parsed.get("es95"), dtype=np.float64)
+    if q95.shape != es95.shape or not q95.size \
+            or not np.isfinite(q95).all() or not np.isfinite(es95).all() \
+            or (q95 < 0.0).any() or (es95 < q95).any():
+        return invalid
+    return {
+        "schema": RESERVE_TAIL_EVIDENCE_SCHEMA,
+        "valid": True,
+        "q95_sum": float(q95.sum()),
+        "es95_sum": float(es95.sum()),
+        "reserve_submission_sha256": reserve_submission_sha256,
     }
 
 
@@ -554,13 +654,66 @@ def build_eligibility_evidence(rate_truth: dict,
 def load_continuation_ensemble(path: Path) -> ContinuationEnsemble:
     """Retained regional liabilities on every committed continuation.
 
-    The archive carries ``liability`` of shape (members, regions) and the index of the one
-    designated realized future. Nothing about the ensemble reaches the participant side.
+    New V4 archives carry only ``liability`` of shape (members, regions): every row is an
+    independently simulated predictive member, while horizon point truth is stored
+    separately.  A legacy ``realized_member`` scalar is accepted for old development
+    fixtures, but scoring never reads a designated row. Nothing about the ensemble reaches
+    the participant side.
     """
     with np.load(Path(path)) as archive:
         realized = int(archive["realized_member"]) if "realized_member" in archive else 0
         return ContinuationEnsemble(np.asarray(archive["liability"], dtype=np.float64),
                                     realized)
+
+
+def _continuation_shock_redraw_report(
+    packet_dir: Path, contract: dict, evidence: dict
+) -> dict:
+    """Validate measured member schedules and bind them to the scored liability archive."""
+
+    from .packet import _validate_shock_redraw_evidence
+
+    path = Path(packet_dir) / "retained" / "continuation_shock_redraw.json"
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("continuation shock redraw evidence is missing or linked")
+    try:
+        raw_payload = path.read_bytes()
+        payload = json.loads(raw_payload)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("continuation shock redraw evidence is invalid JSON") from exc
+    canonical_payload = (
+        json.dumps(payload, indent=1, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")
+    if raw_payload != canonical_payload:
+        raise ValueError("continuation shock redraw evidence is not canonical JSON")
+    expected_members = contract.get("reserve", {}).get("members")
+    if isinstance(expected_members, bool) or not isinstance(expected_members, int):
+        raise ValueError("public contract has no continuation member count")
+    payload = _validate_shock_redraw_evidence(
+        payload, expected_members=expected_members
+    )
+    if expected_members >= 100 and (
+        payload["distinct_future_schedule_count"] <= 1
+        or not 0 < payload["future_shock_year_count"]
+        < payload["future_year_opportunity_count"]
+        or payload["future_mortality_spike_year_count"] <= 0
+    ):
+        raise ValueError("continuation shock redraw measurement shows no member variation")
+    packet_files = evidence.get("packet_file_sha256")
+    if not isinstance(packet_files, dict):
+        raise ValueError("verifier packet file evidence is missing")
+    runtime_digest = packet_files.get("retained/continuation_shock_redraw.json")
+    liability_digest = packet_files.get("retained/continuation_liabilities.npz")
+    if not all(isinstance(value, str) and len(value) == 64 for value in (
+        runtime_digest, liability_digest
+    )) or runtime_digest != hashlib.sha256(raw_payload).hexdigest():
+        raise ValueError("continuation shock redraw byte bindings are missing")
+    return {
+        "schema": SHOCK_REDRAW_REPORT_SCHEMA,
+        "runtime_evidence_file_sha256": runtime_digest,
+        "liability_archive_sha256": liability_digest,
+        "runtime_evidence": payload,
+    }
 
 
 def load_reserve_rows(path: Path) -> list[dict]:
@@ -571,6 +724,63 @@ def load_reserve_rows(path: Path) -> list[dict]:
     return [{"region": r.region, "liability_mean": float(r.liability_mean),
              "q95": float(r.q95), "es95": float(r.es95),
              "allocation": float(r.allocation)} for r in frame.itertuples()]
+
+
+def _elder_reference_evidence(
+    parsed_rates: dict,
+    rate_truth: dict,
+    parsed_reserve: dict,
+    ensemble: ContinuationEnsemble,
+    n_states: int,
+    evidence: dict,
+) -> dict:
+    """Recompute elder quantities from the exact scored packet and submission."""
+
+    elder_bands = ACTUARIAL_AGE_BAND_LABELS[-3:]
+    states = []
+    for state in range(n_states):
+        submitted = 0.0
+        sealed = 0.0
+        for sex in SEX_LABELS:
+            for band in elder_bands:
+                key = (EXPOSURE_ESTIMAND, "state", state, sex, band)
+                submitted_row = parsed_rates.get(key)
+                sealed_value = rate_truth.get(key)
+                if submitted_row is None or sealed_value is None:
+                    raise ValueError("elder reference evidence lacks a state exposure cell")
+                submitted += float(submitted_row[0])
+                sealed += float(sealed_value)
+        states.append({
+            "state": state,
+            "submitted_person_years": submitted,
+            "sealed_person_years": sealed,
+        })
+
+    submitted_means = np.asarray(parsed_reserve["liability_mean"], dtype=np.float64)
+    sealed_means = np.asarray(ensemble.liability, dtype=np.float64).mean(axis=0)
+    if submitted_means.shape != sealed_means.shape \
+            or not np.isfinite(submitted_means).all() \
+            or not np.isfinite(sealed_means).all():
+        raise ValueError("elder reference evidence has invalid regional liability means")
+    packet_digest = evidence.get("packet_digest_sha256")
+    submission_digest = evidence.get("submission_digest_sha256")
+    if not isinstance(packet_digest, str) or not isinstance(submission_digest, str):
+        raise ValueError("elder reference evidence lacks verifier byte bindings")
+    return {
+        "schema": ELDER_REFERENCE_EVIDENCE_SCHEMA,
+        "valid": True,
+        "packet_digest_sha256": packet_digest,
+        "submission_digest_sha256": submission_digest,
+        "state_65_plus_person_years": states,
+        "liability_mean_by_region": [
+            {
+                "region": region,
+                "submitted": float(submitted_means[region]),
+                "sealed": float(sealed_means[region]),
+            }
+            for region in range(len(sealed_means))
+        ],
+    }
 
 
 def _v4_file_errors(submission_dir: Path) -> list[str]:
@@ -605,7 +815,11 @@ def _v4_header_errors(submission_dir: Path) -> list[str]:
     return errors
 
 
-def _contract_submission_errors(contract: dict) -> list[str]:
+def _contract_submission_errors(
+    packet_dir: Path,
+    contract: dict,
+    thresholds: ActuarialThresholds,
+) -> list[str]:
     block = contract.get("submission")
     if not isinstance(block, dict):
         return ["contract has no submission schema"]
@@ -616,6 +830,48 @@ def _contract_submission_errors(contract: dict) -> list[str]:
         errors.append("contract submission files or ordered columns differ from the verifier")
     if block.get("additional_entries") != "forbidden":
         errors.append("contract does not forbid additional submission entries")
+    reserve = contract.get("reserve")
+    allocation_rule = reserve.get("allocation_rule") \
+        if isinstance(reserve, dict) else None
+    expected_allocation_rule = {
+        "finite": True,
+        "minimum": 0.0,
+        "sum": "reserve.total",
+        "tolerance": thresholds.feasibility_tolerance,
+    }
+    if allocation_rule != expected_allocation_rule:
+        errors.append("contract reserve allocation rule differs from the verifier")
+    benchmark = contract.get("benchmark")
+    if not isinstance(benchmark, dict) \
+            or benchmark.get("file") != "sources/benchmark_revised.csv":
+        errors.append("contract benchmark path differs from the participant packet")
+
+    schemas = contract.get("participant_csv_schemas")
+    if not isinstance(schemas, dict) or set(schemas) != set(PARTICIPANT_CSV_FILES):
+        errors.append("contract participant CSV schema inventory differs")
+        return errors
+    participant = Path(packet_dir) / "participant"
+    for relative in PARTICIPANT_CSV_FILES:
+        declared = schemas.get(relative)
+        path = participant / relative
+        if not isinstance(declared, list) or not declared \
+                or any(not isinstance(column, str) or not column for column in declared):
+            errors.append(f"contract participant CSV columns are invalid for {relative}")
+            continue
+        if path.is_symlink() or not path.is_file():
+            errors.append(f"participant CSV is missing or linked: {relative}")
+            continue
+        try:
+            with path.open(newline="") as handle:
+                observed = next(csv.reader(handle))
+        except (OSError, UnicodeError, csv.Error, StopIteration) as exc:
+            errors.append(
+                f"participant CSV header cannot be read for {relative} "
+                f"({type(exc).__name__})"
+            )
+            continue
+        if observed != declared:
+            errors.append(f"participant CSV header differs from contract for {relative}")
     return errors
 
 
@@ -661,6 +917,11 @@ def build_composite_metrics(metrics: dict, projection_metrics: dict, rate_metric
     reserve = reserve or {}
     calibration = reserve.get("calibration", {})
     skill = float(reserve.get("skill", float("nan")))
+    shortfall = np.asarray(
+        reserve.get("regional_shortfall_probability", []), dtype=np.float64
+    )
+    worst_shortfall = float(np.max(shortfall)) \
+        if shortfall.size and np.isfinite(shortfall).all() else float("nan")
     return {
         "exposures_and_rates": {
             "p95_relative_error": float(rate.get("p95_relative_error", float("nan"))),
@@ -676,9 +937,135 @@ def build_composite_metrics(metrics: dict, projection_metrics: dict, rate_metric
             "es95_width_relative_error": float(
                 reserve.get("mean_es95_width_error", float("nan"))),
         },
-        "reserve_skill": {"skill_loss": max(0.0, 1.0 - skill) if math.isfinite(skill)
-                          else float("nan")},
+        "reserve_skill": {
+            "skill_loss": max(0.0, 1.0 - skill) if math.isfinite(skill)
+            else float("nan"),
+            "worst_regional_shortfall_probability": worst_shortfall,
+        },
     }
+
+
+def _elder_audit_values_match(
+    audit_row: object, before_binding: object, after_binding: object
+) -> bool:
+    """Check audit values against the verifier detail carried by A and C bindings."""
+
+    if not isinstance(audit_row, dict) or not isinstance(before_binding, dict) \
+            or not isinstance(after_binding, dict):
+        return False
+    before = before_binding.get("elder_reference_evidence")
+    after = after_binding.get("elder_reference_evidence")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    audit_states = audit_row.get("state_65_plus_person_years")
+    before_states = before.get("state_65_plus_person_years")
+    after_states = after.get("state_65_plus_person_years")
+    if not all(isinstance(rows, list) and len(rows) == 6 for rows in (
+        audit_states, before_states, after_states
+    )):
+        return False
+    try:
+        audit_by_state = {item["state"]: item for item in audit_states}
+        before_by_state = {item["state"]: item for item in before_states}
+        after_by_state = {item["state"]: item for item in after_states}
+    except (KeyError, TypeError):
+        return False
+    if any(set(rows) != set(range(6)) for rows in (
+        audit_by_state, before_by_state, after_by_state
+    )):
+        return False
+    denominator = before_numerator = after_numerator = 0.0
+    for state in range(6):
+        observed = audit_by_state[state]
+        expected_before = before_by_state[state]
+        expected_after = after_by_state[state]
+        if not isinstance(observed, dict) or set(observed) != {
+            "state", "submitted_before", "submitted_after", "sealed"
+        }:
+            return False
+        values = (
+            observed.get("submitted_before"), observed.get("submitted_after"),
+            observed.get("sealed"), expected_before.get("submitted_person_years"),
+            expected_after.get("submitted_person_years"),
+            expected_before.get("sealed_person_years"),
+            expected_after.get("sealed_person_years"),
+        )
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not math.isfinite(float(value)) or float(value) < 0.0
+               for value in values):
+            return False
+        submitted_before, submitted_after, sealed = map(float, values[:3])
+        if not all(math.isclose(actual, float(expected), rel_tol=1e-12, abs_tol=1e-9)
+                   for actual, expected in (
+                       (submitted_before, values[3]),
+                       (submitted_after, values[4]),
+                       (sealed, values[5]),
+                       (sealed, values[6]),
+                   )):
+            return False
+        denominator += sealed
+        before_numerator += abs(submitted_before - sealed)
+        after_numerator += abs(submitted_after - sealed)
+    exposure = audit_row.get("exposure_65_plus_absolute_error_percent")
+    if denominator <= 0.0 or not isinstance(exposure, dict):
+        return False
+    expected_errors = (
+        100.0 * before_numerator / denominator,
+        100.0 * after_numerator / denominator,
+    )
+    if any(
+        isinstance(exposure.get(name), bool)
+        or not isinstance(exposure.get(name), (int, float))
+        or not math.isclose(
+            float(exposure[name]), expected, rel_tol=1e-12, abs_tol=1e-9
+        )
+        for name, expected in zip(("before", "after"), expected_errors, strict=True)
+    ):
+        return False
+
+    audit_regions = audit_row.get("liability_mean_by_region")
+    before_regions = before.get("liability_mean_by_region")
+    after_regions = after.get("liability_mean_by_region")
+    if not all(isinstance(rows, list) and len(rows) == 6 for rows in (
+        audit_regions, before_regions, after_regions
+    )):
+        return False
+    try:
+        audit_by_region = {item["region"]: item for item in audit_regions}
+        before_by_region = {item["region"]: item for item in before_regions}
+        after_by_region = {item["region"]: item for item in after_regions}
+    except (KeyError, TypeError):
+        return False
+    if any(set(rows) != set(range(6)) for rows in (
+        audit_by_region, before_by_region, after_by_region
+    )):
+        return False
+    for region in range(6):
+        observed = audit_by_region[region]
+        expected_before = before_by_region[region]
+        expected_after = after_by_region[region]
+        if not isinstance(observed, dict) or set(observed) != {
+            "region", "submitted_before", "submitted_after", "sealed"
+        }:
+            return False
+        values = (
+            observed.get("submitted_before"), observed.get("submitted_after"),
+            observed.get("sealed"), expected_before.get("submitted"),
+            expected_after.get("submitted"), expected_before.get("sealed"),
+            expected_after.get("sealed"),
+        )
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               or not math.isfinite(float(value)) or float(value) < 0.0
+               for value in values):
+            return False
+        if not all(math.isclose(float(actual), float(expected), rel_tol=1e-12,
+                                abs_tol=1e-9)
+                   for actual, expected in (
+                       (values[0], values[3]), (values[1], values[4]),
+                       (values[2], values[5]), (values[2], values[6]),
+                   )):
+            return False
+    return True
 
 
 def _bar_schema_errors(bars: dict | None) -> list[str]:
@@ -704,6 +1091,31 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         return not isinstance(value, bool) and isinstance(value, (int, float)) \
             and math.isfinite(float(value))
 
+    def observed_ranges(value: object) -> dict[str, list[float]] | None:
+        if not isinstance(value, dict) \
+                or set(value) != {"pooled", "development", "hidden"}:
+            return None
+        ranges = {}
+        for family in ("pooled", "development", "hidden"):
+            pair = value.get(family)
+            if not isinstance(pair, list) or len(pair) != 2 \
+                    or not all(finite_number(item) for item in pair) \
+                    or float(pair[0]) > float(pair[1]):
+                return None
+            ranges[family] = [float(pair[0]), float(pair[1])]
+        union = [
+            min(ranges["development"][0], ranges["hidden"][0]),
+            max(ranges["development"][1], ranges["hidden"][1]),
+        ]
+        return ranges if ranges["pooled"] == union else None
+
+    def range_inside(observed: list[float], envelope: list[float]) -> bool:
+        tolerance = 1e-12
+        return (
+            float(envelope[0]) - tolerance <= observed[0] <= observed[1]
+            <= float(envelope[1]) + tolerance
+        )
+
     q95_feasibility_fields = {
         "q95_sum", "allocation_sum", "reserve_total", "total_minus_q95_sum",
         "all_regions_at_or_above_q95", "allocation_sums_to_total", "feasible",
@@ -717,15 +1129,19 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 )) \
                 or any(float(value[field]) < 0.0 for field in (
                     "q95_sum", "allocation_sum", "reserve_total",
-                    "total_minus_q95_sum",
                 )) \
-                or value.get("all_regions_at_or_above_q95") is not True \
-                or value.get("allocation_sums_to_total") is not True \
-                or value.get("feasible") is not True:
+                or any(not isinstance(value.get(field), bool) for field in (
+                    "all_regions_at_or_above_q95", "allocation_sums_to_total",
+                    "feasible",
+                )):
             return False
         total = float(value["reserve_total"])
         tolerance = 1e-10 * max(1.0, abs(total))
-        return abs(float(value["allocation_sum"]) - total) <= tolerance \
+        sums_to_total = abs(float(value["allocation_sum"]) - total) <= tolerance
+        return value["allocation_sums_to_total"] is sums_to_total \
+            and value["feasible"] is (
+                value["all_regions_at_or_above_q95"] and sums_to_total
+            ) \
             and abs(
                 float(value["total_minus_q95_sum"])
                 - (total - float(value["q95_sum"]))
@@ -765,8 +1181,8 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     elif worlds and lines:
         if report_count != per_pair * len(worlds) * len(lines):
             errors.append("replicate counts do not match the balanced design")
-        if per_pair * len(lines) * (len(worlds) - 1) < 100:
-            errors.append("leave-one-world-out p99 training sets need at least 100 reports")
+        if per_pair * len(worlds) < 100:
+            errors.append("each reference-line p99 needs at least 100 reports")
         if bars.get("reference_report_count") != len(lines) * len(worlds):
             errors.append("final reference count does not match the balanced design")
     if bars.get("reference_report_count") != REFERENCE_REPORT_COUNT:
@@ -774,7 +1190,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     if bars.get("paired_resamples_per_world") != REPLICATES_PER_LINE_WORLD \
             or bars.get("paired_resample_count") \
             != REPLICATES_PER_LINE_WORLD * len(QUALIFICATION_WORLD_NAMES):
-        errors.append("the exact seven paired resamples per world are required")
+        errors.append("the exact seventeen paired resamples per world are required")
     control_count = bars.get("control_report_count")
     if isinstance(control_count, bool) or not isinstance(control_count, int) \
             or control_count != len(REQUIRED_SCIENTIFIC_CONTROLS) * 6:
@@ -793,47 +1209,103 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     if not is_sha256(bars.get("runner_digest_sha256")) \
             or not is_sha256(bars.get("measurement_contract_digest_sha256")):
         errors.append("freeze receipt lacks its common runner or measurement contract digest")
+    rates_by_line = bars.get("achieved_false_fail_rates_by_reference_line")
+    rates_by_line_ok = isinstance(rates_by_line, dict) \
+        and set(rates_by_line) == set(REFERENCE_LINES)
+    if rates_by_line_ok:
+        for line in REFERENCE_LINES:
+            line_rates = rates_by_line[line]
+            if not isinstance(line_rates, dict) \
+                    or set(line_rates) != set(COMPOSITE_GATE_COMPONENTS) \
+                    or any(
+                        not finite_number(value)
+                        or not 0.0 <= float(value) <= 0.01
+                        for value in line_rates.values()
+                    ):
+                rates_by_line_ok = False
+                break
+    if not rates_by_line_ok:
+        errors.append("per-reference-line false-fail rates differ from the design")
+        rates_by_line = {}
     rates = bars.get("achieved_false_fail_rates")
     if not isinstance(rates, dict) or set(rates) != set(COMPOSITE_GATE_COMPONENTS):
-        errors.append("achieved false-fail rates differ from the five gates")
+        errors.append("conservative false-fail rates differ from the five gates")
         rates = {}
-    else:
+    elif rates_by_line:
         for gate, value in rates.items():
-            if not finite_number(value) or not 0.0 <= float(value) <= 0.01:
-                errors.append(f"{gate}: achieved false-fail rate exceeds the target")
+            expected_rate = max(
+                float(rates_by_line[line][gate]) for line in REFERENCE_LINES
+            )
+            if not finite_number(value) \
+                    or not 0.0 <= float(value) <= 0.01 \
+                    or not math.isclose(
+                        float(value), expected_rate, rel_tol=1e-12, abs_tol=1e-15
+                    ):
+                errors.append(f"{gate}: conservative false-fail rate is inconsistent")
+    if bars.get("achieved_false_fail_rate_method") \
+            != "per-reference-line joint max-severity empirical p99":
+        errors.append("false-fail calibration method differs from the registered design")
     target_product = 0.99 ** (len(COMPOSITE_GATE_COMPONENTS) * 3)
     if not finite_number(bars.get("target_marginal_product")) \
             or not math.isclose(float(bars["target_marginal_product"]), target_product,
                                 rel_tol=1e-12, abs_tol=1e-15):
         errors.append("target marginal product differs from the registered design")
-    achieved_product = math.prod(
-        (1.0 - float(rates[gate])) ** 3 for gate in COMPOSITE_GATE_COMPONENTS
-    ) if rates else None
+    products_by_line = bars.get("achieved_marginal_rate_product_by_reference_line")
+    products_ok = isinstance(products_by_line, dict) \
+        and set(products_by_line) == set(REFERENCE_LINES) and bool(rates_by_line)
+    if products_ok:
+        for line in REFERENCE_LINES:
+            expected_line_product = math.prod(
+                (1.0 - float(rates_by_line[line][gate])) ** 3
+                for gate in COMPOSITE_GATE_COMPONENTS
+            )
+            if not finite_number(products_by_line[line]) or not math.isclose(
+                float(products_by_line[line]), expected_line_product,
+                rel_tol=1e-12, abs_tol=1e-15,
+            ):
+                products_ok = False
+                break
+    if not products_ok:
+        errors.append("per-reference-line marginal products are inconsistent")
+    achieved_product = min(float(value) for value in products_by_line.values()) \
+        if products_ok else None
     if achieved_product is None \
             or not finite_number(bars.get("achieved_marginal_rate_product")) \
             or not math.isclose(float(bars["achieved_marginal_rate_product"]),
                                 achieved_product, rel_tol=1e-12, abs_tol=1e-15):
-        errors.append("achieved marginal product does not match the gate rates")
+        errors.append("conservative marginal product does not match the line products")
     if bars.get("reference_failures") != []:
         errors.append("freeze receipt contains final reference failures")
 
     binding_base_keys = {
         "schema", "kind", "world", "method_digest_sha256",
         "runner_digest_sha256", "measurement_contract_digest_sha256",
+        "measurement_params",
         "run_receipt_digest_sha256", "packet_digest_sha256",
         "contract_digest_sha256", "submission_digest_sha256",
         "verifier_digest_sha256", "verifier_report_digest_sha256",
-        "reserve_q95_feasibility_digest_sha256", "evidence_id",
+        "reserve_q95_feasibility_digest_sha256",
+        "reserve_tail_evidence", "reserve_tail_evidence_digest_sha256",
+        "reserve_rule_evidence", "reserve_rule_evidence_digest_sha256",
+        "continuation_shock_redraw_evidence_digest_sha256",
+        "continuation_shock_redraw_file_sha256",
+        "continuation_source_law_sha256",
+        "packet_input_sha256", "evidence_id",
     }
 
     def valid_binding(row: object, expected_kind: str) -> bool:
         if not isinstance(row, dict) or row.get("kind") != expected_kind \
-                or row.get("schema") != "meridia.v4.freeze-evidence-binding.v1":
+                or row.get("schema") != FREEZE_EVIDENCE_BINDING_SCHEMA:
+            return False
+        if row.get("measurement_params") != REGISTERED_MEASUREMENT_PARAMS:
             return False
         expected_keys = set(binding_base_keys)
         identity_field: str
         if expected_kind == "reference":
-            expected_keys.add("reference_line")
+            expected_keys.update({
+                "reference_line", "elder_reference_evidence",
+                "elder_reference_evidence_digest_sha256",
+            })
             identity_field = "reference_line"
         elif expected_kind == "replicate":
             expected_keys.update({
@@ -856,12 +1328,118 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             "measurement_contract_digest_sha256", "run_receipt_digest_sha256",
             "verifier_report_digest_sha256",
             "reserve_q95_feasibility_digest_sha256",
+            "reserve_tail_evidence_digest_sha256",
+            "reserve_rule_evidence_digest_sha256",
+            "continuation_shock_redraw_evidence_digest_sha256",
+            "continuation_shock_redraw_file_sha256",
+            "continuation_source_law_sha256",
         )
         evidence_id = row.get("evidence_id")
         unsigned = dict(row)
         unsigned.pop("evidence_id", None)
+        tail = row.get("reserve_tail_evidence")
+        tail_ok = isinstance(tail, dict) \
+            and set(tail) == {
+                "schema", "valid", "q95_sum", "es95_sum",
+                "reserve_submission_sha256",
+            } \
+            and tail.get("schema") == RESERVE_TAIL_EVIDENCE_SCHEMA \
+            and tail.get("valid") is True \
+            and finite_number(tail.get("q95_sum")) \
+            and finite_number(tail.get("es95_sum")) \
+            and 0.0 <= float(tail["q95_sum"]) <= float(tail["es95_sum"]) \
+            and is_sha256(tail.get("reserve_submission_sha256")) \
+            and canonical_digest(tail) \
+            == row.get("reserve_tail_evidence_digest_sha256")
+        packet_inputs = row.get("packet_input_sha256")
+        packet_inputs_ok = isinstance(packet_inputs, dict) \
+            and set(packet_inputs) == {
+                "participant/contract.json",
+                "participant/experience_history.csv",
+                "retained/continuation_liabilities.npz",
+            } \
+            and all(is_sha256(value) for value in packet_inputs.values())
+        reserve_rule = row.get("reserve_rule_evidence")
+        reserve_rule_ok = isinstance(reserve_rule, dict) \
+            and set(reserve_rule) == {
+                "valid", "selected_year", "exposure_person_years",
+                "rate_per_person_year", "rounding_unit", "reserve_total",
+                "experience_sha256",
+            } \
+            and reserve_rule.get("valid") is True \
+            and not isinstance(reserve_rule.get("selected_year"), bool) \
+            and isinstance(reserve_rule.get("selected_year"), int) \
+            and all(
+                finite_number(reserve_rule.get(field))
+                and float(reserve_rule[field]) > 0.0
+                for field in (
+                    "exposure_person_years", "rate_per_person_year",
+                    "rounding_unit", "reserve_total",
+                )
+            ) \
+            and math.isclose(
+                float(reserve_rule.get("reserve_total", float("nan"))),
+                reserve_total(
+                    float(reserve_rule.get("exposure_person_years", float("nan"))),
+                    float(reserve_rule.get("rate_per_person_year", float("nan"))),
+                    float(reserve_rule.get("rounding_unit", float("nan"))),
+                ),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            ) \
+            and reserve_rule.get("experience_sha256") == (
+                packet_inputs.get("participant/experience_history.csv")
+                if isinstance(packet_inputs, dict) else None
+            ) \
+            and canonical_digest(reserve_rule) \
+            == row.get("reserve_rule_evidence_digest_sha256")
+        elder = row.get("elder_reference_evidence")
+        elder_ok = expected_kind != "reference"
+        if expected_kind == "reference" and isinstance(elder, dict):
+            state_rows = elder.get("state_65_plus_person_years")
+            liability_rows = elder.get("liability_mean_by_region")
+            elder_ok = set(elder) == {
+                "schema", "valid", "packet_digest_sha256",
+                "submission_digest_sha256", "state_65_plus_person_years",
+                "liability_mean_by_region",
+            } \
+                and elder.get("schema") == ELDER_REFERENCE_EVIDENCE_SCHEMA \
+                and elder.get("valid") is True \
+                and elder.get("packet_digest_sha256") \
+                == row.get("packet_digest_sha256") \
+                and elder.get("submission_digest_sha256") \
+                == row.get("submission_digest_sha256") \
+                and isinstance(state_rows, list) and len(state_rows) == 6 \
+                and {item.get("state") for item in state_rows
+                     if isinstance(item, dict)} == set(range(6)) \
+                and all(
+                    isinstance(item, dict)
+                    and set(item) == {
+                        "state", "submitted_person_years", "sealed_person_years"
+                    }
+                    and finite_number(item.get("submitted_person_years"))
+                    and float(item["submitted_person_years"]) >= 0.0
+                    and finite_number(item.get("sealed_person_years"))
+                    and float(item["sealed_person_years"]) >= 0.0
+                    for item in state_rows
+                ) \
+                and isinstance(liability_rows, list) and len(liability_rows) == 6 \
+                and {item.get("region") for item in liability_rows
+                     if isinstance(item, dict)} == set(range(6)) \
+                and all(
+                    isinstance(item, dict)
+                    and set(item) == {"region", "submitted", "sealed"}
+                    and finite_number(item.get("submitted"))
+                    and float(item["submitted"]) >= 0.0
+                    and finite_number(item.get("sealed"))
+                    and float(item["sealed"]) >= 0.0
+                    for item in liability_rows
+                ) \
+                and canonical_digest(elder) \
+                == row.get("elder_reference_evidence_digest_sha256")
         return set(row) == expected_keys \
             and all(is_sha256(row.get(field)) for field in digest_fields) \
+            and tail_ok and packet_inputs_ok and reserve_rule_ok and elder_ok \
             and (
                 expected_kind != "replicate"
                 or is_sha256(row.get("resample_digest_sha256"))
@@ -989,13 +1567,38 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             errors.append(
                 "freeze evidence does not share one verifier, runner, and measurement contract"
             )
-        by_world: dict[str, list[dict]] = {}
-        for row in all_bound_rows:
-            by_world.setdefault(row["world"], []).append(row)
-        for world, rows in by_world.items():
+        def same_binding(rows: list[dict], label: str) -> None:
             if len({row["packet_digest_sha256"] for row in rows}) != 1 \
                     or len({row["contract_digest_sha256"] for row in rows}) != 1:
-                errors.append(f"{world}: freeze evidence packet or contract binding differs")
+                errors.append(f"{label}: freeze evidence packet or contract binding differs")
+            if len({
+                canonical_digest(row["packet_input_sha256"]) for row in rows
+            }) != 1:
+                errors.append(f"{label}: freeze evidence packet input binding differs")
+            if len({
+                canonical_digest(row["reserve_rule_evidence"]) for row in rows
+            }) != 1:
+                errors.append(f"{label}: freeze evidence reserve rule binding differs")
+            for field in (
+                "continuation_shock_redraw_evidence_digest_sha256",
+                "continuation_shock_redraw_file_sha256",
+                "continuation_source_law_sha256",
+            ):
+                if len({row[field] for row in rows}) != 1:
+                    errors.append(f"{label}: freeze evidence {field} differs")
+
+        base_by_world: dict[str, list[dict]] = {}
+        for row in (
+            provenance["reference_reports"] + provenance["control_reports"]
+        ):
+            base_by_world.setdefault(row["world"], []).append(row)
+        for world in QUALIFICATION_WORLD_NAMES:
+            same_binding(base_by_world.get(world, []), world)
+        diagnostics_by_world: dict[str, list[dict]] = {}
+        for row in diagnostic_rows:
+            diagnostics_by_world.setdefault(row["world"], []).append(row)
+        for world in DEVELOPMENT_WORLD_NAMES:
+            same_binding(diagnostics_by_world.get(world, []), world)
 
         identity_digests: dict[str, set[str]] = {}
         for row in all_bound_rows:
@@ -1040,13 +1643,46 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         or len({row["resample_digest_sha256"] for row in rows}) != 1:
                     errors.append(f"{world}/{replicate_id}: resample is not paired across lines")
                     continue
+                label = f"{world}/{replicate_id}"
+                same_binding(rows, label)
+                base = base_by_world[world][0]
+                if rows[0]["contract_digest_sha256"] \
+                        != base["contract_digest_sha256"]:
+                    errors.append(f"{label}: resample changes the public contract")
+                for field in (
+                    "continuation_shock_redraw_evidence_digest_sha256",
+                    "continuation_shock_redraw_file_sha256",
+                    "continuation_source_law_sha256",
+                ):
+                    if rows[0][field] != base[field]:
+                        errors.append(f"{label}: resample changes {field}")
+                for name in (
+                    "participant/contract.json",
+                    "retained/continuation_liabilities.npz",
+                ):
+                    if rows[0]["packet_input_sha256"][name] \
+                            != base["packet_input_sha256"][name]:
+                        errors.append(f"{label}: resample changes fixed input {name}")
+                for field in (
+                    "valid",
+                    "selected_year",
+                    "exposure_person_years",
+                    "rate_per_person_year",
+                    "rounding_unit",
+                    "reserve_total",
+                ):
+                    if rows[0]["reserve_rule_evidence"][field] \
+                            != base["reserve_rule_evidence"][field]:
+                        errors.append(
+                            f"{label}: resample changes reserve rule {field}"
+                        )
                 digest = rows[0]["resample_digest_sha256"]
                 owner = (world, replicate_id)
                 if digest in paired_digests and paired_digests[digest] != owner:
                     errors.append("a paired resample digest is reused across identifiers")
                 paired_digests[digest] = owner
 
-    def valid_signed_audit(value: object, schema: str) -> bool:
+    def valid_digest_bound_audit(value: object, schema: str) -> bool:
         if not isinstance(value, dict) or value.get("schema") != schema \
                 or not is_sha256(value.get("digest_sha256")) \
                 or value.get("measurement_contract_digest_sha256") \
@@ -1066,9 +1702,9 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     red_team_audit = reserve_audits.get("red_team") \
         if isinstance(reserve_audits, dict) else None
     reserve_audits_ok = reserve_audits_ok \
-        and valid_signed_audit(qualification_audit, RESERVE_QUALIFICATION_SCHEMA) \
-        and valid_signed_audit(calibration_audit, RESERVE_CALIBRATION_SCHEMA) \
-        and valid_signed_audit(red_team_audit, RESERVE_RED_TEAM_SCHEMA)
+        and valid_digest_bound_audit(qualification_audit, RESERVE_QUALIFICATION_SCHEMA) \
+        and valid_digest_bound_audit(calibration_audit, RESERVE_CALIBRATION_SCHEMA) \
+        and valid_digest_bound_audit(red_team_audit, RESERVE_RED_TEAM_SCHEMA)
     if reserve_audits_ok:
         reserve_audits_ok = qualification_audit.get("calibration_audit_digest_sha256") \
             == calibration_audit.get("digest_sha256") \
@@ -1088,9 +1724,9 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             and finite_number(calibration_audit.get("rate_per_person_year")) \
             and float(calibration_audit["rate_per_person_year"]) > 0.0 \
             and finite_number(calibration_audit.get("rate_grid")) \
-            and float(calibration_audit["rate_grid"]) > 0.0 \
+            and float(calibration_audit["rate_grid"]) == 1.0 \
             and finite_number(calibration_audit.get("tail_slack_share")) \
-            and 0.0 <= float(calibration_audit["tail_slack_share"]) <= 1.0 \
+            and float(calibration_audit["tail_slack_share"]) == 0.25 \
             and red_team_audit.get("independent_unit") == "world" \
             and red_team_audit.get("world_counts") \
             == {"development": 12, "qualification": 6, "total": 18} \
@@ -1135,7 +1771,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 isinstance(row, dict) and set(row) == result_keys
                 and row.get("reference_line") in REFERENCE_LINES
                 and row.get("world") in QUALIFICATION_WORLD_NAMES
-                and row.get("q95_feasible") is True
+                and isinstance(row.get("q95_feasible"), bool)
                 and row.get("reserve_skill_pass") is True
                 and all(finite_number(row.get(field)) for field in (
                     "q95_sum", "allocation_sum", "reserve_total",
@@ -1146,7 +1782,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 isinstance(row, dict) and set(row) == control_result_keys
                 and row.get("control") == "proportional_reserve"
                 and row.get("world") in QUALIFICATION_WORLD_NAMES
-                and row.get("q95_feasible") is True
+                and isinstance(row.get("q95_feasible"), bool)
                 and row.get("reserve_skill_pass") is False
                 and all(finite_number(row.get(field)) for field in (
                     "q95_sum", "allocation_sum", "reserve_total",
@@ -1190,24 +1826,34 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             and set(calibration_by_pair) == set(reference_bindings)
         if reserve_audits_ok:
             slack = float(calibration_audit["tail_slack_share"])
+            rate = float(calibration_audit["rate_per_person_year"])
+            grid = float(calibration_audit["rate_grid"])
+            required_rates: list[float] = []
+            rounding_units: set[float] = set()
             for pair, result in qualification_by_pair.items():
                 binding = reference_bindings[pair]
                 calibration = calibration_by_pair[pair]
+                tail = binding.get("reserve_tail_evidence")
                 feasibility = {
                     "q95_sum": result["q95_sum"],
                     "allocation_sum": result["allocation_sum"],
                     "reserve_total": result["reserve_total"],
                     "total_minus_q95_sum": result["total_minus_q95_sum"],
-                    "all_regions_at_or_above_q95": True,
+                    "all_regions_at_or_above_q95": result["q95_feasible"],
                     "allocation_sums_to_total": True,
-                    "feasible": True,
+                    "feasible": result["q95_feasible"],
                 }
                 q95 = calibration.get("submitted_q95_sum")
                 es95 = calibration.get("submitted_es95_sum")
                 candidate_total = calibration.get("candidate_reserve_total")
                 candidate_margin = calibration.get("candidate_margin")
+                exposure = calibration.get("exposure_person_years")
+                rounding_unit = calibration.get("rounding_unit")
+                recorded_target = calibration.get("target_reserve_before_rounding")
+                required_rate = calibration.get("required_rate")
                 numeric = all(finite_number(value) for value in (
-                    q95, es95, candidate_total, candidate_margin
+                    q95, es95, candidate_total, candidate_margin, exposure,
+                    rounding_unit, recorded_target, required_rate,
                 ))
                 if not numeric:
                     reserve_audits_ok = False
@@ -1215,6 +1861,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 target = float(q95) + slack * (float(es95) - float(q95))
                 if result["evidence_id"] != binding["evidence_id"] \
                         or calibration.get("evidence_id") != binding["evidence_id"] \
+                        or not isinstance(tail, dict) \
                         or not valid_q95_feasibility(feasibility) \
                         or canonical_digest(feasibility) != binding[
                             "reserve_q95_feasibility_digest_sha256"
@@ -1224,18 +1871,54 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                             rel_tol=1e-12, abs_tol=1e-9,
                         ) \
                         or not math.isclose(
+                            float(q95), float(tail["q95_sum"]),
+                            rel_tol=1e-12, abs_tol=1e-9,
+                        ) \
+                        or not math.isclose(
+                            float(es95), float(tail["es95_sum"]),
+                            rel_tol=1e-12, abs_tol=1e-9,
+                        ) \
+                        or calibration.get("reserve_submission_sha256") \
+                        != tail["reserve_submission_sha256"] \
+                        or calibration.get("experience_sha256") \
+                        != binding["packet_input_sha256"][
+                            "participant/experience_history.csv"
+                        ] \
+                        or not math.isclose(
                             float(result["reserve_total"]), float(candidate_total),
                             rel_tol=1e-12, abs_tol=1e-9,
                         ) \
+                        or float(exposure) <= 0.0 \
+                        or float(rounding_unit) <= 0.0 \
                         or float(es95) < float(q95) \
                         or float(candidate_total) < float(q95) \
                         or float(candidate_margin) < 0.0 \
+                        or not math.isclose(
+                            float(recorded_target), target,
+                            rel_tol=1e-12, abs_tol=1e-9,
+                        ) \
+                        or not math.isclose(
+                            float(required_rate), target / float(exposure),
+                            rel_tol=1e-12, abs_tol=1e-12,
+                        ) \
+                        or not math.isclose(
+                            float(candidate_total),
+                            reserve_total(float(exposure), rate, float(rounding_unit)),
+                            rel_tol=1e-12, abs_tol=1e-9,
+                        ) \
                         or not math.isclose(
                             float(candidate_margin), float(candidate_total) - target,
                             rel_tol=1e-12, abs_tol=1e-9,
                         ):
                     reserve_audits_ok = False
                     break
+                required_rates.append(float(required_rate))
+                rounding_units.add(float(rounding_unit))
+            if reserve_audits_ok:
+                expected_rate = math.ceil(max(required_rates) / grid) * grid
+                reserve_audits_ok = len(rounding_units) == 1 and math.isclose(
+                    rate, expected_rate, rel_tol=1e-12, abs_tol=1e-12
+                )
         if reserve_audits_ok:
             for pair, result in proportional_by_pair.items():
                 binding = proportional_bindings[pair]
@@ -1244,9 +1927,9 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                     "allocation_sum": result["allocation_sum"],
                     "reserve_total": result["reserve_total"],
                     "total_minus_q95_sum": result["total_minus_q95_sum"],
-                    "all_regions_at_or_above_q95": True,
+                    "all_regions_at_or_above_q95": result["q95_feasible"],
                     "allocation_sums_to_total": True,
-                    "feasible": True,
+                    "feasible": result["q95_feasible"],
                 }
                 if result["evidence_id"] != binding["evidence_id"] \
                         or not valid_q95_feasibility(feasibility) \
@@ -1255,16 +1938,149 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         ]:
                     reserve_audits_ok = False
                     break
-    if reserve_audits_ok:
+    if reserve_audits_ok and provenance_ok and diagnostics_ok:
+        measurement_keys = {
+            "schema", "measurement_source", "input_bindings", "independent_unit",
+            "world_counts", "regions_per_world", "files_read_per_world",
+            "reserve_total_public_rule_verified", "tail_definition",
+            "public_quantities", "development_regional_models",
+            "qualification_predictive_regional_r2",
+            "qualification_incremental_regional_r2_over_region_means",
+            "primary_measure", "descriptive_pooled_regional_r2",
+            "world_aggregate_tail_r2", "interpretation",
+        }
+        bound_measurement_keys = measurement_keys | {
+            "measurement_contract_digest_sha256", "evidence_cross_binding",
+            "digest_sha256",
+        }
+
+        def valid_r2(value: object) -> bool:
+            return finite_number(value) and float(value) <= 1.0
+
+        def valid_headline(value: object) -> bool:
+            if not isinstance(value, dict) \
+                    or set(value) != {"q95", "es95", "headline_max"} \
+                    or not all(valid_r2(value.get(field)) for field in (
+                        "q95", "es95", "headline_max"
+                    )):
+                return False
+            return math.isclose(
+                float(value["headline_max"]),
+                max(float(value["q95"]), float(value["es95"])),
+                rel_tol=1e-12,
+                abs_tol=1e-15,
+            )
+
+        def valid_models(value: object, regions: int) -> bool:
+            if not isinstance(value, dict) or set(value) != {"q95", "es95"}:
+                return False
+            for outcome in ("q95", "es95"):
+                rows = value.get(outcome)
+                if not isinstance(rows, list) or len(rows) != regions:
+                    return False
+                for index, row in enumerate(rows):
+                    if not isinstance(row, dict) or set(row) != {
+                        "region", "intercept", "reserve_total_coefficient"
+                    } or row.get("region") != index \
+                            or not finite_number(row.get("intercept")) \
+                            or not finite_number(row.get("reserve_total_coefficient")):
+                        return False
+            return True
+
+        def expected_packet_inputs(
+            rows: list[dict], expected_worlds: tuple[str, ...]
+        ) -> list[dict] | None:
+            result: list[dict] = []
+            for world in expected_worlds:
+                candidates = {
+                    canonical_digest(row.get("packet_input_sha256")):
+                    row.get("packet_input_sha256")
+                    for row in rows if row.get("world") == world
+                }
+                if None in candidates or len(candidates) != 1:
+                    return None
+                result.append({
+                    "world": world,
+                    "file_sha256": next(iter(candidates.values())),
+                })
+            return result
+
+        regions = red_team_audit.get("regions_per_world")
+        regions_ok = not isinstance(regions, bool) \
+            and isinstance(regions, int) and regions > 0
+        try:
+            source_digest = hashlib.sha256(
+                (Path(__file__).resolve().parents[1]
+                 / "scripts/red_team_reserve_total.py").read_bytes()
+            ).hexdigest()
+        except OSError:
+            source_digest = None
+        source = red_team_audit.get("measurement_source")
+        source_ok = isinstance(source, dict) \
+            and set(source) == {"file", "sha256"} \
+            and source.get("file") == "scripts/red_team_reserve_total.py" \
+            and source.get("sha256") == source_digest
+
+        reference_rows = provenance["reference_reports"]
+        diagnostic_rows = diagnostic_block["reports"]
+        expected_bindings = {
+            "development": expected_packet_inputs(
+                diagnostic_rows, DEVELOPMENT_WORLD_NAMES
+            ),
+            "qualification": expected_packet_inputs(
+                reference_rows, QUALIFICATION_WORLD_NAMES
+            ),
+        }
+        input_bindings = red_team_audit.get("input_bindings")
+        input_bindings_ok = None not in expected_bindings.values() \
+            and isinstance(input_bindings, dict) \
+            and set(input_bindings) == set(expected_bindings) \
+            and input_bindings == expected_bindings
+
+        def expected_public_quantities(
+            rows: list[dict], expected_worlds: tuple[str, ...]
+        ) -> list[dict] | None:
+            result: list[dict] = []
+            for world in expected_worlds:
+                candidates = {
+                    canonical_digest(row.get("reserve_rule_evidence")):
+                    row.get("reserve_rule_evidence")
+                    for row in rows if row.get("world") == world
+                }
+                if len(candidates) != 1:
+                    return None
+                receipt = next(iter(candidates.values()))
+                if not isinstance(receipt, dict):
+                    return None
+                result.append({
+                    "world": world,
+                    "latest_year_total_exposure": receipt.get(
+                        "exposure_person_years"
+                    ),
+                    "reserve_total": receipt.get("reserve_total"),
+                })
+            return result
+
+        cross_binding = red_team_audit.get("evidence_cross_binding")
+        cross_binding_ok = isinstance(cross_binding, dict) \
+            and set(cross_binding) == {
+                "qualification_reference_evidence_ids",
+                "development_diagnostic_evidence_ids",
+            } \
+            and cross_binding.get("qualification_reference_evidence_ids") == sorted(
+                row["evidence_id"] for row in reference_rows
+            ) \
+            and cross_binding.get("development_diagnostic_evidence_ids") == sorted(
+                row["evidence_id"] for row in diagnostic_rows
+            )
+
         quantities = red_team_audit.get("public_quantities")
-        primary = red_team_audit.get(
-            "qualification_incremental_regional_r2_over_region_means"
-        )
         development_quantities = quantities.get("development") \
             if isinstance(quantities, dict) else None
         qualification_quantities = quantities.get("qualification") \
             if isinstance(quantities, dict) else None
-        reserve_audits_ok = isinstance(quantities, dict) \
+        quantities_ok = isinstance(quantities, dict) \
+            and set(quantities) == {"development", "qualification"} \
             and isinstance(development_quantities, list) \
             and len(development_quantities) == len(DEVELOPMENT_WORLD_NAMES) \
             and isinstance(qualification_quantities, list) \
@@ -1275,51 +2091,312 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                  if isinstance(row, dict)] == list(QUALIFICATION_WORLD_NAMES) \
             and all(
                 isinstance(row, dict)
+                and set(row) == {
+                    "world", "latest_year_total_exposure", "reserve_total"
+                }
                 and finite_number(row.get("latest_year_total_exposure"))
                 and float(row["latest_year_total_exposure"]) >= 0.0
                 and finite_number(row.get("reserve_total"))
                 and float(row["reserve_total"]) >= 0.0
-                for row in [*development_quantities, *qualification_quantities]
-            ) \
-            and isinstance(primary, dict) \
-            and all(finite_number(primary.get(field))
-                    for field in ("q95", "es95", "headline_max")) \
-            and math.isclose(
-                float(primary["headline_max"]),
-                max(float(primary["q95"]), float(primary["es95"])),
-                rel_tol=1e-12,
-                abs_tol=1e-15,
+                for row in [*(development_quantities or []),
+                            *(qualification_quantities or [])]
             )
+        expected_quantities = {
+            "development": expected_public_quantities(
+                diagnostic_rows, DEVELOPMENT_WORLD_NAMES
+            ),
+            "qualification": expected_public_quantities(
+                reference_rows, QUALIFICATION_WORLD_NAMES
+            ),
+        }
+        if quantities_ok:
+            quantities_ok = all(
+                expected_quantities[regime] is not None
+                and all(
+                    observed["world"] == expected["world"]
+                    and math.isclose(
+                        float(observed["latest_year_total_exposure"]),
+                        float(expected["latest_year_total_exposure"]),
+                        rel_tol=1e-12,
+                        abs_tol=1e-9,
+                    )
+                    and math.isclose(
+                        float(observed["reserve_total"]),
+                        float(expected["reserve_total"]),
+                        rel_tol=1e-12,
+                        abs_tol=1e-9,
+                    )
+                    for observed, expected in zip(
+                        quantities[regime], expected_quantities[regime], strict=True
+                    )
+                )
+                for regime in ("development", "qualification")
+            )
+
+        predictive = red_team_audit.get("qualification_predictive_regional_r2")
+        predictive_per_region = predictive.get("per_region") \
+            if isinstance(predictive, dict) else None
+        predictive_ok = isinstance(predictive, dict) \
+            and set(predictive) == {"q95", "es95", "per_region"} \
+            and valid_r2(predictive.get("q95")) \
+            and valid_r2(predictive.get("es95")) \
+            and isinstance(predictive_per_region, dict) \
+            and set(predictive_per_region) == {"q95", "es95"} \
+            and all(
+                isinstance(predictive_per_region.get(outcome), list)
+                and len(predictive_per_region[outcome]) == regions
+                and all(value is None or valid_r2(value)
+                        for value in predictive_per_region[outcome])
+                for outcome in ("q95", "es95")
+            ) if regions_ok else False
+
+        descriptive = red_team_audit.get("descriptive_pooled_regional_r2")
+        descriptive_ok = isinstance(descriptive, dict) \
+            and set(descriptive) == {"q95", "es95", "headline_max", "models"} \
+            and valid_headline({
+                field: descriptive.get(field)
+                for field in ("q95", "es95", "headline_max")
+            }) \
+            and valid_models(descriptive.get("models"), regions) \
+            if regions_ok else False
+
+        aggregate = red_team_audit.get("world_aggregate_tail_r2")
+        aggregate_ok = isinstance(aggregate, dict) \
+            and set(aggregate) == {"qualification_predictive", "descriptive_pooled"} \
+            and valid_headline(aggregate.get("qualification_predictive")) \
+            and valid_headline(aggregate.get("descriptive_pooled"))
+
+        reserve_audits_ok = set(red_team_audit) == bound_measurement_keys \
+            and source_ok and input_bindings_ok and cross_binding_ok \
+            and regions_ok and quantities_ok and predictive_ok \
+            and valid_models(
+                red_team_audit.get("development_regional_models"), regions
+            ) \
+            and valid_headline(
+                red_team_audit.get(
+                    "qualification_incremental_regional_r2_over_region_means"
+                )
+            ) \
+            and descriptive_ok and aggregate_ok \
+            and red_team_audit.get("files_read_per_world") == [
+                "participant/contract.json",
+                "participant/experience_history.csv",
+                "retained/continuation_liabilities.npz:liability",
+            ] \
+            and red_team_audit.get("tail_definition") == {
+                "level": 0.95,
+                "quantile_rank": "ceil(level * members), one-indexed",
+                "expected_shortfall": (
+                    "mean of all members at or above the quantile, ties included"
+                ),
+            } \
+            and isinstance(red_team_audit.get("interpretation"), str) \
+            and bool(red_team_audit["interpretation"].strip())
     if not reserve_audits_ok:
         errors.append("reserve qualification, calibration, or red-team audit is invalid")
 
     identification = bars.get("mortality_identification_evidence")
     identification_ok = isinstance(identification, dict) \
-        and identification.get("schema") == "meridia.v4.mortality-identification.v1" \
+        and identification.get("schema") \
+        == "meridia.v4.mortality-identification-audit.v1" \
         and identification.get("supports_gate") == "tail_calibration" \
-        and is_sha256(identification.get("generator_source_digest_sha256")) \
-        and is_sha256(identification.get("diagnostic_digest_sha256"))
+        and is_sha256(identification.get("digest_sha256")) \
+        and identification.get("qualification_worlds") \
+        == list(QUALIFICATION_WORLD_NAMES)
+    identification_rows_by_world: dict[str, dict] = {}
+    mortality_decomposition_fields = {
+        "hidden_mortality_improvement",
+        "trend_active_during_public_experience_window",
+        "trend_starts_only_after_public_window",
+        "trend_application",
+        "history_mortality_rate",
+        "horizon_mortality_rate",
+        "observed_horizon_to_history_ratio",
+        "trend_only_horizon_to_history_ratio",
+        "residual_observed_to_trend_ratio",
+        "publication_lag_months",
+        "last_exposure_midpoint_to_snapshot_months",
+        "publication_lag_trend_factor",
+        "last_exposure_midpoint_to_snapshot_trend_factor",
+        "history_mortality_shock_years",
+        "lag_mortality_shock_years",
+        "designated_horizon_mortality_shock_years",
+        "continuation_shocks_redrawn_per_member",
+    }
+    mortality_nonnegative_fields = (
+        "history_mortality_rate",
+        "horizon_mortality_rate",
+        "observed_horizon_to_history_ratio",
+        "trend_only_horizon_to_history_ratio",
+        "residual_observed_to_trend_ratio",
+        "publication_lag_trend_factor",
+        "last_exposure_midpoint_to_snapshot_trend_factor",
+    )
+    mortality_year_fields = (
+        "history_mortality_shock_years",
+        "lag_mortality_shock_years",
+        "designated_horizon_mortality_shock_years",
+    )
     if identification_ok:
         unsigned = dict(identification)
-        recorded_digest = unsigned.pop("diagnostic_digest_sha256")
-        trend = unsigned.get("trend", {})
-        lag = unsigned.get("publication_lag", {})
-        shock = unsigned.get("shock_process", {})
+        recorded_digest = unsigned.pop("digest_sha256")
+        source = unsigned.get("measurement_source")
+        summary = unsigned.get("summary")
+        rows = unsigned.get("worlds")
+        source_path = Path(__file__).resolve().parent / "methods/phase_three.py"
         identification_ok = canonical_digest(unsigned) == recorded_digest \
-            and trend.get("active_during_public_experience_window") is True \
-            and trend.get("starts_only_after_publication") is False \
-            and lag.get("months") == 12 \
-            and lag.get("trend_effect_percent_range") == [-7.24, 1.6] \
-            and shock.get("annual_probability") == 0.20 \
-            and shock.get("expected_mortality_spike_years_per_five_year_horizon") == 0.333 \
-            and shock.get("redrawn_independently_in_every_continuation") is True \
-            and set(unsigned.get("per_world", {})) == set(QUALIFICATION_WORLD_NAMES)
-    if not identification_ok:
-        errors.append("mortality identification evidence for the tail gate is invalid")
+            and isinstance(source, dict) \
+            and source == {
+                "file": "meridia/methods/phase_three.py",
+                "sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                "function": "mortality_gap_decomposition",
+            } \
+            and isinstance(summary, dict) \
+            and set(summary) == {
+                "trend_active_during_public_experience_window",
+                "trend_starts_only_after_publication",
+                "publication_lag_months",
+                "publication_lag_trend_effect_percent_range",
+                "shock_annual_probability",
+                "continuation_shocks_redrawn_per_member",
+            } \
+            and summary.get("trend_active_during_public_experience_window") is True \
+            and summary.get("trend_starts_only_after_publication") is False \
+            and summary.get("publication_lag_months") == [12] \
+            and summary.get("shock_annual_probability") == 0.20 \
+            and summary.get("continuation_shocks_redrawn_per_member") is True \
+            and isinstance(rows, list) and len(rows) == len(QUALIFICATION_WORLD_NAMES)
+        if identification_ok:
+            for row in rows:
+                if not isinstance(row, dict) or set(row) != {
+                    "world", "packet_manifest_digest_sha256", "packet_input_sha256",
+                    "reference_evidence_ids", "shock_redraw_evidence", "decomposition",
+                } or row.get("world") in identification_rows_by_world \
+                        or not is_sha256(row.get("packet_manifest_digest_sha256")):
+                    identification_ok = False
+                    break
+                inputs = row.get("packet_input_sha256")
+                shock = row.get("shock_redraw_evidence")
+                decomposition = row.get("decomposition")
+                if not isinstance(inputs, dict) or set(inputs) != {
+                    "participant/contract.json",
+                    "participant/experience_history.csv",
+                    "retained/continuation_liabilities.npz",
+                } or not all(is_sha256(value) for value in inputs.values()) \
+                        or not isinstance(row.get("reference_evidence_ids"), dict) \
+                        or set(row["reference_evidence_ids"]) != set(REFERENCE_LINES) \
+                        or not all(is_sha256(value)
+                                   for value in row["reference_evidence_ids"].values()) \
+                        or not isinstance(shock, dict) \
+                        or set(shock) != {
+                            "schema", "runtime_evidence_file_sha256",
+                            "liability_archive_sha256", "runtime_evidence",
+                        } \
+                        or shock.get("schema") != SHOCK_REDRAW_REPORT_SCHEMA \
+                        or not is_sha256(shock.get("runtime_evidence_file_sha256")) \
+                        or shock.get("liability_archive_sha256") \
+                        != inputs.get("retained/continuation_liabilities.npz") \
+                        or not isinstance(decomposition, dict) \
+                        or set(decomposition) != mortality_decomposition_fields \
+                        or not finite_number(decomposition.get(
+                            "hidden_mortality_improvement"
+                        )) \
+                        or not -1.0 <= float(decomposition[
+                            "hidden_mortality_improvement"
+                        ]) <= 1.0 \
+                        or not all(
+                            finite_number(decomposition.get(field))
+                            and float(decomposition[field]) >= 0.0
+                            for field in mortality_nonnegative_fields
+                        ) \
+                        or decomposition.get(
+                            "trend_active_during_public_experience_window"
+                        ) is not True \
+                        or decomposition.get("trend_starts_only_after_public_window") \
+                        is not False \
+                        or decomposition.get("trend_application") \
+                        != "all event months relative to the snapshot tick" \
+                        or decomposition.get("publication_lag_months") != 12 \
+                        or decomposition.get(
+                            "last_exposure_midpoint_to_snapshot_months"
+                        ) != 18 \
+                        or decomposition.get("continuation_shocks_redrawn_per_member") \
+                        is not True \
+                        or any(
+                            not isinstance(decomposition.get(field), list)
+                            or any(
+                                isinstance(year, bool)
+                                or not isinstance(year, int)
+                                or year < 0
+                                for year in decomposition[field]
+                            )
+                            or len(decomposition[field])
+                            != len(set(decomposition[field]))
+                            for field in mortality_year_fields
+                        ):
+                    identification_ok = False
+                    break
+                try:
+                    from .packet import _validate_shock_redraw_evidence
+
+                    shock_runtime = _validate_shock_redraw_evidence(
+                        shock["runtime_evidence"]
+                    )
+                except (ImportError, TypeError, ValueError):
+                    identification_ok = False
+                    break
+                shock_runtime_file_digest = hashlib.sha256((
+                    json.dumps(
+                        shock_runtime, indent=1, sort_keys=True, allow_nan=False
+                    ) + "\n"
+                ).encode("utf-8")).hexdigest()
+                if shock.get("runtime_evidence_file_sha256") \
+                        != shock_runtime_file_digest \
+                        or shock_runtime["redrawn_member_count"] \
+                        != shock_runtime["member_count"] \
+                        or shock_runtime["distinct_future_schedule_count"] <= 1 \
+                        or not 0 < shock_runtime["future_shock_year_count"] \
+                        < shock_runtime["future_year_opportunity_count"] \
+                        or shock_runtime["future_mortality_spike_year_count"] <= 0 \
+                        or decomposition["continuation_shocks_redrawn_per_member"] \
+                        is not True:
+                    identification_ok = False
+                    break
+                identification_rows_by_world[row["world"]] = row
+            identification_ok = identification_ok \
+                and list(identification_rows_by_world) == list(QUALIFICATION_WORLD_NAMES)
+        if identification_ok:
+            lag_effects = [
+                100.0 * (
+                    float(row["decomposition"]["publication_lag_trend_factor"])
+                    - 1.0
+                )
+                for row in identification_rows_by_world.values()
+            ]
+            observed_range = summary.get(
+                "publication_lag_trend_effect_percent_range"
+            )
+            identification_ok = isinstance(observed_range, list) \
+                and len(observed_range) == 2 \
+                and all(finite_number(value) for value in observed_range) \
+                and math.isclose(
+                    float(observed_range[0]), min(lag_effects),
+                    rel_tol=1e-12, abs_tol=1e-12,
+                ) \
+                and math.isclose(
+                    float(observed_range[1]), max(lag_effects),
+                    rel_tol=1e-12, abs_tol=1e-12,
+                )
 
     regime_audit = bars.get("regime_identifiability_audit")
     regime_ok = isinstance(regime_audit, dict) \
-        and regime_audit.get("schema") == "meridia.v4.regime-identifiability-audit.v1" \
+        and set(regime_audit) == {
+            "schema", "anchor_correlation_threshold", "world_count",
+            "world_bindings", "measurement_rows_digest_sha256",
+            "generator_source_digest_sha256", "generator_policy", "axes",
+            "digest_sha256",
+        } \
+        and regime_audit.get("schema") == "meridia.v4.regime-identifiability-audit.v2" \
         and is_sha256(regime_audit.get("digest_sha256"))
     if regime_ok:
         unsigned = dict(regime_audit)
@@ -1348,6 +2425,10 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             observed_world_regimes = {}
             for binding in bindings:
                 if not isinstance(binding, dict) \
+                        or set(binding) != {
+                            "world", "regime", "participant_digest_sha256",
+                            "packet_manifest_digest_sha256",
+                        } \
                         or not isinstance(binding.get("world"), str) \
                         or not isinstance(binding.get("regime"), str) \
                         or not is_sha256(binding.get("participant_digest_sha256")) \
@@ -1358,16 +2439,32 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 observed_world_regimes[binding["world"]] = binding["regime"]
             regime_ok = regime_ok and observed_world_regimes == expected_world_regimes
         if regime_ok:
+            axis_fields = {
+                "statistic", "expected_sign", "signed_rank_correlation",
+                "within_regime_signed_rank_correlation", "correlation_target",
+                "realized_mechanism_definition", "axis_intensity_range_observed",
+                "realized_mechanism_range_observed",
+                "registered_realized_mechanism_envelopes",
+                "anchor_correlation_qualified", "disposition", "development_range",
+                "hidden_generation_range", "hidden_out_of_band_allowed",
+            }
             for axis in REGIME_AXES:
                 record = axes[axis]
                 signed = record.get("signed_rank_correlation") \
                     if isinstance(record, dict) else None
                 within = record.get("within_regime_signed_rank_correlation") \
                     if isinstance(record, dict) else None
-                observed = record.get("intensity_range_observed") \
+                raw_ranges = observed_ranges(
+                    record.get("axis_intensity_range_observed")
                     if isinstance(record, dict) else None
+                )
+                realized_ranges = observed_ranges(
+                    record.get("realized_mechanism_range_observed")
+                    if isinstance(record, dict) else None
+                )
                 qualified = finite_number(signed) and float(signed) > 0.4
                 base_ok = isinstance(record, dict) \
+                    and set(record) == axis_fields \
                     and isinstance(record.get("statistic"), str) \
                     and bool(record["statistic"]) \
                     and record.get("expected_sign") == REGIME_EXPECTED_SIGNS[axis] \
@@ -1376,28 +2473,109 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                     and set(within) == {"development", "hidden"} \
                     and all(finite_number(value) and -1.0 <= float(value) <= 1.0
                             for value in within.values()) \
-                    and isinstance(observed, list) and len(observed) == 2 \
-                    and all(finite_number(value) for value in observed) \
-                    and float(observed[0]) <= float(observed[1]) \
+                    and record.get("correlation_target") == "realized_mechanism" \
+                    and record.get("realized_mechanism_definition") \
+                    == REALIZED_MECHANISM_DEFINITIONS[axis] \
+                    and raw_ranges is not None and realized_ranges is not None \
+                    and record.get("registered_realized_mechanism_envelopes") \
+                    == REALIZED_MECHANISM_ENVELOPES[axis] \
                     and record.get("anchor_correlation_qualified") is qualified \
-                    and record.get("development_range") == DEVELOPMENT_AXIS_RANGES[axis]
+                    and record.get("development_range") == DEVELOPMENT_AXIS_RANGES[axis] \
+                    and range_inside(
+                        raw_ranges["development"], DEVELOPMENT_AXIS_RANGES[axis]
+                    ) \
+                    and range_inside(
+                        raw_ranges["pooled"], PUBLIC_AXIS_RANGES[axis]
+                    ) \
+                    and range_inside(
+                        realized_ranges["development"],
+                        REALIZED_MECHANISM_ENVELOPES[axis]["development"],
+                    ) \
+                    and range_inside(
+                        realized_ranges["pooled"],
+                        REALIZED_MECHANISM_ENVELOPES[axis]["public"],
+                    )
                 if axis in HIDDEN_IN_BAND_AXES:
                     low, high = DEVELOPMENT_AXIS_RANGES[axis]
                     base_ok = base_ok \
                         and record.get("disposition") == "constrained_to_development_range" \
                         and record.get("hidden_out_of_band_allowed") is False \
                         and record.get("hidden_generation_range") == [low, high] \
-                        and low <= float(observed[0]) <= float(observed[1]) <= high
+                        and range_inside(
+                            raw_ranges["hidden"], DEVELOPMENT_AXIS_RANGES[axis]
+                        ) \
+                        and range_inside(
+                            realized_ranges["hidden"],
+                            REALIZED_MECHANISM_ENVELOPES[axis]["development"],
+                        )
                 else:
                     base_ok = base_ok and qualified \
                         and record.get("disposition") == "participant_anchor" \
                         and record.get("hidden_out_of_band_allowed") is True \
-                        and record.get("hidden_generation_range") == PUBLIC_AXIS_RANGES[axis]
+                        and record.get("hidden_generation_range") == PUBLIC_AXIS_RANGES[axis] \
+                        and range_inside(
+                            raw_ranges["hidden"], PUBLIC_AXIS_RANGES[axis]
+                        ) \
+                        and range_inside(
+                            realized_ranges["hidden"],
+                            REALIZED_MECHANISM_ENVELOPES[axis]["public"],
+                        )
                 if not base_ok:
                     regime_ok = False
                     break
     if not regime_ok:
         errors.append("regime identifiability and hidden-axis constraint evidence is invalid")
+
+    if identification_ok:
+        if not provenance_ok or not regime_ok:
+            identification_ok = False
+        else:
+            reference_rows_by_world: dict[str, list[dict]] = {}
+            for reference in provenance["reference_reports"]:
+                reference_rows_by_world.setdefault(reference["world"], []).append(reference)
+            regime_bindings_by_world = {
+                binding["world"]: binding
+                for binding in regime_audit["world_bindings"]
+            }
+            for world in QUALIFICATION_WORLD_NAMES:
+                row = identification_rows_by_world.get(world)
+                references_for_world = reference_rows_by_world.get(world, [])
+                expected_ids = {
+                    reference["reference_line"]: reference["evidence_id"]
+                    for reference in references_for_world
+                }
+                expected_inputs = {
+                    canonical_digest(reference["packet_input_sha256"]):
+                    reference["packet_input_sha256"]
+                    for reference in references_for_world
+                }
+                shock = row.get("shock_redraw_evidence") if row else None
+                if row is None or len(references_for_world) != len(REFERENCE_LINES) \
+                        or len(expected_inputs) != 1 \
+                        or row.get("packet_input_sha256") \
+                        != next(iter(expected_inputs.values())) \
+                        or row.get("reference_evidence_ids") != expected_ids \
+                        or row.get("packet_manifest_digest_sha256") \
+                        != regime_bindings_by_world[world][
+                            "packet_manifest_digest_sha256"
+                        ] \
+                        or not isinstance(shock, dict) \
+                        or any(
+                            reference.get(
+                                "continuation_shock_redraw_evidence_digest_sha256"
+                            ) != canonical_digest(shock)
+                            or reference.get("continuation_shock_redraw_file_sha256")
+                            != shock.get("runtime_evidence_file_sha256")
+                            or reference.get("continuation_source_law_sha256")
+                            != shock.get("runtime_evidence", {}).get(
+                                "continuation_source_law_sha256"
+                            )
+                            for reference in references_for_world
+                        ):
+                    identification_ok = False
+                    break
+    if not identification_ok:
+        errors.append("mortality identification evidence is invalid")
 
     elder_audit = bars.get("elder_reconstruction_audit")
     elder_ok = isinstance(elder_audit, dict) \
@@ -1414,9 +2592,8 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         elder_ok = canonical_digest(unsigned) == recorded_digest \
             and isinstance(method, dict) \
             and is_sha256(method.get("source_sha256")) \
-            and method.get("before_line") in lines \
-            and method.get("after_line") in lines \
-            and method.get("before_line") != method.get("after_line") \
+            and method.get("before_line") == "A" \
+            and method.get("after_line") == "C" \
             and isinstance(shock, dict) \
             and shock.get("annual_probability") == 0.20 \
             and shock.get("independent_per_member") is True \
@@ -1432,18 +2609,52 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             and [row.get("world") for row in audit_worlds
                  if isinstance(row, dict)] == list(QUALIFICATION_WORLD_NAMES)
         if elder_ok:
+            reference_binding_by_pair = {
+                (reference["reference_line"], reference["world"]): reference
+                for reference in provenance.get("reference_reports", [])
+            } if provenance_ok else {}
+            before_values = []
             after_values = []
             for row in audit_worlds:
                 exposure = row.get("exposure_65_plus_absolute_error_percent", {})
-                if not isinstance(exposure, dict) or not finite_number(exposure.get("after")) \
-                        or not is_sha256(row.get("before_report_evidence_id")) \
-                        or not is_sha256(row.get("after_report_evidence_id")):
+                world = row.get("world")
+                before_binding = reference_binding_by_pair.get(("A", world))
+                after_binding = reference_binding_by_pair.get(("C", world))
+                mortality_row = identification_rows_by_world.get(world)
+                decomposition = row.get("mortality_gap_decomposition")
+                if not isinstance(exposure, dict) \
+                        or exposure.get("definition") != (
+                            "100 * sum_state abs(submitted_state_65plus_person_years - "
+                            "sealed_state_65plus_person_years) / sum_state "
+                            "sealed_state_65plus_person_years"
+                        ) \
+                        or not finite_number(exposure.get("before")) \
+                        or not finite_number(exposure.get("after")) \
+                        or float(exposure["before"]) < 0.0 \
+                        or float(exposure["after"]) < 0.0 \
+                        or not identification_ok \
+                        or before_binding is None or after_binding is None \
+                        or row.get("before_report_evidence_id") \
+                        != before_binding["evidence_id"] \
+                        or row.get("after_report_evidence_id") \
+                        != after_binding["evidence_id"] \
+                        or not _elder_audit_values_match(
+                            row, before_binding, after_binding
+                        ) \
+                        or not isinstance(decomposition, dict) \
+                        or mortality_row is None \
+                        or canonical_digest(decomposition) \
+                        != canonical_digest(mortality_row["decomposition"]):
                     elder_ok = False
                     break
+                before_values.append(float(exposure["before"]))
                 after_values.append(float(exposure["after"]))
             if elder_ok:
+                before_values.sort()
                 after_values.sort()
-                elder_ok = 0.5 * (after_values[2] + after_values[3]) < 10.0
+                before_median = 0.5 * (before_values[2] + before_values[3])
+                after_median = 0.5 * (after_values[2] + after_values[3])
+                elder_ok = after_median < 10.0 and after_median < before_median
         if elder_ok and provenance_ok:
             after_line = method["after_line"]
             method_digests = {
@@ -1582,41 +2793,6 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 if not result_ok:
                     errors.append(f"{gate}/{control}: separation receipt is incomplete")
 
-    gate_detail = bars.get("leave_one_world_out_gate_results")
-    if not isinstance(gate_detail, dict) \
-            or set(gate_detail) != set(COMPOSITE_GATE_COMPONENTS):
-        errors.append("gate-union leave-one-world-out results are incomplete")
-        gate_detail = {}
-    elif worlds and lines and isinstance(per_pair, int):
-        held_out_size = per_pair * len(lines)
-        training_size = per_pair * len(lines) * (len(worlds) - 1)
-        for gate, rate in rates.items():
-            records = gate_detail.get(gate)
-            if not isinstance(records, dict) or set(records) != set(worlds):
-                errors.append(f"{gate}: held-out gate results are incomplete")
-                continue
-            failure_count = 0
-            valid = True
-            for world in worlds:
-                row = records[world]
-                count = row.get("false_fail_count") if isinstance(row, dict) else None
-                observed_rate = row.get("false_fail_rate") if isinstance(row, dict) else None
-                if not isinstance(row, dict) \
-                        or row.get("training_sample_count") != training_size \
-                        or row.get("test_sample_count") != held_out_size \
-                        or isinstance(count, bool) or not isinstance(count, int) \
-                        or not 0 <= count <= held_out_size \
-                        or not finite_number(observed_rate) \
-                        or not math.isclose(float(observed_rate), count / held_out_size,
-                                            rel_tol=1e-12, abs_tol=1e-15):
-                    valid = False
-                    break
-                failure_count += count
-            if not valid or not math.isclose(
-                    float(rate), failure_count / report_count,
-                    rel_tol=1e-12, abs_tol=1e-15):
-                errors.append(f"{gate}: gate-union false-fail receipt is inconsistent")
-
     gates = bars.get("gates")
     if not isinstance(gates, dict) or set(gates) != set(COMPOSITE_GATE_COMPONENTS):
         errors.append("gate names differ from the five frozen composite gates")
@@ -1632,11 +2808,144 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     expected_replicate_evidence_ids = sorted(
         row["evidence_id"] for row in replicate_binding_index.values()
     )
+    expected_line_replicate_evidence_ids = {
+        line: sorted(
+            row["evidence_id"]
+            for (observed_line, _, _), row in replicate_binding_index.items()
+            if observed_line == line
+        )
+        for line in REFERENCE_LINES
+    }
     for gate, expected in COMPOSITE_GATE_COMPONENTS.items():
-        components = gates[gate].get("components") if isinstance(gates[gate], dict) else None
+        gate_record = gates[gate]
+        components = gate_record.get("components") \
+            if isinstance(gate_record, dict) else None
         if not isinstance(components, dict) or set(components) != set(expected):
             errors.append(f"{gate}: component names differ from the verifier")
             continue
+        normalizers = gate_record.get("normalizers")
+        severity_ceiling = gate_record.get("severity_ceiling")
+        line_calibration = gate_record.get("reference_line_calibration")
+        expected_per_line = REPLICATES_PER_LINE_WORLD * len(QUALIFICATION_WORLD_NAMES)
+        expected_rank = math.ceil(0.99 * expected_per_line)
+        gate_ok = gate_record.get("calibration_method") \
+            == "per-reference-line-joint-max-severity" \
+            and normalizers == GATE_COMPONENT_NORMALIZERS[gate] \
+            and finite_number(severity_ceiling) \
+            and float(severity_ceiling) >= 0.0 \
+            and gate_record.get("quantile") == 0.99 \
+            and gate_record.get("target_false_fail_rate") == 0.01 \
+            and gate_record.get("sample_count_per_reference_line") == expected_per_line \
+            and gate_record.get("order_statistic_rank_per_reference_line") \
+            == expected_rank \
+            and isinstance(line_calibration, dict) \
+            and set(line_calibration) == set(REFERENCE_LINES)
+        observed_ceiling_lines: list[str] = []
+        if gate_ok:
+            for line in REFERENCE_LINES:
+                line_record = line_calibration[line]
+                expected_keys = {
+                    "severity_p99", "sample_count", "order_statistic_rank",
+                    "false_fail_count", "false_fail_rate", "quantile_witnesses",
+                    "replicate_evidence_ids", "replicate_evidence_digest_sha256",
+                }
+                count = line_record.get("false_fail_count") \
+                    if isinstance(line_record, dict) else None
+                line_rate = line_record.get("false_fail_rate") \
+                    if isinstance(line_record, dict) else None
+                p99 = line_record.get("severity_p99") \
+                    if isinstance(line_record, dict) else None
+                evidence_ids = line_record.get("replicate_evidence_ids") \
+                    if isinstance(line_record, dict) else None
+                digest = line_record.get("replicate_evidence_digest_sha256") \
+                    if isinstance(line_record, dict) else None
+                witnesses = line_record.get("quantile_witnesses") \
+                    if isinstance(line_record, dict) else None
+                line_ok = isinstance(line_record, dict) \
+                    and set(line_record) == expected_keys \
+                    and finite_number(p99) \
+                    and 0.0 <= float(p99) <= float(severity_ceiling) \
+                    and line_record.get("sample_count") == expected_per_line \
+                    and line_record.get("order_statistic_rank") == expected_rank \
+                    and isinstance(count, int) and not isinstance(count, bool) \
+                    and 0 <= count <= 1 \
+                    and finite_number(line_rate) \
+                    and math.isclose(
+                        float(line_rate), count / expected_per_line,
+                        rel_tol=1e-12, abs_tol=1e-15,
+                    ) \
+                    and bool(rates_by_line) \
+                    and math.isclose(
+                        float(line_rate), float(rates_by_line[line][gate]),
+                        rel_tol=1e-12, abs_tol=1e-15,
+                    ) \
+                    and evidence_ids == expected_line_replicate_evidence_ids[line] \
+                    and is_sha256(digest) \
+                    and hashlib.sha256(
+                        "\n".join(evidence_ids).encode("utf-8")
+                    ).hexdigest() == digest \
+                    and isinstance(witnesses, list) and bool(witnesses)
+                if line_ok:
+                    witness_identities: set[tuple[str, str, str]] = set()
+                    for witness in witnesses:
+                        component_values = witness.get("component_values") \
+                            if isinstance(witness, dict) else None
+                        component_severities = witness.get("component_severities") \
+                            if isinstance(witness, dict) else None
+                        identity = (
+                            witness.get("reference_line"), witness.get("world"),
+                            witness.get("replicate_id"),
+                        ) if isinstance(witness, dict) else (None, None, None)
+                        witness_ok = isinstance(witness, dict) \
+                            and set(witness) == {
+                                "reference_line", "world", "replicate_id", "evidence_id",
+                                "component_values", "component_severities", "severity",
+                            } \
+                            and identity[0] == line \
+                            and identity not in witness_identities \
+                            and witness.get("evidence_id") \
+                            == replicate_binding_index.get(identity, {}).get("evidence_id") \
+                            and isinstance(component_values, dict) \
+                            and set(component_values) == set(expected) \
+                            and isinstance(component_severities, dict) \
+                            and set(component_severities) == set(expected) \
+                            and all(
+                                finite_number(component_values[component])
+                                and finite_number(component_severities[component])
+                                and math.isclose(
+                                    float(component_severities[component]),
+                                    float(component_values[component])
+                                    / GATE_COMPONENT_NORMALIZERS[gate][component],
+                                    rel_tol=1e-12, abs_tol=1e-15,
+                                )
+                                for component in expected
+                            ) \
+                            and finite_number(witness.get("severity")) \
+                            and math.isclose(
+                                float(witness["severity"]),
+                                max(float(value) for value in component_severities.values()),
+                                rel_tol=1e-12, abs_tol=1e-15,
+                            ) \
+                            and math.isclose(
+                                float(witness["severity"]), float(p99),
+                                rel_tol=1e-12, abs_tol=1e-15,
+                            )
+                        if not witness_ok:
+                            line_ok = False
+                            break
+                        witness_identities.add(identity)
+                if not line_ok:
+                    gate_ok = False
+                    break
+                if math.isclose(
+                    float(p99), float(severity_ceiling), rel_tol=0.0, abs_tol=0.0
+                ):
+                    observed_ceiling_lines.append(line)
+        if gate_ok:
+            gate_ok = gate_record.get("ceiling_witness_lines") \
+                == observed_ceiling_lines and bool(observed_ceiling_lines)
+        if not gate_ok:
+            errors.append(f"{gate}: joint per-reference-line calibration is invalid")
         for component in expected:
             record = components[component]
             if not isinstance(record, dict) or record.get("direction") != "ceiling":
@@ -1652,23 +2961,31 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             high = expected_range[1]
             if high is not None and float(value) > float(high):
                 errors.append(f"{gate}/{component}: value exceeds its attainable range")
-            if record.get("quantile") != 0.99 \
+            normalizer = GATE_COMPONENT_NORMALIZERS[gate][component]
+            expected_value = float(severity_ceiling) * normalizer \
+                if finite_number(severity_ceiling) else float("nan")
+            if high is not None:
+                expected_value = min(expected_value, float(high))
+            if record.get("normalizer") != normalizer \
+                    or record.get("calibration_method") \
+                    != "derived-from-joint-gate-max-severity" \
+                    or not math.isclose(
+                        float(value), expected_value, rel_tol=1e-12, abs_tol=1e-15
+                    ) \
+                    or record.get("quantile") != 0.99 \
                     or record.get("target_false_fail_rate") != 0.01:
-                errors.append(f"{gate}/{component}: freeze target metadata differs")
+                errors.append(f"{gate}/{component}: joint calibration metadata differs")
             sample_count = record.get("sample_count")
-            rank = record.get("order_statistic_rank")
             if isinstance(sample_count, bool) or not isinstance(sample_count, int) \
                     or sample_count != report_count \
-                    or rank != math.ceil(0.99 * sample_count):
-                errors.append(f"{gate}/{component}: order-statistic receipt differs")
+                    or record.get("sample_count_per_reference_line") != expected_per_line \
+                    or record.get("order_statistic_rank_per_reference_line") \
+                    != expected_rank:
+                errors.append(f"{gate}/{component}: per-line sample receipt differs")
             if worlds and record.get("worlds") != worlds:
                 errors.append(f"{gate}/{component}: qualification worlds differ")
             if lines and record.get("witnesses") != lines:
                 errors.append(f"{gate}/{component}: reference witnesses differ")
-            component_rate = record.get("achieved_false_fail_rate")
-            if not finite_number(component_rate) \
-                    or not 0.0 <= float(component_rate) <= 0.01:
-                errors.append(f"{gate}/{component}: achieved false-fail rate exceeds target")
             if not isinstance(record.get("supporting_controls"), list) \
                     or not record["supporting_controls"] \
                     or (isinstance(separated, dict)
@@ -1707,41 +3024,73 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                     or hashlib.sha256("\n".join(sorted(evidence_ids)).encode("utf-8")) \
                     .hexdigest() != digest:
                 errors.append(f"{gate}/{component}: replicate evidence receipt is invalid")
-            quantile_witnesses = record.get("quantile_witnesses")
-            quantile_identities_valid = isinstance(quantile_witnesses, list) and all(
-                isinstance(witness, dict)
-                and isinstance(witness.get("reference_line"), str)
-                and isinstance(witness.get("world"), str)
-                and isinstance(witness.get("replicate_id"), str)
-                for witness in quantile_witnesses
+            component_p99 = record.get("empirical_p99_by_reference_line")
+            observed_ranges = record.get("observed_range_by_reference_line")
+            component_witnesses = record.get(
+                "component_quantile_witnesses_by_reference_line"
             )
-            if not isinstance(quantile_witnesses, list) or not quantile_witnesses \
-                    or not quantile_identities_valid \
-                    or len({
-                        (
-                            witness.get("reference_line"),
-                            witness.get("world"),
-                            witness.get("replicate_id"),
-                        )
-                        for witness in quantile_witnesses
-                        if isinstance(witness, dict)
-                    }) != len(quantile_witnesses) \
-                    or any(not isinstance(witness, dict)
-                           or witness.get("evidence_id") \
-                           != replicate_binding_index.get((
-                               witness.get("reference_line"),
-                               witness.get("world"),
-                               witness.get("replicate_id"),
-                           ), {}).get("evidence_id")
-                           or not finite_number(witness.get("value"))
-                           or not math.isclose(float(witness["value"]), float(value),
-                                               rel_tol=0.0, abs_tol=0.0)
-                           for witness in quantile_witnesses):
-                errors.append(f"{gate}/{component}: p99 witness receipt is invalid")
-            component_detail = record.get("leave_one_world_out")
-            if not isinstance(component_detail, dict) \
-                    or set(component_detail) != set(worlds):
-                errors.append(f"{gate}/{component}: held-out component results are incomplete")
+            component_rates = record.get(
+                "component_exceedance_rate_at_joint_ceiling_by_reference_line"
+            )
+            diagnostics_ok = bool(rates_by_line) and all(
+                isinstance(item, dict) and set(item) == set(REFERENCE_LINES)
+                for item in (
+                    component_p99, observed_ranges, component_witnesses,
+                    component_rates,
+                )
+            )
+            if diagnostics_ok:
+                low_bound, high_bound = COMPOSITE_COMPONENT_RANGES[(gate, component)]
+                for line in REFERENCE_LINES:
+                    p99 = component_p99[line]
+                    observed = observed_ranges[line]
+                    witnesses = component_witnesses[line]
+                    component_rate = component_rates[line]
+                    line_ok = finite_number(p99) \
+                        and float(p99) >= low_bound \
+                        and (high_bound is None or float(p99) <= high_bound) \
+                        and float(p99) <= float(value) \
+                        and isinstance(observed, list) and len(observed) == 2 \
+                        and all(finite_number(item) for item in observed) \
+                        and float(observed[0]) <= float(p99) <= float(observed[1]) \
+                        and float(observed[0]) >= low_bound \
+                        and (high_bound is None or float(observed[1]) <= high_bound) \
+                        and finite_number(component_rate) \
+                        and 0.0 <= float(component_rate) \
+                        <= float(rates_by_line[line][gate]) \
+                        and isinstance(witnesses, list) and bool(witnesses)
+                    identities: set[tuple[str, str, str]] = set()
+                    if line_ok:
+                        for witness in witnesses:
+                            identity = (
+                                witness.get("reference_line"), witness.get("world"),
+                                witness.get("replicate_id"),
+                            ) if isinstance(witness, dict) else (None, None, None)
+                            witness_ok = isinstance(witness, dict) \
+                                and set(witness) == {
+                                    "reference_line", "world", "replicate_id",
+                                    "evidence_id", "value",
+                                } \
+                                and identity[0] == line \
+                                and identity not in identities \
+                                and witness.get("evidence_id") \
+                                == replicate_binding_index.get(identity, {}).get(
+                                    "evidence_id"
+                                ) \
+                                and finite_number(witness.get("value")) \
+                                and math.isclose(
+                                    float(witness["value"]), float(p99),
+                                    rel_tol=0.0, abs_tol=0.0,
+                                )
+                            if not witness_ok:
+                                line_ok = False
+                                break
+                            identities.add(identity)
+                    if not line_ok:
+                        diagnostics_ok = False
+                        break
+            if not diagnostics_ok:
+                errors.append(f"{gate}/{component}: component evidence is invalid")
             if gate == "exposures_and_rates":
                 eligible = record.get("eligible_cells")
                 by_world = eligible.get("by_world") if isinstance(eligible, dict) else None
@@ -1869,6 +3218,10 @@ def _failed_v4_report(reason: str, *, schema_errors: list[str] | None = None) ->
             "composite_metrics": empty, "gate_results": evaluate_composite_gates(
                 empty, None, False), "reserve": {"feasible": False},
             "reserve_q95_feasibility": {"valid": False},
+            "reserve_tail_evidence": {
+                "schema": RESERVE_TAIL_EVIDENCE_SCHEMA,
+                "valid": False,
+            },
             "reserve_rule_evidence": {"valid": False}, "reserve_rule_errors": []}
 
 
@@ -1879,10 +3232,11 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
 
     The release and projection tables carry the eight version-three estimands and the
     exposure and rate block. The reserve file replaces the point allocation: its
-    feasibility reads the submission's own quantiles and the published total, and its
-    value reads the retained continuation ensemble, never one realized path. Schema,
-    additivity, and feasibility are deterministic hard checks. The stochastic verdict has
-    exactly five composite pass events.
+    feasibility requires finite nonnegative allocations that sum to the published total;
+    its value reads the retained continuation ensemble, never one realized path. The
+    submitted q95 allocation-floor comparison remains an authenticated diagnostic and is
+    not a hard check. Schema, additivity, and feasibility are deterministic hard checks.
+    The stochastic verdict has exactly five composite pass events.
     """
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
     try:
@@ -1901,7 +3255,7 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
     if file_errors:
         return _failed_v4_report(f"file set: {'; '.join(file_errors)}")
     header_errors = _v4_header_errors(submission_dir)
-    contract_errors = _contract_submission_errors(contract_file)
+    contract_errors = _contract_submission_errors(packet_dir, contract_file, thresholds)
     if header_errors or contract_errors:
         errors = contract_errors + header_errors
         return _failed_v4_report(f"schema: {len(errors)} violation(s)",
@@ -1925,6 +3279,9 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         projection_core, projection_rates = load_release_blocks(
             submission_dir / "projection.csv")
         reserve_rows = load_reserve_rows(submission_dir / "reserve.csv")
+        shock_redraw_evidence = _continuation_shock_redraw_report(
+            packet_dir, contract_file, evidence
+        )
     except Exception as exc:
         return _failed_v4_report(f"schema: cannot parse a required file ({type(exc).__name__})",
                                  schema_errors=[str(exc)])
@@ -1954,6 +3311,22 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
     projection_metrics = score_release(projection_core, truth_future, admin, alpha)
 
     parsed_reserve, reserve_errors = parse_reserve_rows(reserve_rows, ensemble.n_regions)
+    elder_reference_evidence = None
+    if not rate_errors and not reserve_errors:
+        try:
+            elder_reference_evidence = _elder_reference_evidence(
+                parsed_rates,
+                rate_truth,
+                parsed_reserve,
+                ensemble,
+                int(admin["n_states"]),
+                evidence,
+            )
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            rate_errors.append(
+                "elder reference evidence cannot be recomputed "
+                f"({type(exc).__name__})"
+            )
     reserve = None
     if not reserve_errors:
         reserve = score_reserve(parsed_reserve["allocation"], parsed_reserve["q95"],
@@ -1973,6 +3346,10 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         reserve,
         float(reserve_contract["total"]),
         thresholds.feasibility_tolerance,
+    )
+    reserve_tail_evidence = _reserve_tail_evidence(
+        parsed_reserve if not reserve_errors else None,
+        evidence.get("submission_file_sha256", {}).get("reserve.csv"),
     )
 
     all_schema_errors = schema_errors + projection_schema
@@ -2018,10 +3395,13 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         "gate_results": gate_results, "bar_schema_errors": bar_errors,
         "reserve": reserve if reserve is not None else {"feasible": False},
         "reserve_q95_feasibility": reserve_q95_feasibility,
+        "reserve_tail_evidence": reserve_tail_evidence,
         "reserve_rule_evidence": reserve_rule_evidence,
         "reserve_rule_errors": reserve_rule_errors,
         "obligation": obligation.as_public(),
         "evidence": evidence,
+        "elder_reference_evidence": elder_reference_evidence,
+        "continuation_shock_redraw_evidence": shock_redraw_evidence,
         "eligibility_evidence": build_eligibility_evidence(rate_truth, thresholds),
     }
     return report
