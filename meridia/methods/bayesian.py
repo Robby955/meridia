@@ -36,6 +36,8 @@ import numpy as np
 
 from ..release import AGE_BANDS, ESTIMAND_IDS
 from . import design_based as A
+from ..release import AGE_BAND_LABELS, SEX_LABELS
+from . import actuarial_reference as AR
 from .common import (COUNT_ITEMS, INCOME_ITEMS, apply_calibration, calibrate_income,
                      calibration_half_widths, income_dispersion, load_factors, load_packet,
                      rows_from_draws, write_submission)
@@ -48,6 +50,10 @@ class MethodParams:
     seed: int = 20260902
     suppression_multiplier: float = 2.0
     calibration_path: str | None = None
+    # As in the design-based line: "auto" writes the version-four submission when the
+    # packet carries the anchors and the version-three one when it does not.
+    actuarial: str = "auto"
+    actuarial_params: object = None
 
 
 def _beta_from_moments(mean: float, var: float, floor: float = 2.0) -> tuple[float, float]:
@@ -275,12 +281,14 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     draws_future: dict[tuple, list] = {}
     cube = np.asarray(register["cube"], dtype=np.float64)
     age_sex = np.asarray(register["age_sex"], dtype=np.float64)
+    age_sex_paths = []
     for k in range(n_draws):
         values = county_values(k)
         agg = apply_calibration(aggregate_b(values, values["persons"]), factors, dispersion)
         for key, v in agg.items():
             draws_now.setdefault(key, []).append(v)
-        future = A.project(values, age_sex * ratio_draws[k][:, None, None], horizon_months, rng, mortality, fertility)
+        age_sex_paths.append(age_sex * ratio_draws[k][:, None, None])
+        future = A.project(values, age_sex_paths[-1], horizon_months, rng, mortality, fertility)
         agg_f = apply_calibration(aggregate_b(future, future["persons"]), factors, dispersion)
         for key, v in agg_f.items():
             draws_future.setdefault(key, []).append(v)
@@ -290,12 +298,26 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     # level and draw (the posterior spread stands in for the bootstrap spread).
     draw_rows = [{key: v[k] for key, v in draws_now.items()} for k in range(min(n_draws, 60))]
     reconciliation = A.benchmark_reconciliation(point_now, draw_rows, data.get("benchmark"))
-    point_now = A.apply_reconciliation(point_now, reconciliation)
-    point_future = A.apply_reconciliation(point_future, reconciliation)
+    # The benchmark's state series carries the composition the register cannot see, so the
+    # national factor is followed by one factor per state, on the point and on every draw.
+    state_reconciliation = A.benchmark_state_reconciliation(
+        point_now, draw_rows, data.get("benchmark"), county_state, reconciliation)
+    point_now = A.apply_reconciliation(point_now, reconciliation, state_reconciliation,
+                                       county_state)
+    point_future = A.apply_reconciliation(point_future, reconciliation, state_reconciliation,
+                                          county_state)
     for draws in (draws_now, draws_future):
         for key in draws:
-            if key[0] in reconciliation:
-                draws[key] = [v * reconciliation[key[0]] for v in draws[key]]
+            if key[0] not in reconciliation:
+                continue
+            factor = reconciliation[key[0]]
+            per_state = state_reconciliation.get(key[0])
+            if per_state is not None:
+                if key[1] == "state" and 0 <= int(key[2]) < len(per_state):
+                    factor = factor * float(per_state[int(key[2])])
+                elif key[1] == "county" and 0 <= int(key[2]) < len(county_state):
+                    factor = factor * float(per_state[int(county_state[int(key[2])])])
+            draws[key] = [v * factor for v in draws[key]]
     # Counts must add exactly: rebuild state and nation points from county points.
     for point in (point_now, point_future):
         for e in COUNT_ITEMS:
@@ -350,9 +372,32 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     budget = float(contract["allocation"]["budget"])
     allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
     cube_point = cube * ratio_draws.mean(axis=0)[:, None, None]
-    write_submission(out_dir, release_rows, projection_rows, cube_point,
-                     params.suppression_multiplier * int(contract["disclosure_threshold"]), allocation)
-    return {"release": release_rows, "projection": projection_rows, "dispersion": dispersion}
+    suppress = params.suppression_multiplier * int(contract["disclosure_threshold"])
+    result = {"release": release_rows, "projection": projection_rows, "dispersion": dispersion}
+    # Version four: the posterior draws of the county age cube are the population paths
+    # the actuarial layer propagates, so the liability tails carry this line's own
+    # posterior spread rather than a bootstrap's.
+    actuarial = None
+    if params.actuarial != "off":
+        paths = np.stack(age_sex_paths)
+        scale = A.benchmark_age_scale(paths[0], county_state, reconciliation,
+                                      state_reconciliation)
+        actuarial = AR.actuarial_submission(
+            Path(packet_dir), data, county_state,
+            paths * scale[None, :, :, None],
+            float(fertility["fertility_rate"]), release_rows, projection_rows, cube_point,
+            suppress, out_dir, AGE_BAND_LABELS, SEX_LABELS,
+            params.actuarial_params or AR.LayerParams())
+    if actuarial is None:
+        if params.actuarial == "on":
+            raise AR.MissingActuarialInputs(
+                "packet carries no experience file or reserve block")
+        write_submission(out_dir, release_rows, projection_rows, cube_point, suppress, allocation)
+        return result
+    result["release"] = actuarial["release"]
+    result["reserve"] = actuarial["reserve"]
+    result["actuarial"] = actuarial["diagnostics"]
+    return result
 
 
 def calibrate(dev_packet_dirs, calibration_path: Path, params: MethodParams = MethodParams()) -> dict:

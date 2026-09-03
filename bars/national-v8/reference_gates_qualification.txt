@@ -1,0 +1,12 @@
+qual-0/A: FAIL reserve: skill -3.1645 < 0.05
+qual-0/B: FAIL reserve: skill -3.7745 < 0.05
+qual-1/A: FAIL rate: mortality_rate/state percentile error 2.2637 > 1.0; tail: pooled exceedance deviation 0.3325 > 0.15; tail: worst-region exceedance deviation 0.7376 > 0.3; tail: quantile score 0.0157 > 0.013438; reserve: worst regional shortfall probability 0.7876 > 0.35
+qual-1/B: FAIL rate: mortality_rate/state percentile error 2.2583 > 1.0; tail: pooled exceedance deviation 0.4683 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0426 > 0.013438; tail: expected shortfall error 0.1825 > 0.1; reserve: skill -0.2791 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+qual-2/A: FAIL rate: mortality_rate/state percentile error 3.3560 > 1.0; rate: qualifying_event_rate/state percentile error 1.8076 > 1.0; tail: worst-region exceedance deviation 0.4944 > 0.3; reserve: skill -8.5469 < 0.05; reserve: worst regional shortfall probability 0.5444 > 0.35
+qual-2/B: FAIL rate: mortality_rate/state percentile error 3.3695 > 1.0; rate: qualifying_event_rate/state percentile error 1.8119 > 1.0; tail: pooled exceedance deviation 0.2205 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0200 > 0.013438; tail: expected shortfall error 0.1858 > 0.1; reserve: skill -23.2159 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+qual-3/A: FAIL tail: pooled exceedance deviation 0.2121 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0385 > 0.013438; tail: expected shortfall error 0.1186 > 0.1; reserve: skill -0.2819 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+qual-3/B: FAIL tail: pooled exceedance deviation 0.2257 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0420 > 0.013438; tail: expected shortfall error 0.2040 > 0.1; reserve: skill -0.5634 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+qual-4/A: PASS
+qual-4/B: PASS
+qual-5/A: FAIL tail: pooled exceedance deviation 0.2290 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0225 > 0.013438; reserve: skill -0.0903 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+qual-5/B: FAIL tail: pooled exceedance deviation 0.2488 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0204 > 0.013438; reserve: worst regional shortfall probability 1.0000 > 0.35

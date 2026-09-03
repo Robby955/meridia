@@ -20,6 +20,10 @@ from pathlib import Path
 
 import numpy as np
 
+from .actuarial import (RATE_ESTIMANDS, RATE_EXTRA_COLUMNS, RESERVE_COLUMNS,
+                        ActuarialThresholds, ContinuationEnsemble, ObligationContract,
+                        check_rate_additivity, evaluate_actuarial_gates, parse_rate_rows,
+                        parse_reserve_rows, score_rates, score_reserve)
 from .projection import score_allocation
 from .release import AGE_BAND_LABELS, SEX_LABELS
 from .scoring import (check_additivity, disclosure_audit, evaluate_gates, score_release,
@@ -66,6 +70,10 @@ def load_detailed(path: Path, n_counties: int) -> np.ndarray:
 
 
 CORE_SUBMISSION_FILES = ("release.csv", "projection.csv", "allocation.csv")
+# Version four keeps the file count at four and replaces the point allocation with the
+# reserve file, whose feasibility is checked against the submission's own quantiles.
+ACTUARIAL_SUBMISSION_FILES = ("release.csv", "detailed.csv", "projection.csv", "reserve.csv")
+ACTUARIAL_PACKET_SCHEMA = "meridia.packet.v4"
 SUBMISSION_FILES = ("release.csv", "detailed.csv", "projection.csv", "allocation.csv")
 OPTIONAL_FILES = ("totals.csv",)
 TOTAL_KINDS = {"county_age": ("county", "age_band"), "county_sex": ("county", "sex"),
@@ -99,9 +107,28 @@ def load_totals(path: Path, n_counties: int) -> dict[str, np.ndarray]:
 
 
 def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None = None,
-                      alpha: float = 0.10, *, score_disclosure: bool = True) -> dict:
+                      alpha: float = 0.10, *, score_disclosure: bool = True,
+                      allow_unfrozen: bool = False) -> dict:
+    """Score one submission against one packet, dispatching on the packet's schema.
+
+    ``allow_unfrozen`` is for the freeze run itself, which has to score candidate bars
+    before any verdict exists. Everywhere else a version-four bar file that does not say
+    it is frozen refuses to gate, so an unfinished freeze cannot be read later as a
+    finished one.
+    """
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
     contract = json.loads((packet_dir / "participant" / "contract.json").read_text())
+    if str(contract.get("schema", "")).startswith(ACTUARIAL_PACKET_SCHEMA):
+        if bars is not None and not allow_unfrozen and bars.get("frozen") is not True:
+            return {"pass": False,
+                    "reasons": ["bars: this bar set does not record a completed freeze"],
+                    "schema_errors": [], "additivity_errors": [], "metrics": {},
+                    "projection_metrics": {}, "rate_metrics": {},
+                    "reserve": {"feasible": False},
+                    "disclosure": {"pass": False, "n_protected": 0, "n_suppressed": 0,
+                                   "published_protected": [], "recoverable": [],
+                                   "utility": 0.0}}
+        return verify_actuarial_submission(packet_dir, submission_dir, bars, alpha)
     admin = admin_from_packet(packet_dir)
     # Fail closed on the selected output contract. The reusable Meridia verifier keeps
     # the detailed-table audit; the benchmark surface scores the other three files.
@@ -171,6 +198,167 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
         report["disclosure"] = {k: v for k, v in disclosure.items()
                                 if k in ("pass", "n_protected", "n_suppressed",
                                          "published_protected", "recoverable")}
+    return report
+
+
+
+
+# --------------------------------------------------------------- version-four surface
+
+def load_release_blocks(path: Path) -> tuple[list[dict], list[dict]]:
+    """Split a version-four release or projection table into its two blocks.
+
+    Rows whose ``age_band`` is filled belong to the exposure and rate block; the rest are
+    the eight version-three estimands, which leave both extra columns blank.
+    """
+    frame = _read_csv(path)
+    for column in RATE_EXTRA_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = ""
+    core: list[dict] = []
+    rates: list[dict] = []
+    for r in frame.itertuples():
+        band = "" if (r.age_band is None or (isinstance(r.age_band, float)
+                                             and math.isnan(r.age_band))) else str(r.age_band)
+        sex = "" if (r.sex is None or (isinstance(r.sex, float)
+                                       and math.isnan(r.sex))) else str(r.sex)
+        row = {"estimand": str(r.estimand), "level": str(r.level), "unit": int(r.unit),
+               "estimate": float(r.estimate), "lower": float(r.lower),
+               "upper": float(r.upper)}
+        if band or str(r.estimand) in RATE_ESTIMANDS:
+            rates.append(row | {"sex": sex, "age_band": band})
+        else:
+            core.append(row | {"sex": sex, "age_band": band})
+    return core, rates
+
+
+def load_rate_truth(path: Path) -> dict:
+    """Retained exposure and rate truth: estimand, level, unit, sex, age_band, value."""
+    frame = _read_csv(path)
+    return {(str(r.estimand), str(r.level), int(r.unit), str(r.sex), str(r.age_band)):
+            float(r.value) for r in frame.itertuples()}
+
+
+def load_continuation_ensemble(path: Path) -> ContinuationEnsemble:
+    """Retained regional liabilities on every committed continuation.
+
+    The archive carries ``liability`` of shape (members, regions) and the index of the one
+    designated realized future. Nothing about the ensemble reaches the participant side.
+    """
+    with np.load(Path(path)) as archive:
+        realized = int(archive["realized_member"]) if "realized_member" in archive else 0
+        return ContinuationEnsemble(np.asarray(archive["liability"], dtype=np.float64),
+                                    realized)
+
+
+def load_reserve_rows(path: Path) -> list[dict]:
+    frame = _read_csv(path)
+    missing = [c for c in RESERVE_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(f"reserve.csv is missing {missing}")
+    return [{"region": int(r.region), "liability_mean": float(r.liability_mean),
+             "q95": float(r.q95), "es95": float(r.es95),
+             "allocation": float(r.allocation)} for r in frame.itertuples()]
+
+
+def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
+                                bars: dict | None = None, alpha: float = 0.10,
+                                thresholds: ActuarialThresholds | None = None) -> dict:
+    """Score the four version-four files against the retained truth and the ensemble.
+
+    The release and projection tables carry the eight version-three estimands and the
+    exposure and rate block. The reserve file replaces the point allocation: its
+    feasibility reads the submission's own quantiles and the published total, and its
+    value reads the sealed continuation ensemble, never one realized path.
+    """
+    packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
+    contract_file = json.loads((packet_dir / "participant" / "contract.json").read_text())
+    reserve_contract = contract_file["reserve"]
+    obligation = ObligationContract.from_public(reserve_contract["obligation"])
+    thresholds = thresholds or ActuarialThresholds(
+        gamma=float(reserve_contract.get("gamma", ActuarialThresholds().gamma)))
+    admin = admin_from_packet(packet_dir)
+
+    present = sorted(p.name for p in submission_dir.iterdir() if p.is_file())
+    optional = OPTIONAL_FILES
+    unexpected = [n for n in present if n not in ACTUARIAL_SUBMISSION_FILES + optional]
+    missing = [n for n in ACTUARIAL_SUBMISSION_FILES if n not in present]
+    if unexpected or missing:
+        return {"pass": False,
+                "reasons": [f"file set: unexpected {unexpected}, missing {missing}"],
+                "schema_errors": [], "additivity_errors": [], "metrics": {},
+                "projection_metrics": {}, "rate_metrics": {}, "reserve": {"feasible": False},
+                "disclosure": {"pass": False, "n_protected": 0, "n_suppressed": 0,
+                               "published_protected": [], "recoverable": []}}
+
+    retained = packet_dir / "retained"
+    truth_now = load_truth(retained / "truth_revised.csv")
+    truth_future = load_truth(retained / "truth_horizon.csv")
+    rate_truth = load_rate_truth(retained / "rate_truth_horizon.csv")
+    ensemble = load_continuation_ensemble(retained / "continuation_liabilities.npz")
+
+    release_core, release_rates = load_release_blocks(submission_dir / "release.csv")
+    schema_errors = validate_release(release_core, admin,
+                                     extra_columns=RATE_EXTRA_COLUMNS,
+                                     skip_estimands=RATE_ESTIMANDS)
+    additivity_errors = check_additivity(release_core, admin) if not schema_errors else []
+    metrics = score_release(release_core, truth_now, admin, alpha)
+
+    parsed_rates, rate_errors = parse_rate_rows(release_rates, admin)
+    rate_errors = rate_errors + check_rate_additivity(parsed_rates, admin)
+    rate_metrics = score_rates(parsed_rates, rate_truth, thresholds, alpha)
+
+    detailed_truth = load_detailed(retained / "detailed_revised.csv",
+                                   admin["n_counties"]).astype(np.int64)
+    published = load_detailed(submission_dir / "detailed.csv", admin["n_counties"])
+    marginals = load_totals(submission_dir / "totals.csv", admin["n_counties"]) \
+        if (submission_dir / "totals.csv").exists() else None
+    disclosure = disclosure_audit(published, detailed_truth,
+                                  int(contract_file["disclosure_threshold"]), marginals)
+
+    projection_core, _ = load_release_blocks(submission_dir / "projection.csv")
+    projection_schema = validate_release(projection_core, admin,
+                                         extra_columns=RATE_EXTRA_COLUMNS,
+                                         skip_estimands=RATE_ESTIMANDS)
+    projection_metrics = score_release(projection_core, truth_future, admin, alpha)
+
+    reserve_rows = load_reserve_rows(submission_dir / "reserve.csv")
+    parsed_reserve, reserve_errors = parse_reserve_rows(reserve_rows, ensemble.n_regions)
+    reserve = None
+    if not reserve_errors:
+        reserve = score_reserve(parsed_reserve["allocation"], parsed_reserve["q95"],
+                                parsed_reserve["es95"], parsed_reserve["liability_mean"],
+                                ensemble.liability, float(reserve_contract["total"]),
+                                thresholds,
+                                weights=np.asarray(reserve_contract.get("weights"),
+                                                   dtype=np.float64)
+                                if reserve_contract.get("weights") else None,
+                                scale=np.asarray(reserve_contract["scale"], dtype=np.float64)
+                                if reserve_contract.get("scale") else None,
+                                baseline_share=np.asarray(
+                                    reserve_contract["baseline_share"], dtype=np.float64)
+                                if reserve_contract.get("baseline_share") else None)
+
+    gates = evaluate_gates(schema_errors, additivity_errors, metrics, disclosure, bars)
+    projection_gates = evaluate_gates(projection_schema, [], projection_metrics, None,
+                                      (bars or {}).get("projection"))
+    actuarial = evaluate_actuarial_gates(rate_errors, rate_metrics, reserve_errors, reserve,
+                                         thresholds, (bars or {}).get("actuarial"))
+    reasons = list(gates["reasons"]) + [f"projection {r}" for r in projection_gates["reasons"]] \
+        + list(actuarial["reasons"])
+    report = {
+        "pass": not reasons, "reasons": reasons,
+        "schema_errors": schema_errors, "additivity_errors": additivity_errors,
+        "rate_errors": rate_errors, "reserve_errors": reserve_errors,
+        "metrics": metrics, "projection_metrics": projection_metrics,
+        "rate_metrics": rate_metrics,
+        "reserve": reserve if reserve is not None else {"feasible": False},
+        "obligation": obligation.as_public(),
+        "disclosure": {k: v for k, v in disclosure.items()
+                       if k in ("pass", "n_protected", "n_suppressed",
+                                "published_protected", "recoverable",
+                                "n_releasable", "n_published_releasable", "utility")},
+    }
     return report
 
 

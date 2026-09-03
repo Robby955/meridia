@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from .actuarial import (ObligationContract, actuarial_pass, actuarial_pass_from_history,
+                        exposure_and_rate_truth, liabilities_from_pass)
 from .demography import DemographyParams, run_years
-from .events import replay_event_history
+from .events import continuation_events, replay_event_history
 from .release import compute_truth
 
 DEMAND_ESTIMAND = "elders_65_plus"   # v0 demand proxy: care demand follows the old
@@ -79,9 +81,98 @@ def demand_from_truth(truth: dict, admin: dict, estimand: str = DEMAND_ESTIMAND)
                       dtype=np.float64)
 
 
+def liabilities_from_history(history: dict, admin: dict, start_tick: int, months: int,
+                             contract: ObligationContract,
+                             region_of_county: np.ndarray | None = None) -> np.ndarray:
+    """Regional present values of the obligation over one continuation of the ledger.
+
+    This is the member pricer the continuation ensemble is assembled from: one reading
+    pass over the events after ``start_tick``, then the public discount factors.
+    """
+    result = actuarial_pass_from_history(history, admin, start_tick, months, contract,
+                                         region_of_county)
+    return liabilities_from_pass(result, contract)
+
+
+def rate_truth_from_history(history: dict, admin: dict, start_tick: int, months: int,
+                            contract: ObligationContract) -> dict:
+    """Exposure and rate truth over the same window, from the same reading pass."""
+    return exposure_and_rate_truth(
+        actuarial_pass_from_history(history, admin, start_tick, months, contract), admin)
+
+
+# What a pooled member pricer reads. It is module state rather than an argument because
+# a forked worker inherits the parent's memory and a pickled branch would cost more than
+# the member it prices.
+_ENSEMBLE_JOB: tuple | None = None
+
+
+def continuation_liabilities(history: dict, admin: dict, start_tick: int, months: int,
+                            contract: ObligationContract, n_members: int,
+                            region_of_county: np.ndarray | None = None,
+                            workers: int = 1) -> np.ndarray:
+    """Regional liabilities on every committed continuation, shape (members, regions).
+
+    Member zero is the ledger's own future, which is the one designated for reporting and
+    the one the horizon truth tables are read from, so the realized path and the tail
+    truth are the same world. Members one and above resume from the branch state the
+    ledger captured at ``start_tick`` and draw their own months, so a member costs the
+    horizon window rather than the whole ledger.
+
+    ``workers`` changes only how the members are divided between processes. Each member is
+    a deterministic function of the seed and its own index, so the matrix does not depend
+    on it.
+    """
+    branch = history.get("branch")
+    if branch is None or int(branch["tick"]) != int(start_tick):
+        raise ValueError("the ledger kept no branch state at the continuation start tick")
+    if n_members < 1:
+        raise ValueError("the ensemble needs at least one member")
+    start_state = replay_event_history(history, start_tick)
+    realized = liabilities_from_pass(
+        actuarial_pass(start_state, history["event"], admin, start_tick, months, contract,
+                       region_of_county), contract)
+    rows = [realized]
+    members = range(1, int(n_members))
+    if workers > 1:
+        import multiprocessing as mp
+        context = mp.get_context("fork")
+        globals()["_ENSEMBLE_JOB"] = (branch, start_state, admin, start_tick, months,
+                                      contract, region_of_county)
+        try:
+            with context.Pool(int(workers)) as pool:
+                rows.extend(pool.map(_price_member, members, chunksize=8))
+        finally:
+            globals().pop("_ENSEMBLE_JOB", None)
+    else:
+        globals()["_ENSEMBLE_JOB"] = (branch, start_state, admin, start_tick, months,
+                                      contract, region_of_county)
+        try:
+            rows.extend(_price_member(m) for m in members)
+        finally:
+            globals().pop("_ENSEMBLE_JOB", None)
+    return np.asarray(rows, dtype=np.float64)
+
+
+def _price_member(member: int) -> np.ndarray:
+    """One continuation, priced. Reads the job the pool's parent process set up."""
+    branch, start_state, admin, start_tick, months, contract, region = _ENSEMBLE_JOB
+    event = continuation_events(branch, member, months)
+    return liabilities_from_pass(
+        actuarial_pass(start_state, event, admin, start_tick, months, contract, region),
+        contract)
+
+
 def score_allocation(allocation: np.ndarray, demand: np.ndarray, budget: float,
                      tolerance: float = 1e-9) -> dict:
     """Realized loss of a committed county allocation against true demand.
+
+    Retired on the version-four reconstruction surface, and kept only for the version-three
+    packets already frozen and for the forecast task. Its regret is zero for any allocation
+    that sits under every county's true demand, so it scores restraint rather than
+    forecasting. ``meridia.actuarial.score_reserve`` is the replacement: it reads the
+    committed continuation ensemble rather than one realized path, and its skill score is
+    measured against a frozen practical baseline and a perfect-information allocation.
 
     Loss is the share of demand left unmet; the oracle loss is what a perfect forecast
     could achieve with the same budget, so regret is the part attributable to the agent.

@@ -155,7 +155,14 @@ def rows_from_draws(point: dict, draws: dict, extra_half: dict | None = None) ->
 
 
 def write_submission(out_dir: Path, release_rows, projection_rows, cube: np.ndarray,
-                     suppress_below: float, allocation: np.ndarray) -> None:
+                     suppress_below: float, allocation: np.ndarray,
+                     reserve_rows: list[dict] | None = None) -> None:
+    """Write one submission. ``reserve_rows`` selects the version-four fourth file.
+
+    A version-three recipe run on a version-four packet still owes four files, so the
+    caller hands it the reserve rows its own numbers imply and the point allocation is
+    dropped. Which file is written is the surface's decision, never the recipe's.
+    """
     import pandas as pd
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -170,5 +177,8 @@ def write_submission(out_dir: Path, release_rows, projection_rows, cube: np.ndar
     pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
     pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
     pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
-    pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
-        out_dir / "allocation.csv", index=False)
+    if reserve_rows is None:
+        pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
+            out_dir / "allocation.csv", index=False)
+    else:
+        pd.DataFrame(reserve_rows).to_csv(out_dir / "reserve.csv", index=False)

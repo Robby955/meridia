@@ -2,6 +2,14 @@
 
 The derived seed is never accepted on the command line or written to stdout. It exists
 only in the retained packet metadata, which does not enter the participant image.
+
+The build is refused unless the world carries the hidden mechanism design: no development
+design cell, the two declared intensities outside the development band, and both of them
+inside the public plausibility envelope.
+
+The world is ``packet.GRADING_WORLD``, the same size the development and qualification
+worlds are built at, so a bar frozen on those is read on the same object here. ``--workers``
+divides the continuation ensemble between processes and changes nothing in the packet.
 """
 
 from __future__ import annotations
@@ -14,7 +22,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from meridia.packet import PacketParams, build_packet
+from meridia.mechanisms import (DEVELOPMENT_BAND, HIDDEN_LEVEL_PATTERNS,
+                                N_HIDDEN_OUTSIDE_AXES, PUBLIC_ENVELOPE)
+from meridia.packet import GRADING_WORLD, PacketParams, build_packet
 from meridia.sealing import (DEFAULT_KEY_PATH, sealed_seed,
                              verify_sealed_world)
 
@@ -25,6 +35,9 @@ def main() -> int:
     parser.add_argument("--index", type=int, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--key", type=Path, default=DEFAULT_KEY_PATH)
+    parser.add_argument("--workers", type=int, default=1,
+                        help="processes the continuation ensemble is divided between; "
+                             "it changes nothing in the packet")
     args = parser.parse_args()
 
     manifest = json.loads(args.seal_manifest.read_text())
@@ -36,12 +49,29 @@ def main() -> int:
 
     master = args.key.read_bytes()
     seed = sealed_seed(master, args.index)
-    packet_manifest = build_packet(seed, args.out, PacketParams(regime="hidden"), development=False)
+    params = PacketParams(**{**GRADING_WORLD.__dict__, "regime": "hidden"})
+    packet_manifest = build_packet(seed, args.out, params, development=False,
+                                   workers=args.workers)
     retained_world = json.loads((args.out / "retained" / "world.json").read_text())
     if int(retained_world["seed"]) != seed:
         raise RuntimeError("packet seed does not match registered sealed world")
     if retained_world.get("regime") != "hidden":
         raise RuntimeError("hidden packet was not built under the hidden source regime")
+    design = retained_world["mechanisms"]["design"]
+    if design["regime"] != "hidden" or design["cell"] != -1:
+        raise RuntimeError("hidden packet carries a development mechanism design")
+    if len(design["outside"]) != N_HIDDEN_OUTSIDE_AXES:
+        raise RuntimeError("hidden packet does not move the declared number of intensities")
+    if tuple(int(v) for v in design["levels"]) not in HIDDEN_LEVEL_PATTERNS:
+        raise RuntimeError("hidden packet takes a level pattern the development design spends")
+    for axis in design["outside"]:
+        value = float(design["intensity"][axis])
+        low, high = DEVELOPMENT_BAND[axis]
+        envelope_low, envelope_high = PUBLIC_ENVELOPE[axis]
+        if low <= value <= high:
+            raise RuntimeError(f"hidden intensity {axis} stayed inside the development band")
+        if not envelope_low <= value <= envelope_high:
+            raise RuntimeError(f"hidden intensity {axis} left the public envelope")
 
     packet_manifest_path = args.out / "manifest.json"
     digest = hashlib.sha256(packet_manifest_path.read_bytes()).hexdigest()

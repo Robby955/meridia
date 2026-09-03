@@ -133,7 +133,11 @@ def test_participant_snapshots_are_four_flat_observed_tables_only():
     assert "hidden" not in public
 
 
-def test_observed_identifiers_are_disjoint_from_truth_and_stable_between_snapshots():
+def test_record_keys_never_repeat_across_vintages_and_entity_keys_churn():
+    """Version three drew one identifier per truth entity and reused it in both
+    vintages, so a preliminary-to-revised join was exact and longitudinal matching was
+    free.  Record keys must now be fresh every vintage, and an entity key must survive
+    only with its declared probability, some keys landing on another entity."""
     package = _setup()["package"]
     entity_column = {
         "population": "person_id",
@@ -141,26 +145,43 @@ def test_observed_identifiers_are_disjoint_from_truth_and_stable_between_snapsho
         "income": "taxpayer_id",
         "health": "encounter_id",
     }
+    persisted_share = {}
+    reissued = 0
     for source in OBSERVED_SOURCES:
         preliminary = package["public_snapshots"]["preliminary"][source]
         revised = package["public_snapshots"]["revised"][source]
-        crosswalk = package["hidden"]["crosswalks"]["revised"][source]
+        crosswalk_pre = package["hidden"]["crosswalks"]["preliminary"][source]
+        crosswalk_rev = package["hidden"]["crosswalks"]["revised"][source]
         assert ((revised["record_id"] >> np.uint64(56)) >= 0x80).all()
         assert ((revised[entity_column[source]] >> np.uint64(56)) >= 0x80).all()
         assert not np.isin(
-            revised[entity_column[source]], crosswalk["truth_entity_id"]
+            revised[entity_column[source]], crosswalk_rev["truth_entity_id"]
         ).any()
-        common, pre_position, rev_position = np.intersect1d(
-            preliminary["record_id"],
-            revised["record_id"],
-            assume_unique=True,
-            return_indices=True,
+        # No record key is ever reused, so an exact row join across vintages is empty.
+        assert len(np.intersect1d(preliminary["record_id"], revised["record_id"])) == 0
+
+        # Entity keys persist for a share strictly inside (0, 1).
+        before = dict(
+            zip(
+                crosswalk_pre["observed_entity_id"].tolist(),
+                crosswalk_pre["truth_entity_id"].tolist(),
+            )
         )
-        assert len(common) > 0
-        assert np.array_equal(
-            preliminary[entity_column[source]][pre_position],
-            revised[entity_column[source]][rev_position],
+        after = dict(
+            zip(
+                crosswalk_rev["observed_entity_id"].tolist(),
+                crosswalk_rev["truth_entity_id"].tolist(),
+            )
         )
+        shared = set(before) & set(after)
+        assert 0 < len(shared) < len(after)
+        persisted_share[source] = len(shared) / len(after)
+        # Some surviving keys now point at a different truth entity. A reissue rate of a
+        # percent or two need not fire inside the smallest source on a world this size,
+        # so the claim is over the package, not over every source in it.
+        reissued += sum(before[key] != after[key] for key in shared)
+    assert reissued > 0
+    assert all(0.05 < share < 0.98 for share in persisted_share.values()), persisted_share
 
 
 def test_snapshots_are_recorded_tick_cuts_with_real_late_reporting():
@@ -539,6 +560,15 @@ def test_true_name_collisions_near_duplicates_and_merged_names():
 def test_source_regime_draw_places_the_hidden_world_outside_the_development_band():
     from meridia.sources import DEVELOPMENT_BAND, draw_source_params
 
+    # Every rate is a per-world draw: none of the nineteen is a constant across worlds.
+    drawn = {
+        name: {draw_source_params(seed, "development", 1.0).__dict__[name]
+               for seed in (1, 7, 20260915, 20260916)}
+        for name in DEVELOPMENT_BAND
+    }
+    assert all(len(values) == 4 for values in drawn.values()), {
+        name: values for name, values in drawn.items() if len(values) != 4}
+
     for seed in (1, 7, 20260915, 20260916):
         for payroll in (0.75, 1.0, 1.30):
             development = draw_source_params(seed, "development", payroll)
@@ -552,9 +582,6 @@ def test_source_regime_draw_places_the_hidden_world_outside_the_development_band
             assert hidden.county_error_rate > DEVELOPMENT_BAND["county_error_rate"][1] * 1.5 - 1e-12
             level = payroll * hidden.register_income_scale
             assert level < 0.705 - 0.07 or level > 1.378 + 0.07
-            # The fixed reporting-error rates do not move with the regime.
-            assert hidden.name_family_variant_rate == development.name_family_variant_rate
-            assert hidden.birth_month_slip_rate == development.birth_month_slip_rate
     with pytest.raises(ValueError, match="regime"):
         draw_source_params(1, "other")
 

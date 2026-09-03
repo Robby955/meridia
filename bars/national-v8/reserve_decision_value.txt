@@ -1,0 +1,11 @@
+# Reserve decision value on the qualification worlds
+
+- qual-0: R 243,050,000, 6 regions, 2048 continuations; slack 0.0079; regional tail width 0.031 to 0.146; J(A_B) 875,276, J(A*) 329,472, gain 62.36%, held out 64.69%
+- qual-1: R 225,872,000, 6 regions, 2048 continuations; slack 0.0036; regional tail width 0.040 to 0.121; J(A_B) 6,788,227, J(A*) 117,975, gain 98.26%, held out 98.27%
+- qual-2: R 250,701,000, 6 regions, 2048 continuations; slack 0.0104; regional tail width 0.114 to 0.134; J(A_B) 586,569, J(A*) 418,029, gain 28.73%, held out 22.79%
+- qual-3: R 248,214,000, 6 regions, 2048 continuations; slack 0.0098; regional tail width 0.029 to 0.152; J(A_B) 4,237,394, J(A*) 524,224, gain 87.63%, held out 87.44%
+- qual-4: R 244,738,000, 6 regions, 2048 continuations; slack 0.0096; regional tail width 0.085 to 0.134; J(A_B) 1,488,037, J(A*) 370,413, gain 75.11%, held out 75.75%
+- qual-5: R 234,376,000, 6 regions, 2048 continuations; slack 0.0064; regional tail width 0.052 to 0.108; J(A_B) 2,677,771, J(A*) 173,000, gain 93.54%, held out 94.15%
+
+gain: min 28.73%, median 81.37%, max 98.26%
+held out: min 22.79%, median 81.59%, max 98.27%

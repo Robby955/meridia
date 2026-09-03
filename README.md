@@ -37,7 +37,7 @@ coasts and rivers, the mountain interior is empty.*
 - **Terrain.** Seeded elevation with mountain chains and a coast.
 - **Rivers.** Water routing where every unit of runoff is accounted for, exactly,
   with a test proving it.
-- **Census.** People are placed where land is livable (low, flat, near water), with
+- **Population grid.** People are placed where land is livable (low, flat, near water), with
   bigger and smaller cities. The map's cell counts add up to the national total exactly,
   to the person.
 - **People.** 2,400,000 persons in 989,062 households. Ages fit household roles, spouses

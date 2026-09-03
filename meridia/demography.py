@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .mechanisms import newborn_frailty
+
 
 @dataclass(frozen=True)
 class DemographyParams:
@@ -35,24 +37,63 @@ def mortality_probability(age: np.ndarray, params: DemographyParams) -> np.ndarr
     return np.clip(q, 0.0, 1.0)
 
 
+# The public shock family. An epidemic year moves deaths and hospital admissions
+# together, because it is one event: a schedule that raised mortality and left admissions
+# alone would make the liability's own systematic risk unobservable in the health source.
+# Fields inside one kind share a single draw, so the two multipliers move as one.
 SHOCK_FAMILY = {
-    "mortality_spike": {"mortality_multiplier": (1.5, 3.0)},   # epidemic or disaster year
+    "mortality_spike": {"mortality_multiplier": (1.5, 3.0),    # epidemic or disaster year
+                        "admission_multiplier": (1.4, 2.6)},
     "migration_wave": {"leave_home_multiplier": (1.8, 3.0)},   # upheaval; the young move
     "baby_bust": {"fertility_multiplier": (0.45, 0.75)},       # crisis-year fertility drop
 }
 
+# One shock year in five, the rate the packet publishes and the five-year experience file
+# carries roughly one realization of. It is the systematic risk in the liability: without
+# it a continuation differs from its neighbours only by demographic noise, which on a
+# population this size is a fraction of a percent and far under any achievable
+# reconstruction error, and the sealed tail would be a target no method could reach.
+ANNUAL_SHOCK_RATE = 0.20
 
-def draw_world_shocks(seed: int, years: int, max_shocks: int = 2) -> list[dict]:
-    """Seeded shock schedule from the declared family; retained truth, sealed for eval."""
+
+def draw_annual_shocks(rng: np.random.Generator, first_year: int, n_years: int,
+                       annual_rate: float = ANNUAL_SHOCK_RATE) -> list[dict]:
+    """Independent shock years from the declared family, one Bernoulli draw per year."""
+    kinds = sorted(SHOCK_FAMILY)
+    shocks = []
+    for year in range(int(first_year), int(first_year) + int(n_years)):
+        if rng.random() >= float(annual_rate):
+            continue
+        kind = kinds[int(rng.integers(0, len(kinds)))]
+        draw = float(rng.random())
+        shock = {"year": int(year), "kind": kind}
+        for field, (lo, hi) in SHOCK_FAMILY[kind].items():
+            shock[field] = float(lo + draw * (hi - lo))
+        shocks.append(shock)
+    return sorted(shocks, key=lambda s: s["year"])
+
+
+def draw_world_shocks(seed: int, years: int, max_shocks: int = 2,
+                      annual_rate: float | None = None) -> list[dict]:
+    """Seeded shock schedule from the declared family; retained truth, sealed for eval.
+
+    With ``annual_rate`` the schedule is one independent draw per year, which is the law a
+    continuation member redraws its own future from. Without it the older bounded rule
+    stands, which is what the forecast task and the standalone ledger tests use.
+    """
     rng = np.random.default_rng(np.random.SeedSequence([seed, 0x5A0C]))
+    if annual_rate is not None:
+        return draw_annual_shocks(rng, 0, max(int(years), 1), annual_rate)
     n_shocks = int(rng.integers(0, max_shocks + 1))
     kinds = sorted(SHOCK_FAMILY)
     shocks = []
     for _ in range(n_shocks):
         kind = kinds[int(rng.integers(0, len(kinds)))]
-        (field, (lo, hi)), = SHOCK_FAMILY[kind].items()
-        shocks.append({"year": int(rng.integers(2, max(years, 3))), "kind": kind,
-                       field: float(rng.uniform(lo, hi))})
+        draw = float(rng.random())
+        shock = {"year": int(rng.integers(2, max(years, 3))), "kind": kind}
+        for field, (lo, hi) in SHOCK_FAMILY[kind].items():
+            shock[field] = float(lo + draw * (hi - lo))
+        shocks.append(shock)
     return sorted(shocks, key=lambda s: s["year"])
 
 
@@ -99,6 +140,8 @@ def step_year(person: dict, household_cell: np.ndarray, urbanity_flat: np.ndarra
             "role": np.full(n_births, 2, dtype=new["role"].dtype),
             "education": np.zeros(n_births, dtype=new["education"].dtype),
             "income": np.zeros(n_births, dtype=new["income"].dtype),
+            "frailty": newborn_frailty(new["frailty"][gives_birth],
+                                       rng.normal(0.0, 1.0, size=n_births)),
         }
         new = {k: np.concatenate([new[k], babies[k]]) for k in new}
 

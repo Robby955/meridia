@@ -44,6 +44,23 @@ refuses to write any truth-side column to the participant side.
 - Priority-flood depression filling in the terrain layer: Barnes, Lehman, and Mulla
   (2014), Computers and Geosciences 62.
 
+## How independent the two strong lines are on the version-four surface
+
+Less than on the version-three surface, and the difference is worth stating plainly. The
+design-based line and the Bayesian line keep their own reconstruction of the county age
+cube and their own uncertainty, one by resampling sampling units within strata and the
+other by posterior draws. On the version-four surface both then pass those draws through
+one shared actuarial layer, `meridia/methods/actuarial_reference.py`: the same linkage
+model, the same health-selection adjustment, the same regime estimator, the same
+simulation and the same reserve optimiser.
+
+So the two submissions differ exactly where the two reconstructions differ, and agree
+everywhere the actuarial chain decides. A bar frozen from the worse of the two is a real
+attainability check on the reconstruction and a weaker one on the chain, and the bar
+provenance says so. A second implementation of the chain would be the way to strengthen
+it; one copy of the arithmetic per line would not, since two copies of the same recipe
+drift apart between releases without ever disagreeing about the science.
+
 ## What a participant may and may not learn
 
 Participants see the parameter ranges and the mechanism families, never a sealed

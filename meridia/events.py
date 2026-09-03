@@ -16,11 +16,15 @@ import numpy as np
 from meridia.businesses import EMPLOYMENT_TYPES
 from meridia.businesses import validate_business_conservation
 from meridia.character import draw_world_character
-from meridia.demography import draw_world_shocks, mortality_probability
+from meridia.demography import (ANNUAL_SHOCK_RATE, draw_annual_shocks,
+                                draw_world_shocks, mortality_probability)
 from meridia.dwellings import validate_dwelling_conservation
 from meridia.hospitals import ENCOUNTER_OUTCOMES, validate_hospital_conservation
 from meridia.identities import ENTITY_NAMESPACE, NAMESPACE_SHIFT, SEQUENCE_MASK
 from meridia.identities import entity_namespace, truth_entity_ids, truth_world_id
+from meridia.mechanisms import (FRAILTY_RANGE, WorldMechanisms,
+                                build_world_mechanisms, migration_age_pull,
+                                newborn_frailty, quintile_band)
 
 EVENT_TYPES: Final = {
     "person_birth": 1,
@@ -98,6 +102,7 @@ _EVENT_DTYPES: Final = {
     "outcome": np.dtype(np.int8),
     "cost_cents": np.dtype(np.int64),
     "bed_number": np.dtype(np.int32),
+    "frailty_centi": np.dtype(np.int16),
 }
 
 _STATE_DTYPES: Final = {
@@ -110,6 +115,7 @@ _STATE_DTYPES: Final = {
         "role": np.dtype(np.int8),
         "education": np.dtype(np.int8),
         "income_cents": np.dtype(np.int64),
+        "frailty_centi": np.dtype(np.int16),
         "is_alive": np.dtype(np.bool_),
     },
     "household": {
@@ -272,6 +278,7 @@ def _initial_state(
             "income_cents": np.rint(
                 np.asarray(person["income"], dtype=np.float64) * 100.0
             ).astype(np.int64),
+            "frailty_centi": _frailty_centi(person["frailty"]),
             "is_alive": np.ones(len(truth_person_id), dtype=np.bool_),
         },
         "household": {
@@ -449,7 +456,8 @@ def _new_entity_ids(entity: str, existing: np.ndarray, count: int) -> np.ndarray
     return truth_entity_ids(entity, count, start_sequence=start)
 
 
-def _make_event_table(records: list[dict[str, int]]) -> dict[str, np.ndarray]:
+def _make_event_table(records: list[dict[str, int]],
+                      start_sequence: int = 1) -> dict[str, np.ndarray]:
     if not records:
         return {name: np.empty(0, dtype=dtype) for name, dtype in _EVENT_DTYPES.items()}
     tick = np.fromiter((row["tick"] for row in records), dtype=np.int64)
@@ -462,7 +470,7 @@ def _make_event_table(records: list[dict[str, int]]) -> dict[str, np.ndarray]:
         for name, dtype in _EVENT_DTYPES.items()
         if name != "truth_event_id"
     }
-    table["truth_event_id"] = truth_entity_ids("event", len(ordered))
+    table["truth_event_id"] = truth_entity_ids("event", len(ordered), start_sequence)
     return {name: table[name] for name in _EVENT_DTYPES}
 
 
@@ -487,83 +495,186 @@ def _resolved_params_record(params: EventHistoryParams, demography: object) -> d
     }
 
 
-def _shock_multipliers(shocks: list[dict], month: int) -> tuple[float, float, float]:
+def _shock_multipliers(shocks: list[dict], month: int) -> tuple[float, float, float, float]:
     year = (month - 1) // 12
     mortality = 1.0
     fertility = 1.0
     migration = 1.0
+    admission = 1.0
     for shock in shocks:
         if int(shock["year"]) != year:
             continue
         mortality *= float(shock.get("mortality_multiplier", 1.0))
         fertility *= float(shock.get("fertility_multiplier", 1.0))
         migration *= float(shock.get("leave_home_multiplier", 1.0))
-    return mortality, fertility, migration
+        admission *= float(shock.get("admission_multiplier", 1.0))
+    return mortality, fertility, migration, admission
 
 
-def build_event_history(
-    microdata: dict,
-    seed: int,
-    identity_map: dict,
-    dwellings: dict,
-    businesses: dict,
-    hospitals: dict,
-    months: int = 24,
-    params: EventHistoryParams = EventHistoryParams(),
-    shocks: list[dict] | None = None,
-) -> dict:
-    """Advance the institutional world in monthly, append-only truth events."""
-    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)):
-        raise TypeError("seed must be an integer")
-    if isinstance(months, bool) or not isinstance(months, (int, np.integer)):
-        raise TypeError("months must be an integer")
-    seed = int(seed)
-    months = int(months)
-    if seed < 0:
-        raise ValueError("seed must be nonnegative")
-    if months < 1:
-        raise ValueError("months must be positive")
-    if not isinstance(params, EventHistoryParams):
-        raise TypeError("params must be EventHistoryParams")
-    _validate_params(params)
+# Latent frailty travels with the person: stored in hundredths so replay conserves it
+# byte for byte.  A newborn inherits part of the mother's burden, which is what makes
+# baseline health burden a household-level covariate rather than white noise.
+FRAILTY_CENTI_RANGE: Final = (int(FRAILTY_RANGE[0] * 100), int(FRAILTY_RANGE[1] * 100))
+# Age buckets used when drawing a destination.  Representative ages only; the pull
+# curve itself is public (``mechanisms.migration_age_pull``).
+_DESTINATION_AGE_BUCKETS: Final = (9.0, 24.0, 37.0, 55.0, 75.0)
+_DESTINATION_AGE_EDGES: Final = (18, 30, 45, 65)
+_DISTANCE_HALF_LIFE_CELLS: Final = 12.0
+# Substream tag for a committed continuation.  It must equal
+# ``actuarial.CONTINUATION_DOMAIN``; the constant is repeated here rather than imported
+# because the actuarial module reads this one's event table and importing it back would
+# close a cycle.  A member's key is never arithmetic on the root seed.
+CONTINUATION_DOMAIN: Final = 0xC047
+LEDGER_DOMAIN: Final = 0xE7E170
+# A member's own shock schedule rides the continuation tag with this substream index,
+# which no month can take: months run from one to the ledger's length.
+SHOCK_SUBSTREAM: Final = 0x5A0C
 
-    validate_dwelling_conservation(dwellings, microdata, identity_map)
-    validate_business_conservation(businesses, microdata, identity_map, seed)
-    validate_hospital_conservation(hospitals, microdata, identity_map, businesses, seed)
-    generator_version = int(identity_map["generator_version"])
-    identity_world_id = np.uint64(identity_map["truth_world_id"])
-    if identity_world_id != truth_world_id(seed, generator_version):
-        raise ValueError("seed does not match the identity map's truth world")
 
-    demography = draw_world_character(seed)["demography"]
-    if shocks is None:
-        shocks = draw_world_shocks(seed, max(3, (months + 11) // 12 + 1))
-    shocks = [dict(shock) for shock in shocks]
-    initial_state = _initial_state(
-        microdata, identity_map, dwellings, businesses, hospitals
-    )
-    state = _state_copy(initial_state)
-    records: list[dict[str, int]] = []
-    order = 0
-    snapshot_tick = int(identity_map["snapshot_tick"])
-    hospital = hospitals["hospital"]
-    hospital_id = hospital["truth_hospital_id"]
-    hospital_cell = hospital["cell"]
-    hospital_beds = hospital["bed_count"].astype(np.int64)
-    nearest_hospital_by_cell = _nearest_facility(
-        np.asarray(microdata["urbanity"]).shape, hospital_cell
-    )
-    annual_encounter_rate = float(
-        hospitals["hospital_params"]["annual_encounters_per_1000"]
-    )
-    payroll_level = float(businesses["business_params"]["payroll_level"])
+def _frailty_centi(frailty: np.ndarray) -> np.ndarray:
+    low, high = FRAILTY_CENTI_RANGE
+    return np.clip(
+        np.rint(np.asarray(frailty, dtype=np.float64) * 100.0), low, high
+    ).astype(np.int16)
 
-    for month in range(1, months + 1):
-        tick = snapshot_tick + month
-        rng = np.random.default_rng(np.random.SeedSequence([seed, 0xE7E170, month]))
-        mortality_multiplier, fertility_multiplier, migration_multiplier = (
-            _shock_multipliers(shocks, month)
+
+def _gravity_destinations(
+    rng: np.random.Generator,
+    vacant_position: np.ndarray,
+    vacant_cell: np.ndarray,
+    origin_cell: np.ndarray,
+    age: np.ndarray,
+    urbanity_flat: np.ndarray,
+    mechanisms: WorldMechanisms,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Assign distinct vacant dwellings by a gravity draw over counties and cells.
+
+    Destination county probability is proportional to the county's urban pull under the
+    mover's own age profile, divided by one plus the seat-to-seat distance in cells.
+    Within the chosen county a dwelling is drawn without replacement in proportion to
+    cell urbanity.  Movers whose county runs out of vacant units do not move this month.
+
+    Returns the positions (into ``age``) of the movers that were placed, and the row of
+    ``vacant_position`` each one takes.  Both are sorted by mover position, so the draw
+    is order-independent given the seed.
+    """
+    n_movers = len(age)
+    if n_movers == 0 or len(vacant_position) == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    intensity = float(mechanisms.coefficients["migration_age_pattern"])
+    pull = np.asarray(urbanity_flat, dtype=np.float64)[vacant_cell] + 0.02
+    vacant_county = mechanisms.county_of_cell(vacant_cell)
+    origin_county = mechanisms.county_of_cell(origin_cell)
+    n_counties = mechanisms.county.n_counties
+    distance = np.asarray(mechanisms.county.distance, dtype=np.float64)
+
+    bucket = np.digitize(np.asarray(age, dtype=np.float64), _DESTINATION_AGE_EDGES)
+    bucket_pull = intensity * migration_age_pull(np.asarray(_DESTINATION_AGE_BUCKETS))
+    county_mass = np.zeros((len(_DESTINATION_AGE_BUCKETS), n_counties), dtype=np.float64)
+    for b, exponent in enumerate(bucket_pull):
+        county_mass[b] = np.bincount(
+            vacant_county, weights=pull ** exponent, minlength=n_counties
         )
+    decay = 1.0 / (1.0 + distance / _DISTANCE_HALF_LIFE_CELLS)
+
+    chosen_county = np.full(n_movers, -1, dtype=np.int64)
+    for b in np.unique(bucket):
+        for c in np.unique(origin_county[bucket == b]):
+            group = np.flatnonzero((bucket == b) & (origin_county == c))
+            weight = county_mass[b] * decay[c]
+            total = weight.sum()
+            if total <= 0.0:
+                continue
+            chosen_county[group] = rng.choice(
+                n_counties, size=len(group), replace=True, p=weight / total
+            )
+
+    within = pull ** (intensity * float(np.mean(migration_age_pull(np.asarray(_DESTINATION_AGE_BUCKETS)))))
+    placed_mover: list[np.ndarray] = []
+    placed_slot: list[np.ndarray] = []
+    for county in np.unique(chosen_county[chosen_county >= 0]):
+        movers = np.flatnonzero(chosen_county == county)
+        slots = np.flatnonzero(vacant_county == county)
+        if len(slots) == 0:
+            continue
+        take = min(len(movers), len(slots))
+        weight = within[slots]
+        total = weight.sum()
+        probability = weight / total if total > 0.0 else None
+        drawn = rng.choice(slots, size=take, replace=False, p=probability)
+        if take < len(movers):
+            # A county short of vacant units places a random subset, never the movers
+            # that happen to sit first in identity order, which would tilt by age.
+            movers = np.sort(rng.choice(movers, size=take, replace=False))
+        placed_mover.append(movers[:take])
+        placed_slot.append(np.asarray(drawn, dtype=np.int64))
+    if not placed_mover:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    mover = np.concatenate(placed_mover)
+    slot = np.concatenate(placed_slot)
+    order = np.argsort(mover, kind="stable")
+    return mover[order], slot[order]
+
+
+_LEDGER_CONTEXT: tuple[str, ...] = (
+    "annual_encounter_rate",
+    "branch_month",
+    "coefficients",
+    "continuation_member",
+    "demography",
+    "hospital_beds",
+    "hospital_id",
+    "mechanisms",
+    "nearest_hospital_by_cell",
+    "params",
+    "payroll_level",
+    "seed",
+    "shocks",
+    "snapshot_tick",
+    "urbanity_flat",
+)
+
+
+def _run_ledger_months(context: dict, loop: dict, first_month: int,
+                       last_month: int) -> None:
+    """Advance the ledger over one span of months, in place, over the carried state.
+
+    ``context`` holds everything a month reads and never changes; ``loop`` holds the four
+    quantities the months carry forward: the entity state, the event records, the running
+    order counter, and each household's last move. The span is a separate function so a
+    continuation member can start from a captured branch state and pay only for the
+    months after the branch, instead of replaying the ledger that produced it.
+    """
+    (annual_encounter_rate,
+     branch_month,
+     coefficients,
+     continuation_member,
+     demography,
+     hospital_beds,
+     hospital_id,
+     mechanisms,
+     nearest_hospital_by_cell,
+     params,
+     payroll_level,
+     seed,
+     shocks,
+     snapshot_tick,
+     urbanity_flat) = (
+        context[name] for name in _LEDGER_CONTEXT)
+    state = loop["state"]
+    records = loop["records"]
+    order = loop["order"]
+    household_last_move_tick = loop["household_last_move_tick"]
+
+    for month in range(first_month, last_month + 1):
+        tick = snapshot_tick + month
+        rng = np.random.default_rng(
+            np.random.SeedSequence([seed, CONTINUATION_DOMAIN, continuation_member, month])
+            if continuation_member is not None and month > branch_month
+            else np.random.SeedSequence([seed, LEDGER_DOMAIN, month])
+        )
+        mortality_multiplier, fertility_multiplier, migration_multiplier, \
+            admission_multiplier = _shock_multipliers(shocks, month)
         job_end_count = 0
         latest_job_end_recorded = tick
         latest_encounter_discharge_recorded = tick
@@ -683,7 +794,27 @@ def build_event_history(
         age = np.maximum(0, (tick - person["birth_tick"][alive_position]) // 12).astype(
             np.int16
         )
-        annual_death_probability = mortality_probability(age, demography)
+        # Local mortality: the published Gompertz curve times a person's latent
+        # frailty and their county's level, on a national improvement trend.  Nothing
+        # here is a world constant, so a level fitted on one world does not transfer.
+        death_county = mechanisms.county_of_cell(person["cell"][alive_position])
+        frailty = person["frailty_centi"][alive_position].astype(np.float64) / 100.0
+        improvement = float(coefficients["mortality_improvement"])
+        elapsed_years = (tick - snapshot_tick) / 12.0
+        mortality_level = (
+            np.power(max(1.0 - improvement, 1e-6), elapsed_years)
+            * np.power(frailty, float(coefficients["mortality_frailty"]))
+            * np.exp(
+                float(coefficients["mortality_urban"])
+                * (mechanisms.covariate("urban", death_county) - 0.5)
+                + float(coefficients["mortality_econ"])
+                * (mechanisms.covariate("econ", death_county) - 0.5)
+                + mechanisms.effect("mortality", death_county)
+            )
+        )
+        annual_death_probability = np.clip(
+            mortality_probability(age, demography) * mortality_level, 0.0, 1.0
+        )
         monthly_death_probability = 1.0 - np.power(
             1.0 - annual_death_probability,
             mortality_multiplier / 12.0,
@@ -842,6 +973,12 @@ def build_event_history(
             newborn_sex = (rng.random(len(mothers)) < 0.5).astype(np.int8)
             newborn_household = person["truth_household_id"][mothers]
             newborn_cell = person["cell"][mothers]
+            mother_frailty = person["frailty_centi"][mothers].astype(np.float64) / 100.0
+            newborn_frailty_centi = _frailty_centi(
+                newborn_frailty(
+                    mother_frailty, rng.normal(0.0, 1.0, size=len(mothers))
+                )
+            )
             birth_batch_recorded = _report_tick(rng, tick, params)
             for index, person_identifier in enumerate(new_person_id):
                 recorded = birth_batch_recorded
@@ -867,6 +1004,7 @@ def build_event_history(
                         role=2,
                         education=0,
                         income_cents=0,
+                        frailty_centi=int(newborn_frailty_centi[index]),
                     )
                 )
                 order += 1
@@ -881,6 +1019,7 @@ def build_event_history(
                     "role": np.full(len(mothers), 2, dtype=np.int8),
                     "education": np.zeros(len(mothers), dtype=np.int8),
                     "income_cents": np.zeros(len(mothers), dtype=np.int64),
+                    "frailty_centi": newborn_frailty_centi,
                     "is_alive": np.ones(len(mothers), dtype=np.bool_),
                 },
             )
@@ -913,19 +1052,58 @@ def build_event_history(
             candidate_household = person["truth_household_id"][formation_candidates]
             _, unique_position = np.unique(candidate_household, return_index=True)
             formation_candidates = formation_candidates[np.sort(unique_position)]
-        formation_probability = min(
+        # Leaving home is a per-person hazard in the household's county, the household's
+        # size, and the person's own age, not one national rate.
+        base_formation = min(
             1.0, demography.leave_home_rate * migration_multiplier / 12.0
         )
-        movers = formation_candidates[
-            rng.random(len(formation_candidates)) < formation_probability
-        ]
         vacant_position = np.flatnonzero(~dwelling["is_occupied"])
-        if len(movers) > len(vacant_position):
-            movers = movers[: len(vacant_position)]
+        destination = np.empty(0, dtype=np.int64)
+        if len(formation_candidates):
+            candidate_county = mechanisms.county_of_cell(
+                person["cell"][formation_candidates]
+            )
+            candidate_size = living_count[
+                _sequence(person["truth_household_id"][formation_candidates]).astype(
+                    np.int64
+                )
+                - 1
+            ].astype(np.float64)
+            formation_hazard = np.clip(
+                base_formation
+                * np.exp(
+                    float(coefficients["formation_intercept_shift"])
+                    + float(coefficients["formation_urban"])
+                    * (mechanisms.covariate("urban", candidate_county) - 0.5)
+                    + float(coefficients["formation_econ"])
+                    * (mechanisms.covariate("econ", candidate_county) - 0.5)
+                    + float(coefficients["formation_size"]) * (candidate_size - 3.0)
+                    + float(coefficients["formation_age"])
+                    * (age[formation_candidates].astype(np.float64) - 24.0)
+                    / 6.0
+                    + mechanisms.effect("formation", candidate_county)
+                ),
+                0.0,
+                1.0,
+            )
+            movers = formation_candidates[
+                rng.random(len(formation_candidates)) < formation_hazard
+            ]
+        else:
+            movers = formation_candidates
         if len(movers):
-            destination = rng.choice(
-                vacant_position, size=len(movers), replace=False
-            ).astype(np.int64)
+            placed, slot = _gravity_destinations(
+                rng,
+                vacant_position,
+                dwelling["cell"][vacant_position],
+                person["cell"][movers],
+                age[movers],
+                urbanity_flat,
+                mechanisms,
+            )
+            movers = movers[placed]
+            destination = vacant_position[slot].astype(np.int64)
+        if len(movers):
             new_household_id = _new_entity_ids(
                 "household", household["truth_household_id"], len(movers)
             )
@@ -976,6 +1154,9 @@ def build_event_history(
             person["truth_household_id"][movers] = new_household_id
             person["cell"][movers] = destination_cell
             person["role"][movers] = 0
+            household_last_move_tick = np.concatenate(
+                [household_last_move_tick, np.full(len(movers), tick, dtype=np.int64)]
+            )
 
         # Existing households sometimes relocate, swapping an occupied unit for a
         # vacant unit. Newly formed households are eligible only in later months.
@@ -984,18 +1165,67 @@ def build_event_history(
         move_candidates = np.flatnonzero(
             household["is_active"][:household_count_at_month_start]
         )
-        n_moves = int(
-            rng.binomial(len(move_candidates), params.monthly_household_move_rate)
-        )
         vacant_position = np.flatnonzero(~dwelling["is_occupied"])
-        n_moves = min(n_moves, len(vacant_position))
-        if n_moves:
-            move_household = np.sort(
-                rng.choice(move_candidates, size=n_moves, replace=False)
+        move_household = np.empty(0, dtype=np.int64)
+        destination = np.empty(0, dtype=np.int64)
+        if len(move_candidates) and len(vacant_position):
+            # Relocation is a per-household hazard in the county, the household's income
+            # band, and how long it has stayed put.  The tenure term is the declared
+            # migration by stale-address-linkage interaction on the ledger side.
+            person = state["person"]
+            alive = person["is_alive"]
+            alive_household = (
+                _sequence(person["truth_household_id"][alive]).astype(np.int64) - 1
             )
-            destination = rng.choice(
-                vacant_position, size=n_moves, replace=False
-            ).astype(np.int64)
+            n_households = len(household["truth_household_id"])
+            household_income = np.bincount(
+                alive_household,
+                weights=person["income_cents"][alive].astype(np.float64),
+                minlength=n_households,
+            )
+            household_members = np.bincount(alive_household, minlength=n_households)
+            household_age = np.bincount(
+                alive_household,
+                weights=np.maximum(
+                    0.0, (tick - person["birth_tick"][alive]).astype(np.float64) / 12.0
+                ),
+                minlength=n_households,
+            ) / np.maximum(household_members, 1)
+            band = quintile_band(household_income[move_candidates])
+            move_county = mechanisms.county_of_cell(household["cell"][move_candidates])
+            tenure = np.log1p(
+                np.maximum(0, tick - household_last_move_tick[move_candidates]) / 12.0
+            )
+            move_hazard = np.clip(
+                params.monthly_household_move_rate
+                * np.exp(
+                    float(coefficients["move_intercept_shift"])
+                    + float(coefficients["move_urban"])
+                    * (mechanisms.covariate("urban", move_county) - 0.5)
+                    + float(coefficients["move_income_band"])
+                    * (band.astype(np.float64) - 2.0)
+                    / 2.0
+                    + float(coefficients["move_tenure"]) * tenure
+                    + mechanisms.effect("move", move_county)
+                ),
+                0.0,
+                1.0,
+            )
+            selected = move_candidates[rng.random(len(move_candidates)) < move_hazard]
+            if len(selected):
+                placed, slot = _gravity_destinations(
+                    rng,
+                    vacant_position,
+                    dwelling["cell"][vacant_position],
+                    household["cell"][selected],
+                    household_age[selected],
+                    urbanity_flat,
+                    mechanisms,
+                )
+                move_household = selected[placed]
+                destination = vacant_position[slot].astype(np.int64)
+        n_moves = len(move_household)
+        if n_moves:
             for index, household_position in enumerate(move_household):
                 old_dwelling_id = int(
                     household["truth_dwelling_id"][household_position]
@@ -1041,6 +1271,7 @@ def build_event_history(
                 ] = household_identifier
                 household["truth_dwelling_id"][household_position] = new_dwelling_id
                 household["cell"][household_position] = to_cell
+                household_last_move_tick[household_position] = tick
             household_position = (
                 _sequence(person["truth_household_id"]).astype(np.int64) - 1
             )
@@ -1277,6 +1508,7 @@ def build_event_history(
                 round(
                     len(np.flatnonzero(person["is_alive"]))
                     * annual_encounter_rate
+                    * admission_multiplier
                     / 12_000.0
                 )
             ),
@@ -1285,7 +1517,26 @@ def build_event_history(
             patient_age = np.maximum(
                 0, (tick - person["birth_tick"][patient_candidates]) // 12
             )
-            risk = 1.0 + 0.012 * patient_age + 0.65 * (patient_age >= 65)
+            # Admission risk: the published age curve times latent frailty and the
+            # county's own burden.  Incidence is therefore a local hazard, and the
+            # health source's inclusion rule reads the same frailty.
+            patient_county = mechanisms.county_of_cell(
+                person["cell"][patient_candidates]
+            )
+            patient_frailty = (
+                person["frailty_centi"][patient_candidates].astype(np.float64) / 100.0
+            )
+            risk = (
+                (1.0 + 0.012 * patient_age + 0.65 * (patient_age >= 65))
+                * np.power(patient_frailty, float(coefficients["incidence_frailty"]))
+                * np.exp(
+                    float(coefficients["incidence_urban"])
+                    * (mechanisms.covariate("urban", patient_county) - 0.5)
+                    + float(coefficients["incidence_elder_burden"])
+                    * (mechanisms.covariate("elder", patient_county) - 0.5)
+                    + mechanisms.effect("incidence", patient_county)
+                )
+            )
             priorities = (
                 -np.log(
                     np.maximum(
@@ -1465,6 +1716,199 @@ def build_event_history(
             active_household_position
         ].astype(np.int32)
 
+    loop["order"] = order
+    loop["household_last_move_tick"] = household_last_move_tick
+
+
+def capture_branch(history: dict) -> dict:
+    """The branch record a continuation member resumes from, or None if none was kept."""
+    return history.get("branch")
+
+
+def continuation_shocks(branch: dict, member: int, months: int) -> list[dict]:
+    """The shock schedule one continuation runs under: the world's past, its own future.
+
+    Years the branch has already lived through keep the world's realized schedule; every
+    year after it is redrawn from the published family at the published annual rate, on a
+    key that is a fresh tag rather than arithmetic on the root seed. This is the
+    systematic risk in the sealed tail: without it the members differ only by demographic
+    noise, and the liability distribution collapses to a width no reconstruction could
+    resolve.
+    """
+    rate = float(branch.get("annual_shock_rate", ANNUAL_SHOCK_RATE))
+    branch_month = int(branch["month"])
+    first_future_year = branch_month // 12 if branch_month % 12 == 0 \
+        else branch_month // 12 + 1
+    past = [dict(shock) for shock in branch["context"]["shocks"]
+            if int(shock["year"]) < first_future_year]
+    rng = np.random.default_rng(np.random.SeedSequence(
+        [int(branch["seed"]), CONTINUATION_DOMAIN, int(member), SHOCK_SUBSTREAM]))
+    years = (branch_month + int(months) + 11) // 12 - first_future_year + 1
+    return past + draw_annual_shocks(rng, first_future_year, max(years, 1), rate)
+
+
+def continuation_events(branch: dict, member: int, months: int) -> dict:
+    """Event table of one committed continuation, over the months after the branch.
+
+    Every member shares the branch state exactly and draws its own months from
+    ``SeedSequence([seed, CONTINUATION_DOMAIN, member, month])``, the same substream rule
+    ``build_event_history`` uses with ``continuation_member``. The returned table holds
+    only the months after the branch, which is all a reading pass over that window needs;
+    members are never merged, since two of them hand one person identity to two different
+    newborns.
+    """
+    member, months = int(member), int(months)
+    if member < 0:
+        raise ValueError("continuation member must be nonnegative")
+    if months < 1:
+        raise ValueError("a continuation needs at least one month")
+    first = int(branch["month"]) + 1
+    context = dict(branch["context"])
+    context["continuation_member"] = member
+    context["branch_month"] = int(branch["month"])
+    context["shocks"] = continuation_shocks(branch, member, months)
+    loop = {"state": _state_copy(branch["state"]), "records": [],
+            "order": int(branch["order"]),
+            "household_last_move_tick": np.array(branch["household_last_move_tick"],
+                                                 copy=True)}
+    _run_ledger_months(context, loop, first, first + months - 1)
+    return _make_event_table(loop["records"], int(branch["n_events"]) + 1)
+
+
+
+def build_event_history(
+    microdata: dict,
+    seed: int,
+    identity_map: dict,
+    dwellings: dict,
+    businesses: dict,
+    hospitals: dict,
+    months: int = 24,
+    params: EventHistoryParams = EventHistoryParams(),
+    shocks: list[dict] | None = None,
+    mechanisms: WorldMechanisms | None = None,
+    continuation_member: int | None = None,
+    branch_month: int | None = None,
+    capture_month: int | None = None,
+    shock_annual_rate: float = ANNUAL_SHOCK_RATE,
+) -> dict:
+    """Advance the institutional world in monthly, append-only truth events.
+
+    ``mechanisms`` carries the world's local hazard coefficients and county effects.
+    Without it the world is treated as a single neutral county, which is what the
+    standalone ledger tests use; a packet always supplies the real one.
+
+    ``continuation_member`` and ``branch_month`` build one committed continuation: months
+    one to ``branch_month`` are the ledger's own stream, so every member shares that
+    prefix byte for byte, and later months read the member's own substream.  A member is
+    a complete history from the same snapshot, which is what the ledger validator
+    requires, and members are never merged: two of them hand the same person identity to
+    two different newborns, so any cross-member quantity keys on (member, entity).
+    """
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)):
+        raise TypeError("seed must be an integer")
+    if isinstance(months, bool) or not isinstance(months, (int, np.integer)):
+        raise TypeError("months must be an integer")
+    seed = int(seed)
+    months = int(months)
+    if seed < 0:
+        raise ValueError("seed must be nonnegative")
+    if months < 1:
+        raise ValueError("months must be positive")
+    if not isinstance(params, EventHistoryParams):
+        raise TypeError("params must be EventHistoryParams")
+    _validate_params(params)
+    if (continuation_member is None) != (branch_month is None):
+        raise ValueError("a continuation needs both a member and a branch month")
+    if continuation_member is not None:
+        continuation_member = int(continuation_member)
+        branch_month = int(branch_month)
+        if continuation_member < 0:
+            raise ValueError("continuation member must be nonnegative")
+        if not 0 <= branch_month < months:
+            raise ValueError("branch month must leave at least one month to continue")
+    if capture_month is not None:
+        capture_month = int(capture_month)
+        if not 0 < capture_month <= months:
+            raise ValueError("capture month must fall inside the ledger")
+
+    validate_dwelling_conservation(dwellings, microdata, identity_map)
+    validate_business_conservation(businesses, microdata, identity_map, seed)
+    validate_hospital_conservation(hospitals, microdata, identity_map, businesses, seed)
+    generator_version = int(identity_map["generator_version"])
+    identity_world_id = np.uint64(identity_map["truth_world_id"])
+    if identity_world_id != truth_world_id(seed, generator_version):
+        raise ValueError("seed does not match the identity map's truth world")
+
+    demography = draw_world_character(seed)["demography"]
+    if shocks is None:
+        shocks = draw_world_shocks(seed, max(3, (months + 11) // 12 + 1))
+    shocks = [dict(shock) for shock in shocks]
+    initial_state = _initial_state(
+        microdata, identity_map, dwellings, businesses, hospitals
+    )
+    state = _state_copy(initial_state)
+    records: list[dict[str, int]] = []
+    order = 0
+    snapshot_tick = int(identity_map["snapshot_tick"])
+    hospital = hospitals["hospital"]
+    hospital_id = hospital["truth_hospital_id"]
+    hospital_cell = hospital["cell"]
+    hospital_beds = hospital["bed_count"].astype(np.int64)
+    nearest_hospital_by_cell = _nearest_facility(
+        np.asarray(microdata["urbanity"]).shape, hospital_cell
+    )
+    annual_encounter_rate = float(
+        hospitals["hospital_params"]["annual_encounters_per_1000"]
+    )
+    payroll_level = float(businesses["business_params"]["payroll_level"])
+    if mechanisms is None:
+        mechanisms = build_world_mechanisms(seed, "development", None, microdata)
+    if not isinstance(mechanisms, WorldMechanisms):
+        raise TypeError("mechanisms must be a WorldMechanisms")
+    coefficients = mechanisms.coefficients
+    urbanity_flat = np.asarray(microdata["urbanity"], dtype=np.float64).reshape(-1)
+    household_last_move_tick = np.full(
+        len(state["household"]["truth_household_id"]), snapshot_tick, dtype=np.int64
+    )
+
+    context = {
+        "annual_encounter_rate": annual_encounter_rate,
+        "branch_month": branch_month,
+        "coefficients": coefficients,
+        "continuation_member": continuation_member,
+        "demography": demography,
+        "hospital_beds": hospital_beds,
+        "hospital_id": hospital_id,
+        "mechanisms": mechanisms,
+        "nearest_hospital_by_cell": nearest_hospital_by_cell,
+        "params": params,
+        "payroll_level": payroll_level,
+        "seed": seed,
+        "shocks": shocks,
+        "snapshot_tick": snapshot_tick,
+        "urbanity_flat": urbanity_flat,
+    }
+    loop = {"state": state, "records": records, "order": order,
+            "household_last_move_tick": household_last_move_tick}
+    branch: dict | None = None
+    if capture_month is None:
+        _run_ledger_months(context, loop, 1, months)
+    else:
+        _run_ledger_months(context, loop, 1, capture_month)
+        branch = {"month": int(capture_month),
+                  "tick": int(snapshot_tick + capture_month),
+                  "n_events": len(loop["records"]),
+                  "seed": int(seed),
+                  "annual_shock_rate": float(shock_annual_rate),
+                  "context": context,
+                  "state": _state_copy(loop["state"]),
+                  "order": int(loop["order"]),
+                  "household_last_move_tick": np.array(
+                      loop["household_last_move_tick"], copy=True)}
+        _run_ledger_months(context, loop, capture_month + 1, months)
+    state, records, order = loop["state"], loop["records"], loop["order"]
+
     event_table = _make_event_table(records)
     history_without_terminal = {
         "truth_world_id": identity_world_id,
@@ -1473,6 +1917,7 @@ def build_event_history(
         "terminal_tick": np.int64(snapshot_tick + months),
         "event_schema_version": 1,
         "event_params": _resolved_params_record(params, demography),
+        "mechanism_record": mechanisms.record(),
         "shock_schedule": shocks,
         "initial_state": initial_state,
         "event": event_table,
@@ -1481,6 +1926,8 @@ def build_event_history(
     replayed = replay_event_history(history_without_terminal)
     _assert_states_equal(state, replayed, "generated state differs from event replay")
     history = {**history_without_terminal, "terminal_state": replayed}
+    if branch is not None:
+        history["branch"] = branch
     validate_event_history(
         history, microdata, identity_map, dwellings, businesses, hospitals, seed
     )
@@ -1604,6 +2051,7 @@ def replay_event_history(history: dict, through_tick: int | None = None) -> dict
             state["person"]["role"][position] = event["role"][row]
             state["person"]["education"][position] = event["education"][row]
             state["person"]["income_cents"][position] = event["income_cents"][row]
+            state["person"]["frailty_centi"][position] = event["frailty_centi"][row]
             state["person"]["is_alive"][position] = True
             next_row["person"] += 1
         elif event_type == EVENT_TYPES["person_death"]:

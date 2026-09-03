@@ -31,7 +31,7 @@ micro = build_microdata(people["population"], people["habitability"], people["se
 t2 = time.time()
 
 person = micro["person"]
-print(f"world+census {t1-t0:.1f}s, microdata {t2-t1:.1f}s")
+print(f"world+population {t1-t0:.1f}s, microdata {t2-t1:.1f}s")
 print(f"persons {micro['n_persons']:,}; households {micro['n_households']:,}; "
       f"mean size {micro['n_persons']/micro['n_households']:.2f}")
 adults = person["age"] >= 16

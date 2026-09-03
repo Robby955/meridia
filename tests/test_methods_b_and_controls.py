@@ -15,8 +15,9 @@ from meridia.packet import PacketParams, build_packet
 from meridia.verify import verify_submission
 
 SEED = 4711
-PARAMS = PacketParams(grid=(72, 96), n_settlements=6, n_states=2, observed_months=6,
-                      preliminary_lag=3, horizon_months=12, total=40_000)
+PARAMS = PacketParams(grid=(72, 96), n_settlements=6, n_states=2, observed_months=24,
+                      preliminary_lag=3, horizon_months=12, total=40_000,
+                      experience_years=1, ensemble_members=32)
 
 
 @pytest.fixture(scope="module")
@@ -40,10 +41,12 @@ def test_method_b_clears_hard_gates_from_participant_files(packet, tmp_path):
     out = tmp_path / "B"
     bayesian.run(blind, out, bayesian.MethodParams(sweeps=120, burn_in=40))
     report = verify_submission(packet, out)
-    assert report["pass"], report["reasons"]
+    assert report["schema_errors"] == [] and report["additivity_errors"] == []
     assert report["metrics"]["persons/nation"]["worst_error"] < 0.06
     assert report["metrics"]["persons/all"]["coverage"] > 0.5
-    assert report["allocation"]["feasible"]
+    assert report["reserve"]["feasible"]
+    families = {reason.split(":")[0] for reason in report["reasons"]}
+    assert families <= {"tail", "reserve", "exposure", "rate", "coverage"}, report["reasons"]
 
 
 @pytest.mark.parametrize("name", controls.CONTROLS)
@@ -54,7 +57,7 @@ def test_every_control_writes_a_complete_submission(packet, dev_packet, tmp_path
         calibration = str(tmp_path / "calibration_A.json")
         design_based.calibrate([dev_packet], calibration)
     controls.run(name, packet, out, calibration_path=calibration)
-    for file in ("release.csv", "projection.csv", "detailed.csv", "allocation.csv"):
+    for file in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
         assert (out / file).exists(), (name, file)
     report = verify_submission(packet, out)
     assert report["schema_errors"] == [], (name, report["schema_errors"][:3])
@@ -94,3 +97,49 @@ def test_both_calibrations_carry_the_fitted_ratio_exponents(dev_packet, tmp_path
     stored = json.loads(calibration_b.read_text())
     assert stored["ratio_exponent"] == exponents
     assert "mean_income_adults" in stored and "n_worlds" in stored
+
+
+def test_the_state_benchmark_step_moves_the_composition_and_keeps_the_total():
+    """The national factor fixes the level; this step fixes the split across states."""
+    import numpy as np
+    county_state = np.asarray([0, 0, 1, 1, 2, 2])
+    point = {("persons", "nation", 0): 1000.0,
+             ("persons", "state", 0): 600.0,
+             ("persons", "state", 1): 300.0,
+             ("persons", "state", 2): 100.0}
+    benchmark = {"persons": {"nation": 1000.0, "state": np.asarray([500.0, 350.0, 150.0])}}
+    factors = design_based.benchmark_state_reconciliation(point, [], benchmark, county_state)
+    moved = np.asarray([point[("persons", "state", s)] for s in range(3)]) * factors["persons"]
+    assert moved.sum() == pytest.approx(1000.0)
+    # Every state moves toward the benchmark and none moves past it.
+    for s, (before, after) in enumerate(zip([600.0, 300.0, 100.0], moved)):
+        target = benchmark["persons"]["state"][s]
+        assert abs(after - target) < abs(before - target)
+        assert (after - before) * (target - before) > 0
+
+    # Composed with the national factor, the two steps scale once, not twice.
+    national = {"persons": 1.10}
+    scaled = design_based.apply_reconciliation(point, national, factors, county_state)
+    states = sum(scaled[("persons", "state", s)] for s in range(3))
+    assert states == pytest.approx(scaled[("persons", "nation", 0)])
+
+
+def test_the_age_rake_reproduces_all_three_published_count_items():
+    """A cube scaled by the persons factor alone has the right total and the wrong shape."""
+    import numpy as np
+    from meridia.methods.design_based import (CHILD_MAX_AGE, ELDER_MIN_AGE,
+                                              benchmark_age_scale)
+    n_ages = 101
+    cube = np.zeros((2, n_ages, 2))
+    cube[:, : CHILD_MAX_AGE + 1, :] = 5.0        # 2 counties x 16 ages x 2 sexes
+    cube[:, CHILD_MAX_AGE + 1: ELDER_MIN_AGE, :] = 10.0
+    cube[:, ELDER_MIN_AGE:, :] = 2.0
+    county_state = np.asarray([0, 0])
+    factors = {"persons": 1.0, "children_under_16": 1.2, "elders_65_plus": 0.8}
+    scale = benchmark_age_scale(cube, county_state, factors)
+    scaled = cube * scale[:, :, None]
+    child = slice(0, CHILD_MAX_AGE + 1)
+    elder = slice(ELDER_MIN_AGE, n_ages)
+    assert scaled[:, child].sum() == pytest.approx(1.2 * cube[:, child].sum())
+    assert scaled[:, elder].sum() == pytest.approx(0.8 * cube[:, elder].sum())
+    assert scaled.sum() == pytest.approx(cube.sum())

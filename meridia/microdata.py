@@ -1,11 +1,11 @@
-"""Microdata layer v1: persons and households consistent with the census grid.
+"""Microdata layer v1: persons and households consistent with the population grid.
 
 The population grid gives an exact integer count per cell; this layer turns those counts
 into person records grouped into households, cell by cell, so the microdata aggregates
-back to the census exactly. Attributes are generated coherently: household structure
+back to the population grid exactly. Attributes are generated coherently: household structure
 (one or two adults, then children and elders), ages by role, education shifted by how
-urban the cell is (settlement pull), and log-normal income driven by education, age, and
-urbanity. Everything is determined by (seed, census inputs); the same inputs yield the
+urban the cell is (settlement pull), log-normal income driven by education, age, and
+urbanity, and a latent frailty that carries each person's baseline health burden. Everything is determined by (seed, population inputs); the same inputs yield the
 same tables.
 
 This is the sampling frame for every survey product built on the world: a survey is a
@@ -35,6 +35,9 @@ class MicrodataParams:
     income_age_scale: float = 22.0
     income_urban_bonus: float = 0.35
     income_sigma: float = 0.55
+    frailty_sigma: float = 0.45          # spread of latent health burden (log scale)
+    frailty_age_slope: float = 0.30      # per 40 years above 45
+    frailty_urban_slope: float = -0.20   # urban cells carry a lighter baseline burden
 
 
 def _household_sizes_for_count(count: int, probs: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -56,7 +59,7 @@ def _household_sizes_for_count(count: int, probs: np.ndarray, rng: np.random.Gen
 def build_microdata(population: np.ndarray, habitability: np.ndarray,
                     sites: list[tuple[int, int]], seed: int,
                     params: MicrodataParams = MicrodataParams()) -> dict:
-    """Return person and household arrays whose cell totals equal the census exactly."""
+    """Return person and household arrays whose cell totals equal the population grid exactly."""
     height, width = population.shape
     probs = np.asarray(params.household_size_probs, dtype=np.float64)
     probs = probs / probs.sum()
@@ -133,11 +136,22 @@ def build_microdata(population: np.ndarray, habitability: np.ndarray,
     income[person_age < 16] = 0.0
     income = np.round(income, 2)
 
+    # Latent frailty: the per-person health burden that drives mortality, hospital
+    # incidence, and health-source inclusion.  It is never published; the survey's
+    # hospitalization item is the anchor that makes it estimable.  Mean one on the log
+    # scale, heavier with age, lighter in urban cells, so baseline health burden is
+    # observable structure rather than a world constant.
+    frailty_mu = (params.frailty_age_slope * (person_age.astype(np.float64) - 45.0) / 40.0
+                  + params.frailty_urban_slope * (urb_person - 0.5)
+                  - 0.5 * params.frailty_sigma ** 2)
+    frailty = np.exp(frailty_mu + params.frailty_sigma * rng.normal(0.0, 1.0, size=total))
+    frailty = np.clip(frailty, 0.15, 6.0)
+
     return {
         "person": {
             "household": person_household, "cell": person_cell, "age": person_age,
             "sex": person_sex, "role": person_role, "education": education,
-            "income": income,
+            "income": income, "frailty": frailty,
         },
         "household_cell": np.asarray(household_cell, dtype=np.int64),
         "urbanity": urbanity,

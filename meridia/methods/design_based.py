@@ -56,6 +56,7 @@ from ..demography import DemographyParams, mortality_probability
 from ..release import AGE_BANDS, AGE_BAND_LABELS, ESTIMAND_IDS, LOW_INCOME_FRACTION, SEX_LABELS
 from ..sources import BENCHMARK_BIAS, BENCHMARK_ITEMS, DEVELOPMENT_BAND, INCOME_ADDRESS_LAG
 from ..survey import SurveyParams
+from . import actuarial_reference as AR
 
 HOUSEHOLDS_PER_PSU = SurveyParams().households_per_cell   # public design constant
 MAX_AGE = 100
@@ -67,6 +68,11 @@ LINK_KEYS = ["given_code", "family_code", "birth_tick", "sex"]
 # family: |b| uniform on the magnitude range.
 _lo, _hi = BENCHMARK_BIAS["nation_magnitude"]
 BENCHMARK_RELATIVE_SD = float(np.sqrt((_lo ** 2 + _lo * _hi + _hi ** 2) / 3.0))
+# The state series carries its own log-bias, one normal draw per state at a world-level
+# spread inside the published range, so its relative error is the root mean square of that
+# range rather than the national magnitude.
+_slo, _shi = BENCHMARK_BIAS["state_sd"]
+BENCHMARK_STATE_RELATIVE_SD = float(np.sqrt((_slo ** 2 + _slo * _shi + _shi ** 2) / 3.0))
 # Coverage-model error of the register-based counts at nation and state level, which
 # the survey bootstrap cannot see: the register's coverage is estimated through the
 # survey, and the survey's own nonresponse bias moves by a few percent between worlds.
@@ -87,6 +93,11 @@ class MethodParams:
     carry_forward_width: float = 1.5       # projection interval widening for income items
     sensitivity_multiplier: float = 2.0    # income half-width += this x the raking shift
     calibration_path: str | None = None    # JSON from calibrate() on a development world
+    # Version four: exposures and rates, liability tails, and the reserve file. "auto"
+    # runs the actuarial layer when the packet carries the experience file and the
+    # reserve block, and writes the version-three submission when it does not.
+    actuarial: str = "auto"
+    actuarial_params: object = None        # methods.actuarial_reference.LayerParams
 
 
 # ----------------------------------------------------------------------------- inputs
@@ -954,11 +965,136 @@ def benchmark_reconciliation(point: dict, replicates: list[dict], benchmark: dic
     return factors
 
 
-def apply_reconciliation(values: dict, factors: dict) -> dict:
+# The register's error in one state after coverage correction is a model error, not a
+# sampling error, and it is far larger than the national one: coverage rides the county
+# economic gradient and the outpost penalty, both declared in the public source ranges, so
+# a state whose counties sit on one side of that gradient is off by a good deal more than
+# the nation is. The allowance below is the county allowance damped by aggregation over
+# the counties of a state, and it is what decides how much weight the benchmark's own
+# state series gets.
+STATE_MODEL_RELATIVE_SD = 0.10
+
+
+def benchmark_state_reconciliation(point: dict, replicates: list[dict],
+                                   benchmark: dict | None, county_state: np.ndarray,
+                                   national: dict | None = None,
+                                   model_relative_sd: float = STATE_MODEL_RELATIVE_SD) -> dict:
+    """Per count item, one factor per state, from the benchmark's own state series.
+
+    The national step above moves every level by one factor and so cannot touch the
+    composition, which is where a register-based reconstruction is weakest: its national
+    total is anchored, while its split across states carries the whole coverage gradient.
+    The benchmark publishes a state series with a declared bias family, so each state's
+    count is an inverse-variance combination of the register's and the benchmark's, and
+    the combined vector is then rescaled to the national total the first step settled, so
+    additivity survives.
+    """
+    n_states = int(np.max(county_state)) + 1 if len(county_state) else 0
+    factors: dict[str, np.ndarray] = {}
+    if benchmark is None or n_states < 2:
+        return factors
+    for item in BENCHMARK_ITEMS:
+        if item not in benchmark:
+            continue
+        bench = np.asarray(benchmark[item].get("state", []), dtype=np.float64)
+        register = np.asarray([point.get((item, "state", s), np.nan)
+                               for s in range(n_states)], dtype=np.float64)
+        if bench.shape != register.shape or not np.isfinite(register).all() \
+                or (register <= 0).any() or not np.isfinite(bench).all() or (bench <= 0).any():
+            continue
+        spread = []
+        for s in range(n_states):
+            key = (item, "state", s)
+            draws = np.asarray([r[key] for r in replicates if key in r], dtype=np.float64)
+            draws = draws[np.isfinite(draws)]
+            spread.append(float(np.std(draws) / register[s]) if len(draws) >= 10 else 0.03)
+        rel_register = np.sqrt(np.asarray(spread) ** 2 + model_relative_sd ** 2)
+        var_register = (rel_register * register) ** 2
+        var_bench = (BENCHMARK_STATE_RELATIVE_SD * bench) ** 2
+        weight = var_bench / (var_bench + var_register)          # weight on the register
+        combined = weight * register + (1.0 - weight) * bench
+        # The national factor is applied to every level before these, so the composition
+        # is normalized to the register's own national total and the two steps compose
+        # instead of multiplying twice.
+        target = float(point.get((item, "nation", 0), np.nan))
+        if np.isfinite(target) and combined.sum() > 0:
+            combined = combined * (target / combined.sum())
+        factors[item] = combined / register
+    return factors
+
+
+CHILD_MAX_AGE = 15          # the benchmark's children item is under sixteen
+ELDER_MIN_AGE = 65          # and its elders item is sixty-five and over
+AGE_SCALE_BOUNDS = (0.50, 2.00)
+
+
+def benchmark_age_scale(cube: np.ndarray, county_state: np.ndarray, factors: dict,
+                        state_factors: dict | None = None) -> np.ndarray:
+    """A multiplier per county and age that rakes a county age cube to the benchmark.
+
+    The benchmark publishes four count items, and three of them are an age structure:
+    persons, children under sixteen, and people sixty-five and over. Scaling a cube by the
+    persons factor alone puts the total right and leaves the shape wrong, which is the part
+    the liability is priced on: the obligation pays from sixty-five, so an age cube whose
+    old ages are off by a tenth prices a regional tail that is off by a tenth however good
+    its headcount is.
+
+    The children and elder blocks take their own factors, and the middle takes whatever
+    factor makes the three blocks add to the state's reconciled headcount, so the raked
+    cube reproduces all three published counts at once.
+    """
+    cube = np.asarray(cube, dtype=np.float64)
+    n_counties, n_ages = cube.shape[0], cube.shape[1]
+    scale = np.ones((n_counties, n_ages))
+    state_factors = state_factors or {}
+
+    def factor(item: str, state: int) -> float:
+        value = float(factors.get(item, 1.0))
+        per_state = state_factors.get(item)
+        if per_state is not None and 0 <= state < len(per_state):
+            value *= float(per_state[state])
+        return value
+
+    child = np.arange(n_ages) <= CHILD_MAX_AGE
+    elder = np.arange(n_ages) >= ELDER_MIN_AGE
+    middle = ~(child | elder)
+    counts = cube.sum(axis=tuple(range(2, cube.ndim))) if cube.ndim > 2 else cube
+    for state in range(int(np.max(county_state)) + 1 if len(county_state) else 0):
+        rows = np.flatnonzero(np.asarray(county_state) == state)
+        if not len(rows):
+            continue
+        block = counts[rows]
+        c, e, m = block[:, child].sum(), block[:, elder].sum(), block[:, middle].sum()
+        if min(c, e, m) <= 0:
+            continue
+        target = (c + e + m) * factor("persons", state)
+        f_child = np.clip(factor("children_under_16", state), *AGE_SCALE_BOUNDS)
+        f_elder = np.clip(factor("elders_65_plus", state), *AGE_SCALE_BOUNDS)
+        f_middle = np.clip((target - c * f_child - e * f_elder) / m, *AGE_SCALE_BOUNDS)
+        scale[np.ix_(rows, np.flatnonzero(child))] = f_child
+        scale[np.ix_(rows, np.flatnonzero(elder))] = f_elder
+        scale[np.ix_(rows, np.flatnonzero(middle))] = f_middle
+    return scale
+
+
+def apply_reconciliation(values: dict, factors: dict,
+                         state_factors: dict | None = None,
+                         county_state: np.ndarray | None = None) -> dict:
+    """Scale every level by its item's national factor, then by its own state's factor."""
     out = dict(values)
     for (e, level, u), v in values.items():
         if e in factors and np.isfinite(v):
             out[(e, level, u)] = float(v * factors[e])
+    if not state_factors:
+        return out
+    for (e, level, u), v in list(out.items()):
+        per_state = state_factors.get(e)
+        if per_state is None or not np.isfinite(v):
+            continue
+        if level == "state" and 0 <= int(u) < len(per_state):
+            out[(e, level, u)] = float(v * per_state[int(u)])
+        elif level == "county" and county_state is not None and 0 <= int(u) < len(county_state):
+            out[(e, level, u)] = float(v * per_state[int(county_state[int(u)])])
     return out
 
 
@@ -1121,11 +1257,13 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     dispersion = income_dispersion(survey)
     now, future = _apply_calibration(now, factors, dispersion), _apply_calibration(future, factors, dispersion)
     now_reps, future_reps = [], []
+    age_sex_paths = [np.asarray(point["age_sex"], dtype=np.float64)]
     for b in range(params.bootstrap_replicates):
         replicate = _bootstrap_frame(survey, rng)
         est = estimate_once(replicate, register, ratios, county_state)
         est["county"].pop("_model_rel_sd", None)
         est["county"].pop("_income_model_rel_sd", None)
+        age_sex_paths.append(np.asarray(est["age_sex"], dtype=np.float64))
         now_reps.append(_apply_calibration(
             aggregate(est["county"], county_state, est["state_stats"], est["county"]["persons"]), factors, dispersion))
         fut = project(est["county"], est["age_sex"], horizon_months, rng, mortality, fertility)
@@ -1134,10 +1272,14 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
     # Benchmark reconciliation of the four national counts; the same factor at every
     # level and in every replicate keeps the counts additive.
     reconciliation = benchmark_reconciliation(now, now_reps, data.get("benchmark"))
-    now = apply_reconciliation(now, reconciliation)
-    now_reps = [apply_reconciliation(r, reconciliation) for r in now_reps]
-    future = apply_reconciliation(future, reconciliation)
-    future_reps = [apply_reconciliation(r, reconciliation) for r in future_reps]
+    state_reconciliation = benchmark_state_reconciliation(
+        now, now_reps, data.get("benchmark"), county_state, reconciliation)
+    now = apply_reconciliation(now, reconciliation, state_reconciliation, county_state)
+    now_reps = [apply_reconciliation(r, reconciliation, state_reconciliation, county_state)
+                for r in now_reps]
+    future = apply_reconciliation(future, reconciliation, state_reconciliation, county_state)
+    future_reps = [apply_reconciliation(r, reconciliation, state_reconciliation, county_state)
+                   for r in future_reps]
 
     def rows(point_values: dict, replicates: list[dict], widen: float = 1.0) -> list[dict]:
         out = []
@@ -1223,11 +1365,45 @@ def run(packet_dir: Path, out_dir: Path, params: MethodParams = MethodParams()) 
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
-    pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
-    pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
-    pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
-        out_dir / "allocation.csv", index=False)
-    return {"release": release_rows, "projection": projection_rows,
-            "dispersion": dispersion, "n_bootstrap": params.bootstrap_replicates, "mortality": mortality, "fertility": fertility,
-            "miscoding": miscoding, "register_income_scale": scale, "reconciliation": reconciliation}
+    result = {"release": release_rows, "projection": projection_rows,
+              "dispersion": dispersion, "n_bootstrap": params.bootstrap_replicates,
+              "mortality": mortality, "fertility": fertility, "miscoding": miscoding,
+              "register_income_scale": scale, "reconciliation": reconciliation}
+    # Version four: the same reconstruction, carried on into exposures and rates, a
+    # simulated liability distribution, and the reserve. The bootstrap replicates of the
+    # age cube are the population draws the layer propagates, so the design-based line's
+    # own sampling uncertainty reaches the liability tails.
+    actuarial = None
+    if params.actuarial != "off":
+        # The liability is priced on the same reconstruction the release table carries, so
+        # the county cube takes the national benchmark factor and its own state's factor.
+        # Without the second one the reserve is priced on a population whose split across
+        # states still carries the coverage gradient, which is where the register is
+        # weakest and where a regional tail is decided.
+        # The liability is priced on the same reconstruction the release table carries, so
+        # the county age cube is raked to all three published count items, by state.
+        paths = np.stack(age_sex_paths)
+        scale = benchmark_age_scale(paths[0], county_state, reconciliation,
+                                    state_reconciliation)
+        actuarial = AR.actuarial_submission(
+            Path(packet_dir), data, county_state,
+            paths * scale[None, :, :, None],
+            float(fertility["fertility_rate"]),
+            release_rows, projection_rows, cube,
+            params.suppression_multiplier * threshold, out_dir,
+            AGE_BAND_LABELS, SEX_LABELS,
+            params.actuarial_params or AR.LayerParams())
+    if actuarial is None:
+        if params.actuarial == "on":
+            raise AR.MissingActuarialInputs(
+                "packet carries no experience file or reserve block")
+        pd.DataFrame(release_rows).to_csv(out_dir / "release.csv", index=False)
+        pd.DataFrame(projection_rows).to_csv(out_dir / "projection.csv", index=False)
+        pd.DataFrame(detail).to_csv(out_dir / "detailed.csv", index=False)
+        pd.DataFrame({"county": np.arange(n_counties), "allocation": allocation}).to_csv(
+            out_dir / "allocation.csv", index=False)
+        return result
+    result["release"] = actuarial["release"]
+    result["reserve"] = actuarial["reserve"]
+    result["actuarial"] = actuarial["diagnostics"]
+    return result

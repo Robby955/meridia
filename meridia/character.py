@@ -7,6 +7,13 @@ or old the population runs, how fast it grows, how dominant the largest city is.
 ranges are public; a sealed evaluation world's specific draw is not, so methods must
 estimate a world's character from its data rather than assume constants.
 
+The mortality age slope, the hazard floor, the first-year excess, the share of movers
+heading to a city, and the three shape parameters of the latent health burden are drawn
+here for the same reason as the rest: a constant would be estimable once on the twelve
+development worlds, which ship truth, and would then transfer unchanged to a world
+nobody has seen. The age slope is the sharpest of them, because it is what a mortality
+model fits first and what the five-year experience file would otherwise hand over free.
+
 Deterministic in the seed alone.
 """
 
@@ -28,6 +35,13 @@ CHARACTER_RANGES = {
     "education_urban_shift": (0.5, 1.4),   # urban-rural education gap
     "fertility_rate": (0.055, 0.115),      # young, growing vs old, shrinking nations
     "gompertz_a": (0.000012, 0.000040),    # mortality level (life expectancy ~70-84)
+    "gompertz_b": (0.092, 0.121),          # mortality age slope, the hardest quantity to fit
+    "makeham": (0.00022, 0.00068),         # age-independent hazard floor
+    "infant_extra": (0.0016, 0.0052),      # added first-year mortality
+    "move_city_prob": (0.50, 0.80),        # share of movers heading to a settlement cell
+    "frailty_sigma": (0.32, 0.60),         # spread of the latent health burden
+    "frailty_age_slope": (0.16, 0.46),     # burden per 40 years above 45
+    "frailty_urban_slope": (-0.38, -0.04), # urban baseline burden relief
     "leave_home_rate": (0.10, 0.24),       # internal migration intensity
     "zipf_exponent": (0.75, 1.30),         # city-size primacy
     "background_share": (0.06, 0.20),      # rural share of settlement mass
@@ -50,10 +64,17 @@ def draw_world_character(seed: int) -> dict:
                         income_sigma=draw["income_sigma"],
                         income_urban_bonus=draw["income_urban_bonus"],
                         income_per_education=draw["income_per_education"],
-                        education_urban_shift=draw["education_urban_shift"])
+                        education_urban_shift=draw["education_urban_shift"],
+                        frailty_sigma=draw["frailty_sigma"],
+                        frailty_age_slope=draw["frailty_age_slope"],
+                        frailty_urban_slope=draw["frailty_urban_slope"])
     demography = replace(DemographyParams(),
                          fertility_rate=draw["fertility_rate"],
                          gompertz_a=draw["gompertz_a"],
+                         gompertz_b=draw["gompertz_b"],
+                         makeham=draw["makeham"],
+                         infant_extra=draw["infant_extra"],
+                         move_city_prob=draw["move_city_prob"],
                          leave_home_rate=draw["leave_home_rate"])
     business = {name: draw[name] for name in
                 ("jobs_per_adult", "establishment_size_alpha",

@@ -7,7 +7,7 @@ observed record.
 
 ## Built
 
-- Terrain, rivers (exact runoff accounting), census, persons and households, survey
+- Terrain, rivers (exact runoff accounting), population grid, persons and households, survey
   instrument with planted defects, year-by-year demography with a vital-events register,
   weather with orographic rain and lagged river response.
 - World character: each seed draws its society's inequality, demography, wealth
@@ -33,7 +33,7 @@ observed record.
 5. **Observed registers.** Imperfect population, business, income, and health registers
    over the sealed truth: duplicates, stale addresses, split and merged identifiers,
    reporting delays, each by an explicit recorded mechanism. This is what makes record
-   linkage and census coverage estimation real problems rather than database joins.
+   linkage and coverage estimation real problems rather than database joins.
 6. **The reconstruction chain.** Surveys drawn from imperfect frames; editing, imputation,
    weighting, estimation, variance, and disclosure control as scored stages; a full
    published table audited against retained truth.

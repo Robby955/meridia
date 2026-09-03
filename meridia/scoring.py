@@ -29,15 +29,25 @@ ADDITIVITY_TOLERANCE = 1e-6   # relative, for published counts
 
 # ---------------------------------------------------------------- schema and additivity
 
-def validate_release(rows: list[dict], admin: dict) -> list[str]:
-    """Return a list of schema violations; an empty list means the schema is exact."""
+def validate_release(rows: list[dict], admin: dict, *,
+                     extra_columns: tuple[str, ...] = (),
+                     skip_estimands: tuple[str, ...] = ()) -> list[str]:
+    """Return a list of schema violations; an empty list means the schema is exact.
+
+    ``extra_columns`` names columns a version-four release carries alongside the six of
+    the release schema, and ``skip_estimands`` names the rows another validator owns, so
+    the exposure and rate block can ride the same file without loosening this check on
+    the eight estimands it does own. With neither argument the behaviour is unchanged.
+    """
     errors: list[str] = []
     seen: dict[tuple[str, str, int], int] = {}
     for i, row in enumerate(rows):
-        if set(row) != set(RELEASE_COLUMNS):
+        if set(row) - set(extra_columns) != set(RELEASE_COLUMNS):
             errors.append(f"row {i}: columns {sorted(row)} differ from {list(RELEASE_COLUMNS)}")
             continue
         est_id, level, unit = row["estimand"], row["level"], row["unit"]
+        if est_id in skip_estimands:
+            continue
         if est_id not in ESTIMAND_BY_ID:
             errors.append(f"row {i}: unknown estimand {est_id!r}")
             continue
@@ -194,6 +204,10 @@ def disclosure_audit(published: np.ndarray, truth_table: np.ndarray, threshold: 
     cell is published, or when the published cells and totals determine a suppressed
     protected cell exactly (its indicator lies in the row space of the published linear
     constraints), or when published cells and totals are not internally consistent.
+
+    The audit also returns ``utility``, the share of cells at or above the threshold that
+    the submission published. Protection is a one-sided requirement and a blank table
+    meets it; the utility share is what a gate reads to refuse one.
     """
     published = np.asarray(published, dtype=np.float64)
     truth_table = np.asarray(truth_table)
@@ -262,6 +276,17 @@ def disclosure_audit(published: np.ndarray, truth_table: np.ndarray, threshold: 
                             or findings["inconsistent"])
     findings["n_protected"] = int(protected.sum())
     findings["n_suppressed"] = int(suppressed.sum())
+    # Utility. Protection alone is satisfied by publishing nothing, so the audit also
+    # reports how much of the table a submission actually released: the share of cells
+    # that carry a count at or above the threshold, which no rule requires suppressing,
+    # that the submission published. A gate reads this share; without it the disclosure
+    # requirement is one a blank table meets.
+    releasable = (truth_table >= threshold)
+    published_releasable = releasable & ~suppressed
+    findings["n_releasable"] = int(releasable.sum())
+    findings["n_published_releasable"] = int(published_releasable.sum())
+    findings["utility"] = (float(published_releasable.sum()) / float(releasable.sum())
+                           if releasable.any() else 1.0)
     return findings
 
 
@@ -272,7 +297,8 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
     """Combine the checks into a pass verdict with named reasons.
 
     ``bars`` keys: ``worst_error`` and ``interval_score_ceiling`` map "estimand/level" to a
-    ceiling; ``coverage_floor`` is one number. A metric with no bar is reported, not gated.
+    ceiling; ``coverage_floor`` and ``disclosure_utility_floor`` are one number each. A
+    metric with no bar is reported, not gated.
     """
     reasons: list[str] = []
     if schema_errors:
@@ -282,6 +308,11 @@ def evaluate_gates(schema_errors: list[str], additivity_errors: list[str], metri
     if disclosure is not None and not disclosure["pass"]:
         reasons.append("disclosure: protected cell published, recoverable, or inconsistent")
     bars = bars or {}
+    utility_floor = bars.get("disclosure_utility_floor")
+    if disclosure is not None and utility_floor is not None \
+            and float(disclosure.get("utility", 1.0)) < float(utility_floor):
+        reasons.append(f"disclosure utility: {disclosure['utility']:.3f} of the releasable "
+                       f"cells published < {utility_floor}")
     for key, m in metrics.items():
         ceiling = bars.get("worst_error", {}).get(key)
         if ceiling is not None and m["worst_error"] > ceiling:

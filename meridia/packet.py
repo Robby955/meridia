@@ -1,9 +1,11 @@
 """Packet builder: one world, split into what an agent receives and what stays sealed.
 
 A packet is a directory. ``participant/`` holds flat files only: a household survey at
-two snapshots, the four observed sources at two snapshots, the county-to-state map, and
-the contract that names the estimands, levels, snapshot ticks, projection horizon,
-disclosure threshold, and allocation budget. ``retained/`` holds the exact truth tables
+two snapshots carrying the health anchor, the four observed sources at two snapshots, a
+five-year aggregate experience file, the county-to-state map with each county's land
+area, and the contract that names the estimands, levels, snapshot ticks, projection
+horizon, disclosure threshold, allocation budget, obligation, mechanism families, and
+covariate definitions. ``retained/`` holds the exact truth tables
 at the revised snapshot and at the horizon, the detailed table, and the source package's
 crosswalks and mechanisms. A development packet copies the truth tables into
 ``participant/truth/`` so methods can be tuned on an open world; a hidden packet never
@@ -22,23 +24,31 @@ from pathlib import Path
 
 import numpy as np
 
+from .actuarial import (ACTUARIAL_AGE_BAND_LABELS, ActuarialThresholds,
+                        ObligationContract, actuarial_pass, ensemble_truth,
+                        regions_from_admin, reserve_total)
 from .admin import build_admin
 from .businesses import build_businesses
 from .character import draw_world_character
-from .demography import draw_world_shocks
+from .demography import ANNUAL_SHOCK_RATE, SHOCK_FAMILY, draw_world_shocks
 from .dwellings import build_dwellings
 from .events import build_event_history, replay_event_history
 from .hospitals import build_hospitals
 from .hydrology import fill_depressions, flow_accumulation, flow_directions
-from .identities import build_initial_identity_map
+from .identities import SEQUENCE_MASK, build_initial_identity_map
+from .mechanisms import (QUALIFYING_DIAGNOSIS_GROUPS, build_world_mechanisms,
+                         contract_block)
 from .microdata import build_microdata
 from .population import build_population, resource_outposts
-from .projection import DEMAND_ESTIMAND, person_table_from_state, project_truth_from_history
+from .projection import (DEMAND_ESTIMAND, continuation_liabilities,
+                         person_table_from_state, project_truth_from_history,
+                         rate_truth_from_history)
+from .events import EVENT_TYPES
 from .release import (AGE_BAND_LABELS, ESTIMANDS, LEVELS, SEX_LABELS,
                       compute_detailed_table_truth, compute_truth)
 from .sources import (SOURCE_REGIMES, benchmark_values, build_observed_sources,
                       draw_benchmark_bias, draw_source_params, participant_source_snapshots)
-from .survey import draw_survey
+from .survey import SURVEY_BANDS, SurveyParams, draw_survey, draw_survey_params
 from .terrain import generate_elevation
 
 FORBIDDEN_COLUMN_PREFIXES = ("truth_", "mechanism", "crosswalk")
@@ -49,7 +59,7 @@ class PacketParams:
     grid: tuple[int, int] = (288, 384)
     n_settlements: int = 24
     n_states: int = 6
-    observed_months: int = 24        # ledger months before the revised snapshot
+    observed_months: int = 72        # ledger months before the revised snapshot
     preliminary_lag: int = 6         # revised minus preliminary, in months
     horizon_months: int = 60         # projection horizon after the revised snapshot
     disclosure_threshold: int = 10   # protected cell: 0 < true count < threshold
@@ -57,12 +67,32 @@ class PacketParams:
     max_shocks: int = 2
     total: int | None = None         # None draws the national total from the seed
     regime: str = "development"      # source mechanism regime: development or hidden
+    design_cell: int | None = None   # row of the committed development design
+    experience_years: int = 5        # years in the historical experience file
+    experience_lag_months: int = 12  # publication lag of that file behind the snapshot
+    ensemble_members: int = 2048     # committed continuations behind the tail truth
+    reserve_weight_spread: float = 4.0   # highest regional shortfall weight over lowest
+    shock_annual_rate: float = ANNUAL_SHOCK_RATE   # published shock years per year
+
+
+# The committed version-four world: one size for the development set, the qualification
+# worlds and the graded ones, so a bar frozen on one is read on the same object. The size
+# is set by what a 2,048-member continuation ensemble costs, which is 310 seconds across
+# fourteen processes here and would be hours at the version-three default grid.
+GRADING_WORLD = PacketParams(grid=(96, 128), n_settlements=8, n_states=6, total=60_000,
+                             observed_months=72, preliminary_lag=6, horizon_months=60,
+                             experience_years=5, experience_lag_months=12,
+                             ensemble_members=2048)
 
 
 def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     """Every layer of one world, from terrain to observed sources."""
     if params.regime not in SOURCE_REGIMES:
         raise ValueError(f"unknown source regime {params.regime!r}")
+    if params.regime == "hidden" and params.design_cell is not None:
+        raise ValueError("the hidden world does not take a development design cell")
+    if params.observed_months < 12 * params.experience_years + params.experience_lag_months:
+        raise ValueError("the ledger is shorter than the historical experience file")
     height, width = params.grid
     character = draw_world_character(seed)
     source_params = draw_source_params(seed, params.regime, character["draw"]["payroll_level"])
@@ -82,26 +112,52 @@ def build_world(seed: int, params: PacketParams = PacketParams()) -> dict:
     dwellings = build_dwellings(micro, seed, identities)
     businesses = build_businesses(micro, seed, identities)
     hospitals = build_hospitals(micro, seed, identities, businesses)
+    mechanisms = build_world_mechanisms(
+        seed, params.regime, admin, micro, businesses, params.design_cell,
+        mortality_age_slope=character["demography"].gompertz_b)
+    survey_params = draw_survey_params(seed)
     months = params.observed_months + params.horizon_months
     years = max(3, months // 12 + 1)
-    shocks = draw_world_shocks(seed, years, params.max_shocks)
+    shocks = draw_world_shocks(seed, years, params.max_shocks,
+                               annual_rate=params.shock_annual_rate)
     history = build_event_history(micro, seed, identities, dwellings, businesses, hospitals,
-                                  months=months, shocks=shocks)
+                                  months=months, shocks=shocks, mechanisms=mechanisms,
+                                  capture_month=params.observed_months,
+                                  shock_annual_rate=params.shock_annual_rate)
     snapshot = int(history["snapshot_tick"])
     revised_tick = snapshot + params.observed_months
     preliminary_tick = revised_tick - params.preliminary_lag
     sources = build_observed_sources(history, seed, admin, hospitals,
                                      preliminary_tick=preliminary_tick,
-                                     revised_tick=revised_tick, params=source_params)
+                                     revised_tick=revised_tick, params=source_params,
+                                     mechanisms=mechanisms)
     benchmark_bias = draw_benchmark_bias(seed, int(admin["n_states"]))
     return {
         "seed": seed, "params": params, "character": character, "world": world,
         "people": people, "micro": micro, "admin": admin, "hospitals": hospitals,
         "history": history, "sources": sources, "shocks": shocks,
         "source_params": source_params, "benchmark_bias": benchmark_bias,
+        "mechanisms": mechanisms, "survey_params": survey_params,
         "ticks": {"snapshot": snapshot, "preliminary": preliminary_tick,
                   "revised": revised_tick, "horizon": snapshot + months},
     }
+
+
+def _recent_admission(history: dict, state: dict, tick: int, window: int = 12) -> np.ndarray:
+    """True indicator, per living person in ledger order, of an admission in the window.
+
+    This is the quantity the survey's health anchor reports with error.  It is read off
+    the ledger, never off the health source, so the anchor stays independent of the
+    inclusion rule it is there to identify.
+    """
+    event = history["event"]
+    recent = ((event["event_type"] == EVENT_TYPES["encounter_admitted"])
+              & (event["tick"] > tick - window) & (event["tick"] <= tick))
+    admitted = np.zeros(len(state["person"]["truth_person_id"]), dtype=np.bool_)
+    position = ((event["truth_person_id"][recent] & np.uint64(SEQUENCE_MASK))
+                .astype(np.int64) - 1)
+    admitted[position[(position >= 0) & (position < len(admitted))]] = True
+    return admitted[np.flatnonzero(state["person"]["is_alive"])]
 
 
 def _survey_at(built: dict, tick: int) -> dict:
@@ -111,7 +167,9 @@ def _survey_at(built: dict, tick: int) -> dict:
     population = np.bincount(person["cell"], minlength=height * width).reshape(height, width)
     micro = {"person": person, "household_cell": household_cell,
              "urbanity": built["micro"]["urbanity"], "n_households": len(household_cell)}
-    survey = draw_survey(micro, population, built["seed"] + tick)
+    survey = draw_survey(micro, population, built["seed"] + tick,
+                         params=built["survey_params"],
+                         recent_admission=_recent_admission(built["history"], state, tick))
     # Participant view: the survey carries the county, not the grid cell, and a
     # survey-local household number rather than the world's household index.
     public = dict(survey["survey"])
@@ -128,6 +186,150 @@ def _survey_at(built: dict, tick: int) -> dict:
     public["household"] = public["household"].astype(np.int64)
     survey["survey"] = public
     return survey
+
+
+EXPERIENCE_COLUMNS = ("year", "age_band", "sex", "state", "exposure", "deaths",
+                      "qualifying_events", "net_migration")
+
+
+def _experience_history(built: dict, admin: dict, obligation: ObligationContract,
+                        years: int, lag_months: int) -> dict:
+    """Five years of aggregate demographic experience, by year, band, sex, and state.
+
+    Two snapshots do not identify a five-year mortality trend, so the packet ships the
+    trend's own evidence: person-years of exposure, deaths, first qualifying health
+    events, and net internal migration, all aggregate.  Exposure comes from the same
+    person-month reading pass the actuarial truth uses, so a rate and its denominator
+    can never disagree.
+
+    The series stops ``lag_months`` before the revised snapshot, the way published
+    demographic experience always lags collection.  Without that lag the most recent
+    year's exposure would be a near-exact contemporaneous population count by state, and
+    the scored state-level counts would come free with the anchor.
+    """
+    history, ticks = built["history"], built["ticks"]
+    county_state = np.asarray(admin["county_state"], dtype=np.int64)
+    county_flat = np.asarray(admin["county"], dtype=np.int64).reshape(-1)
+    n_states = int(admin["n_states"])
+    region = regions_from_admin(admin)
+    last = ticks["revised"] - int(lag_months)
+    boundary = [last - 12 * (years - y) for y in range(years + 1)]
+    states = [replay_event_history(history, tick) for tick in boundary]
+
+    rows = {name: [] for name in EXPERIENCE_COLUMNS}
+    for y in range(1, years + 1):
+        start, begin, end = boundary[y - 1], states[y - 1], states[y]
+        result = actuarial_pass(begin, history["event"], admin, start, 12,
+                                obligation, region)
+        shape = (n_states,) + result["exposure_person_months"].shape[1:]
+        by_state = {}
+        for name in ("exposure_person_months", "deaths", "qualifying_events"):
+            cube = np.zeros(shape, dtype=np.float64)
+            np.add.at(cube, county_state, result[name])
+            by_state[name] = cube
+        migration = _net_internal_migration(begin, end, county_flat, county_state,
+                                            boundary[y], shape)
+        for b, band in enumerate(ACTUARIAL_AGE_BAND_LABELS):
+            for x, sex in enumerate(SEX_LABELS):
+                for unit in range(n_states):
+                    rows["year"].append(y)
+                    rows["age_band"].append(band)
+                    rows["sex"].append(sex)
+                    rows["state"].append(unit)
+                    rows["exposure"].append(by_state["exposure_person_months"][unit, x, b] / 12.0)
+                    rows["deaths"].append(by_state["deaths"][unit, x, b])
+                    rows["qualifying_events"].append(by_state["qualifying_events"][unit, x, b])
+                    rows["net_migration"].append(migration[unit, x, b])
+    return {"year": np.asarray(rows["year"], dtype=np.int64),
+            "age_band": np.asarray(rows["age_band"]),
+            "sex": np.asarray(rows["sex"]),
+            "state": np.asarray(rows["state"], dtype=np.int64),
+            "exposure": np.asarray(rows["exposure"], dtype=np.float64),
+            "deaths": np.asarray(rows["deaths"], dtype=np.int64),
+            "qualifying_events": np.asarray(rows["qualifying_events"], dtype=np.int64),
+            "net_migration": np.asarray(rows["net_migration"], dtype=np.int64)}
+
+
+def _net_internal_migration(begin: dict, end: dict, county_flat: np.ndarray,
+                            county_state: np.ndarray, end_tick: int,
+                            shape: tuple) -> np.ndarray:
+    """Arrivals minus departures per state, band, and sex, over persons alive at both ends."""
+    n = len(begin["person"]["truth_person_id"])
+    alive = begin["person"]["is_alive"] & end["person"]["is_alive"][:n]
+    from_state = county_state[np.maximum(county_flat[begin["person"]["cell"][:n]], 0)]
+    to_state = county_state[np.maximum(county_flat[end["person"]["cell"][:n]], 0)]
+    moved = np.flatnonzero(alive & (from_state != to_state))
+    net = np.zeros(shape, dtype=np.int64)
+    if not len(moved):
+        return net
+    age = np.maximum(0, (end_tick - end["person"]["birth_tick"][:n][moved]) // 12)
+    band = np.clip(np.searchsorted(
+        np.asarray([18, 45, 65, 75, 85]), age, side="right"), 0, len(ACTUARIAL_AGE_BAND_LABELS) - 1)
+    sex = end["person"]["sex"][:n][moved].astype(np.int64)
+    np.add.at(net, (to_state[moved], sex, band), 1)
+    np.add.at(net, (from_state[moved], sex, band), -1)
+    return net
+
+
+
+RESERVE_WEIGHT_RANGE = (0.5, 2.0)
+
+
+def reserve_weights(population: dict, county_state: np.ndarray, tick: int,
+                    n_regions: int, spread: float) -> np.ndarray:
+    """Published shortfall weights w_r, one per region, from a participant file.
+
+    An uncovered obligation costs more where the very old are concentrated, so the
+    weights ride a public ladder over the regions ranked by their share of persons 85 and
+    over in the revised population source. Ranking a share rather than a count keeps the
+    ladder from restating region size, which is what would make a size-proportional
+    reserve optimal by construction. The register the share is read from is a participant
+    file, so a method reproduces the ladder exactly; the numbers are published in the
+    contract regardless, and nothing sealed enters them.
+    """
+    state = np.asarray(county_state, dtype=np.int64)[
+        np.asarray(population["county"], dtype=np.int64)]
+    age = (int(tick) - np.asarray(population["birth_tick"], dtype=np.int64)) // 12
+    total = np.bincount(state, minlength=n_regions).astype(np.float64)
+    oldest = np.bincount(state[age >= 85], minlength=n_regions).astype(np.float64)
+    share = np.divide(oldest, total, out=np.zeros(n_regions), where=total > 0)
+    rank = np.argsort(np.argsort(share, kind="stable"), kind="stable")
+    low, high = RESERVE_WEIGHT_RANGE
+    if n_regions < 2:
+        return np.ones(n_regions)
+    centre = (low * high) ** 0.5
+    half = float(spread) ** 0.5
+    ladder = np.exp(np.linspace(np.log(centre / half), np.log(centre * half), n_regions))
+    return np.round(ladder[rank], 4)
+
+
+def reserve_baseline_share(population: dict, county_state: np.ndarray, tick: int,
+                           n_regions: int, min_age: int) -> np.ndarray:
+    """Published regional size behind the frozen practical baseline A_B.
+
+    The share of persons at or above the obligation's eligibility age, by region, in the
+    revised population source. It is a participant file, so a submission reproduces the
+    baseline exactly and knows what it has to beat. Holding a reserve in proportion to how
+    many people it covers is what a practitioner does with no regional tail model.
+    """
+    state = np.asarray(county_state, dtype=np.int64)[
+        np.asarray(population["county"], dtype=np.int64)]
+    age = (int(tick) - np.asarray(population["birth_tick"], dtype=np.int64)) // 12
+    eligible = np.bincount(state[age >= int(min_age)], minlength=n_regions).astype(np.float64)
+    if eligible.sum() <= 0:
+        return np.full(n_regions, 1.0 / max(n_regions, 1))
+    return np.round(eligible / eligible.sum(), 6)
+
+
+def _rate_truth_rows(truth: dict) -> dict:
+    """Long rows of the retained exposure and rate truth, in a committed order."""
+    keys = sorted(truth)
+    return {"estimand": np.asarray([k[0] for k in keys]),
+            "level": np.asarray([k[1] for k in keys]),
+            "unit": np.asarray([k[2] for k in keys], dtype=np.int64),
+            "sex": np.asarray([k[3] for k in keys]),
+            "age_band": np.asarray([k[4] for k in keys]),
+            "value": np.asarray([truth[k] for k in keys], dtype=np.float64)}
 
 
 def _truth_at(built: dict, tick: int) -> tuple[dict, np.ndarray]:
@@ -168,8 +370,12 @@ def _sha256(path: Path) -> str:
 
 
 def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams(),
-                 development: bool = False) -> dict:
-    """Write one packet and return its manifest."""
+                 development: bool = False, workers: int = 1) -> dict:
+    """Write one packet and return its manifest.
+
+    ``workers`` divides the continuation ensemble between processes and changes nothing
+    else: every member is a deterministic function of the seed and its own index.
+    """
     out_dir = Path(out_dir)
     if out_dir.exists():
         raise FileExistsError(f"packet directory already exists: {out_dir}")
@@ -198,14 +404,57 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         _write_table(participant / "sources" / f"benchmark_{label}.csv",
                      benchmark_values(exact, built["benchmark_bias"], admin["n_states"]),
                      forbid_truth=True)
+    county_flat = np.asarray(admin["county"], dtype=np.int64).reshape(-1)
     _write_table(participant / "geography.csv",
                  {"county": np.arange(admin["n_counties"], dtype=np.int64),
-                  "state": admin["county_state"].astype(np.int64)}, forbid_truth=True)
+                  "state": admin["county_state"].astype(np.int64),
+                  "land_cells": np.bincount(county_flat[county_flat >= 0],
+                                            minlength=int(admin["n_counties"])).astype(np.int64)},
+                 forbid_truth=True)
+    obligation = ObligationContract(
+        horizon_months=params.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
+    _write_table(participant / "experience_history.csv",
+                 _experience_history(built, admin, obligation, params.experience_years,
+                                     params.experience_lag_months),
+                 forbid_truth=True)
     population_revised = snapshots["revised"]["population"]
     age_years = (ticks["revised"] - population_revised["birth_tick"]) // 12
     budget = int(round(params.budget_fraction * int((age_years >= 65).sum())))
+
+    # The tail truth: M committed continuations from the branch state the ledger kept at
+    # the revised snapshot, priced into regional present values. Member zero is the
+    # ledger's own future, so the realized path and the horizon truth tables are one
+    # world. Nothing about the ensemble crosses to the participant side except the single
+    # aggregate the protocol publishes on purpose, the reserve total.
+    thresholds = ActuarialThresholds()
+    region_of_county = regions_from_admin(admin)
+    n_regions = int(admin["n_states"])
+    weights = reserve_weights(population_revised, admin["county_state"], ticks["revised"],
+                              n_regions, params.reserve_weight_spread)
+    baseline_share = reserve_baseline_share(population_revised, admin["county_state"],
+                                            ticks["revised"], n_regions,
+                                            obligation.eligibility_min_age)
+    liability = continuation_liabilities(built["history"], admin, ticks["revised"],
+                                         params.horizon_months, obligation,
+                                         params.ensemble_members, region_of_county,
+                                         workers=workers)
+    tail = ensemble_truth(liability)
+    reserve = {"obligation": obligation.as_public(),
+               "total": reserve_total(tail["q"], tail["es"], thresholds),
+               "gamma": thresholds.gamma,
+               "regions": "state",
+               "weights": [float(w) for w in weights],
+               "baseline_share": [float(v) for v in baseline_share],
+               "baseline_rule": "A_B splits the total in proportion to each region's share "
+                                "of persons at or above the eligibility age in the revised "
+                                "population source",
+               "rounding_unit": thresholds.reserve_rounding_unit,
+               "weight_rule": "public ladder over regions ranked by the share of persons "
+                              "85 and over in the revised population source",
+               "members": int(params.ensemble_members)}
     contract = {
-        "schema": "meridia.packet.v0",
+        "schema": "meridia.packet.v4",
         "estimands": [asdict(e) for e in ESTIMANDS],
         "levels": list(LEVELS),
         "n_states": int(admin["n_states"]),
@@ -216,6 +465,46 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
         "months_per_tick": 1,
         "disclosure_threshold": params.disclosure_threshold,
         "allocation": {"demand": DEMAND_ESTIMAND, "level": "county", "budget": budget},
+        "mechanisms": contract_block(),
+        "obligation": obligation.as_public(),
+        "reserve": reserve,
+        "actuarial_age_bands": list(ACTUARIAL_AGE_BAND_LABELS),
+        "shock_family": {
+            "annual_rate": params.shock_annual_rate,
+            "kinds": {kind: {field: list(bounds) for field, bounds in fields.items()}
+                      for kind, fields in SHOCK_FAMILY.items()},
+            "note": "one draw per year, independent across years; the fields of one kind "
+                    "move together on a single draw; the five-year experience file "
+                    "carries the realized years",
+        },
+        "health_anchor": {
+            "file": "survey_revised.csv",
+            "item": "recent_hospitalization",
+            "window_months": 12,
+            "sensitivity": SurveyParams().anchor_sensitivity,
+            "specificity": SurveyParams().anchor_specificity,
+        },
+        "survey_family": {
+            "unit_response": "logit p_respond = a_0 + a_age * (head age - 45)"
+                             " + a_income * (log income - median) + a_urban * urbanity",
+            "item_missing": "per variable, a base rate with an extra logit in the"
+                            " reported value itself for money",
+            "measurement": "multiplicative lognormal money error; ages heaped to a"
+                           " multiple of five with a fixed probability",
+            "bands": {name: list(bounds) for name, bounds in sorted(SURVEY_BANDS.items())},
+            "note": "one continuous draw per world inside each band; the realized values"
+                    " are not published",
+        },
+        "experience_history": {
+            "file": "experience_history.csv",
+            "columns": list(EXPERIENCE_COLUMNS),
+            "years": params.experience_years,
+            "level": "state",
+            "age_bands": list(ACTUARIAL_AGE_BAND_LABELS),
+            "exposure_unit": "person-years",
+            "publication_lag_months": params.experience_lag_months,
+            "last_year_ends_at_tick": ticks["revised"] - params.experience_lag_months,
+        },
         "development": development,
     }
     (participant / "contract.json").write_text(json.dumps(contract, indent=1, sort_keys=True) + "\n")
@@ -227,12 +516,20 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     _write_table(retained / "truth_revised.csv", _truth_rows(truth_revised), forbid_truth=False)
     _write_table(retained / "truth_horizon.csv", _truth_rows(future["truth"]), forbid_truth=False)
     _write_table(retained / "detailed_revised.csv", _detailed_rows(detailed), forbid_truth=False)
+    _write_table(retained / "rate_truth_horizon.csv",
+                 _rate_truth_rows(rate_truth_from_history(
+                     built["history"], admin, ticks["revised"], params.horizon_months,
+                     obligation)), forbid_truth=False)
+    np.savez_compressed(retained / "continuation_liabilities.npz", liability=liability,
+                        realized_member=np.int64(0), weights=weights)
     sealed = {k: v for k, v in built["sources"].items() if k != "public_snapshots"}
     np.savez_compressed(retained / "source_evidence.npz", **_flatten(sealed))
     (retained / "world.json").write_text(json.dumps({
         "seed": seed, "character": built["character"]["draw"], "shocks": built["shocks"],
         "ticks": ticks, "params": asdict(params), "regime": params.regime,
         "source_params": asdict(built["source_params"]),
+        "mechanisms": built["mechanisms"].record(),
+        "survey_params": asdict(built["survey_params"]),
         "benchmark_bias": {k: np.asarray(v).tolist() for k, v in built["benchmark_bias"].items()},
     }, indent=1, sort_keys=True, default=str) + "\n")
     if development:

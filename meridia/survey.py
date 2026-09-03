@@ -12,7 +12,9 @@ planted pathologies, each with retained truth:
   the mechanism through the *reported* variable itself,
 - item nonresponse: per-variable missingness with its own mechanism,
 - measurement error: multiplicative income misreporting and age heaping to multiples of
-  five, applied to reported values only.
+  five, applied to reported values only,
+- one health anchor: a recent-hospitalization item reported with a declared sensitivity
+  and specificity, which is what keeps informative health-source inclusion identifiable.
 
 The participant-facing file carries reported values and design metadata; the truth
 bundle carries true values, inclusion probabilities, response indicators, and error
@@ -42,6 +44,36 @@ class SurveyParams:
     item_education_rate: float = 0.07
     income_error_sigma: float = 0.12     # multiplicative lognormal misreporting
     age_heaping_prob: float = 0.22       # ages reported to the nearest multiple of five
+    anchor_sensitivity: float = 0.82     # health anchor: reported given a true admission
+    anchor_specificity: float = 0.93     # health anchor: not reported given no admission
+
+
+# Published bands for the instrument's own mechanism, one continuous draw per world.
+# Version four's first pass drew twenty source rates per world and left these nine at
+# their dataclass defaults, so the whole nonresponse and measurement model was the same
+# in every world and estimable exactly on the development worlds, which ship truth. The
+# form is public and written into the packet contract; a world's realized values are
+# retained. The anchor's sensitivity and specificity are deliberately not in this table:
+# they are declared to the participant, which is what makes the anchor an anchor.
+SURVEY_BANDS = {
+    "response_intercept": (0.90, 1.95),
+    "response_age": (0.004, 0.026),
+    "response_income": (-0.62, -0.10),
+    "response_urban": (-0.85, -0.15),
+    "item_income_rate": (0.10, 0.27),
+    "item_income_mnar": (0.25, 0.95),
+    "item_education_rate": (0.030, 0.115),
+    "income_error_sigma": (0.06, 0.19),
+    "age_heaping_prob": (0.10, 0.35),
+}
+
+
+def draw_survey_params(seed: int, params: SurveyParams = SurveyParams()) -> SurveyParams:
+    """One world's survey instrument: the sample design fixed, the mechanism drawn."""
+    from dataclasses import replace
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0x5A12]))
+    return replace(params, **{name: float(rng.uniform(lo, hi))
+                              for name, (lo, hi) in SURVEY_BANDS.items()})
 
 
 def assign_strata(height: int, width: int, params: SurveyParams) -> np.ndarray:
@@ -52,8 +84,17 @@ def assign_strata(height: int, width: int, params: SurveyParams) -> np.ndarray:
 
 
 def draw_survey(micro: dict, population: np.ndarray, seed: int,
-                params: SurveyParams = SurveyParams()) -> dict:
-    """Draw one survey: sample, response, and reported values, with retained truth."""
+                params: SurveyParams = SurveyParams(),
+                recent_admission: np.ndarray | None = None) -> dict:
+    """Draw one survey: sample, response, and reported values, with retained truth.
+
+    ``recent_admission`` is the true indicator that a person was admitted to hospital in
+    the twelve months before the reference tick.  It is reported through a misclassified
+    item with a declared sensitivity and specificity, both published in the packet
+    contract.  That item is the independent health anchor: the sample is drawn without
+    reference to health-register inclusion, so an informative inclusion rule stays
+    estimable instead of being restated by the register that caused it.
+    """
     height, width = population.shape
     rng = np.random.default_rng(np.random.SeedSequence([seed, 0x5A11]))
     person = micro["person"]
@@ -131,6 +172,16 @@ def draw_survey(micro: dict, population: np.ndarray, seed: int,
     reported_education = true_education.astype(np.float64)
     reported_education[education_missing] = np.nan
 
+    # Health anchor: a misclassified report of a recent hospital admission.
+    if recent_admission is None:
+        true_admission = np.zeros(len(idx), dtype=np.bool_)
+    else:
+        true_admission = np.asarray(recent_admission, dtype=np.bool_)[idx]
+    flip = np.where(true_admission,
+                    rng.random(len(idx)) >= params.anchor_sensitivity,
+                    rng.random(len(idx)) >= params.anchor_specificity)
+    reported_admission = (true_admission ^ flip).astype(np.int8)
+
     hh_index = {int(h): j for j, h in enumerate(resp_hh)}
     design_weight = np.array([1.0 / resp_prob[hh_index[int(h)]]
                               for h in person["household"][idx]])
@@ -145,9 +196,12 @@ def draw_survey(micro: dict, population: np.ndarray, seed: int,
             "sex": person["sex"][idx],
             "education": reported_education,
             "income": reported_income,
+            "recent_hospitalization": reported_admission,
         },
         "truth": {
             "person_index": idx,
+            "recent_admission": true_admission,
+            "recent_admission_misreported": flip,
             "age": true_age,
             "income": true_income,
             "education": true_education,

@@ -33,8 +33,21 @@ import numpy as np
 
 from meridia.events import EVENT_TYPES, replay_event_history
 from meridia.identities import SEQUENCE_MASK, truth_world_id
+from meridia.mechanisms import (WorldMechanisms, build_world_mechanisms, expit,
+                                logit, quintile_band)
 
 OBSERVED_SOURCES: Final = ("population", "business", "income", "health")
+
+# Observed-token namespaces.  Each source draws a record, a primary entity, and a
+# secondary entity pool per vintage: the second entry of each pair is the replacement
+# pool an identifier moves into when it does not persist across vintages.
+TOKEN_DOMAINS: Final = {
+    "population": {"record": (0, 18), "primary": (1, 19), "secondary": (2, 20)},
+    "business": {"record": (3, 21), "primary": (4, 22), "secondary": (5, 23)},
+    "income": {"record": (6, 24), "primary": (7, 25), "secondary": (8, 26)},
+    "health": {"record": (9, 27), "primary": (10, 28), "secondary": (11, 29)},
+}
+IDENTIFIER_RECENT_MOVE_MONTHS: Final = 12
 
 MECHANISM_BITS: Final = {
     "duplicate": 1,
@@ -133,12 +146,14 @@ _MECHANISM_SCHEMA: Final = {
 
 @dataclass(frozen=True)
 class SourceParams:
-    """Public mechanism rates for the four imperfect sources.
+    """National base rates for the four imperfect sources.
 
-    The defaults are the centre of the development band.  ``draw_source_params`` draws
-    a world's own values for the four quantities that vary by world (population and
-    health coverage, county miscoding, register income scale); the reporting-error
-    rates for names, birth ticks, and sex are fixed constants.
+    Every field is a per-world continuous draw from the published development band, and
+    none of them is the rate any single record actually experiences: the base rate is
+    the intercept of a published family whose slopes are the world's hidden mechanism
+    coefficients and whose county effects are drawn per world.  Version three froze
+    fifteen of these nineteen numbers across every world, so a participant could measure
+    them once on development and carry them unchanged to the hidden world.
     """
 
     population_coverage: float = 0.965
@@ -170,8 +185,24 @@ class SourceParams:
 SOURCE_REGIMES: Final = ("development", "hidden")
 DEVELOPMENT_BAND: Final = {
     "population_coverage": (0.940, 0.985),
+    "business_coverage": (0.900, 0.970),
+    "income_coverage": (0.855, 0.940),
     "health_coverage": (0.900, 0.950),
+    "outpost_coverage_penalty": (0.090, 0.185),
+    "duplicate_rate": (0.014, 0.038),
+    "split_rate": (0.006, 0.020),
+    "merge_rate": (0.005, 0.017),
     "county_error_rate": (0.012, 0.024),
+    "linkage_error_rate": (0.020, 0.052),
+    "item_missing_rate": (0.048, 0.105),
+    "name_given_alternate_rate": (0.024, 0.058),
+    "name_family_variant_rate": (0.024, 0.058),
+    "name_transposed_rate": (0.005, 0.017),
+    "name_missing_rate": (0.008, 0.024),
+    "birth_month_slip_rate": (0.024, 0.058),
+    "birth_year_round_rate": (0.017, 0.045),
+    "birth_year_shift_rate": (0.005, 0.017),
+    "sex_miscode_rate": (0.003, 0.010),
     "register_income_scale": (0.94, 1.06),
 }
 HIDDEN_SHIFT: Final = {
@@ -199,29 +230,22 @@ def draw_source_params(
     if not np.isfinite(payroll_level) or payroll_level <= 0.0:
         raise ValueError("payroll_level must be positive")
     rng = np.random.default_rng(np.random.SeedSequence([int(seed), 0xC4A3]))
-    if regime == "development":
-        population_coverage = rng.uniform(*DEVELOPMENT_BAND["population_coverage"])
-        health_coverage = rng.uniform(*DEVELOPMENT_BAND["health_coverage"])
-        county_error_rate = rng.uniform(*DEVELOPMENT_BAND["county_error_rate"])
-        register_income_scale = rng.uniform(*DEVELOPMENT_BAND["register_income_scale"])
-    else:
-        population_coverage = DEVELOPMENT_BAND["population_coverage"][0] - rng.uniform(
+    values = {
+        name: float(rng.uniform(*band)) for name, band in sorted(DEVELOPMENT_BAND.items())
+    }
+    if regime == "hidden":
+        values["population_coverage"] = DEVELOPMENT_BAND["population_coverage"][0] - rng.uniform(
             *HIDDEN_SHIFT["population_coverage_below"]
         )
-        health_coverage = DEVELOPMENT_BAND["health_coverage"][0] - rng.uniform(
+        values["health_coverage"] = DEVELOPMENT_BAND["health_coverage"][0] - rng.uniform(
             *HIDDEN_SHIFT["health_coverage_below"]
         )
-        county_error_rate = DEVELOPMENT_BAND["county_error_rate"][1] * rng.uniform(
+        values["county_error_rate"] = DEVELOPMENT_BAND["county_error_rate"][1] * rng.uniform(
             *HIDDEN_SHIFT["county_error_multiplier"]
         )
         side = "income_level_high" if rng.random() < 0.5 else "income_level_low"
-        register_income_scale = rng.uniform(*HIDDEN_SHIFT[side]) / float(payroll_level)
-    params = SourceParams(
-        population_coverage=float(population_coverage),
-        health_coverage=float(health_coverage),
-        county_error_rate=float(county_error_rate),
-        register_income_scale=float(register_income_scale),
-    )
+        values["register_income_scale"] = rng.uniform(*HIDDEN_SHIFT[side]) / float(payroll_level)
+    params = SourceParams(**{name: float(value) for name, value in values.items()})
     _validate_params(params)
     return params
 
@@ -828,7 +852,7 @@ def _reported_identity(
     rng: np.random.Generator,
     count: int,
     identity: dict,
-    params: SourceParams,
+    rates: dict[str, np.ndarray],
     linkage_error: np.ndarray,
     split: np.ndarray,
     merge_pairs: np.ndarray,
@@ -871,17 +895,17 @@ def _reported_identity(
     name_error = np.zeros((count, 2), dtype=np.bool_)
     birth_error = np.zeros((count, 2), dtype=np.bool_)
     for slot in range(2):
-        alternate = rng.random(count) < params.name_given_alternate_rate
+        alternate = rng.random(count) < rates["name_given_alternate"]
         alternate_given = rng.choice(n_given, size=count, p=identity["given_weights"]) if count else np.empty(0, dtype=np.int64)
-        variant = rng.random(count) < params.name_family_variant_rate
-        swap = rng.random(count) < params.name_transposed_rate
-        missing = rng.random(count) < params.name_missing_rate
-        slip = rng.random(count) < params.birth_month_slip_rate
+        variant = rng.random(count) < rates["name_family_variant"]
+        swap = rng.random(count) < rates["name_transposed"]
+        missing = rng.random(count) < rates["name_missing"]
+        slip = rng.random(count) < rates["birth_month_slip"]
         slip_size = rng.integers(1, 4, size=count) * np.where(rng.random(count) < 0.5, -1, 1)
-        rounding = rng.random(count) < params.birth_year_round_rate
-        year_shift = rng.random(count) < params.birth_year_shift_rate
+        rounding = rng.random(count) < rates["birth_year_round"]
+        year_shift = rng.random(count) < rates["birth_year_shift"]
         year_sign = np.where(rng.random(count) < 0.5, -12, 12)
-        miscode = rng.random(count) < params.sex_miscode_rate
+        miscode = rng.random(count) < rates["sex_miscode"]
         if slot == 1:
             variant = np.where(split, ~family_variant[:, 0], variant)
 
@@ -921,43 +945,220 @@ def _reported_identity(
     }
 
 
+def _record_mechanism_rates(
+    params: SourceParams,
+    mechanisms: WorldMechanisms,
+    source: str,
+    county: np.ndarray,
+    band: np.ndarray,
+    frailty: np.ndarray,
+    age_years: np.ndarray,
+    coverage_base: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Per-record probability of every declared defect, from the published families.
+
+    The forms are in ``mechanisms.contract_block``; the slopes and the county effects
+    are the world's hidden coefficients.  Rurality drives name, address, and linkage
+    error; county economic condition drives coverage and item missingness; latent
+    frailty drives health-source inclusion, at a slope the completeness axis modulates;
+    the record's own money band drives missingness on the value being estimated.  None of these is a world constant, so a
+    rate measured on one world does not transfer to another.
+    """
+    coefficients = mechanisms.coefficients
+    urban = mechanisms.covariate("urban", county)
+    econ = mechanisms.covariate("econ", county)
+    elder = mechanisms.covariate("elder", county)
+    linkage_shift = (
+        float(coefficients["linkage_urban_gradient"]) * (0.5 - urban)
+        + float(coefficients["linkage_intercept_shift"])
+        + mechanisms.effect("linkage", county)
+    )
+    coverage_shift = (
+        float(coefficients["administrative_completeness"]) * (econ - 0.5)
+        + float(coefficients["coverage_elder_slope"]) * (elder - 0.5)
+        + float(coefficients["coverage_intercept_shift"])
+        + mechanisms.effect("coverage", county)
+    )
+    if source == "health":
+        # The target-dependence axis carries exactly one mechanism: how strongly health
+        # inclusion reads latent morbidity. Its declared interaction with administrative
+        # completeness is the product of two axes, so a method that fits the two
+        # separately on the design does not transfer to a configuration it has not seen.
+        frailty_slope = float(coefficients["missingness_target_dependence"]) * (
+            1.0
+            + float(coefficients["health_inclusion_completeness_by_target"])
+            * (float(coefficients["administrative_completeness"]) - 1.0)
+        )
+        coverage_shift = coverage_shift + frailty_slope * np.log(np.clip(frailty, 0.15, 6.0))
+    # Item missingness on the money value has its own money-band slope. In version four's
+    # first pass this was the target-dependence axis again, which loaded one coefficient
+    # onto two mechanisms with different targets and left neither identified.
+    missing_shift = (
+        float(coefficients["item_missing_econ_slope"]) * (econ - 0.5)
+        + float(coefficients["item_missing_band_slope"])
+        * (np.asarray(band, dtype=np.float64) - 2.0)
+        / 2.0
+        + mechanisms.effect("coverage", county)
+    )
+    age_multiplier = (
+        float(coefficients["age_reporting_error"])
+        * float(coefficients.get("age_error_mortality_scale", 1.0))
+        * (
+            1.0
+            + float(coefficients["age_error_age_slope"])
+            * (np.asarray(age_years, dtype=np.float64) - 45.0)
+            / 40.0
+        )
+    )
+    age_multiplier = np.clip(age_multiplier, 0.05, 6.0)
+
+    def shifted(base: float, shift: np.ndarray, multiplier=1.0) -> np.ndarray:
+        level = np.clip(np.asarray(base, dtype=np.float64) * multiplier, 1e-6, 0.60)
+        return np.clip(expit(logit(level) + shift), 1e-6, 0.90)
+
+    return {
+        "covered": np.clip(
+            expit(logit(np.clip(coverage_base, 1e-4, 0.9999)) + coverage_shift),
+            1e-4,
+            0.9999,
+        ),
+        "duplicate": shifted(params.duplicate_rate, linkage_shift),
+        "split": shifted(params.split_rate, linkage_shift),
+        "merge": shifted(params.merge_rate, linkage_shift),
+        "county_error": shifted(params.county_error_rate, linkage_shift),
+        "linkage_error": shifted(params.linkage_error_rate, linkage_shift),
+        "item_missing": shifted(params.item_missing_rate, missing_shift),
+        "name_given_alternate": shifted(params.name_given_alternate_rate, linkage_shift),
+        "name_family_variant": shifted(params.name_family_variant_rate, linkage_shift),
+        "name_transposed": shifted(params.name_transposed_rate, linkage_shift),
+        "name_missing": shifted(params.name_missing_rate, linkage_shift),
+        "birth_month_slip": shifted(params.birth_month_slip_rate, linkage_shift, age_multiplier),
+        "birth_year_round": shifted(params.birth_year_round_rate, linkage_shift, age_multiplier),
+        "birth_year_shift": shifted(params.birth_year_shift_rate, linkage_shift, age_multiplier),
+        "sex_miscode": shifted(params.sex_miscode_rate, linkage_shift),
+    }
+
+
+def _identifier_persistence(
+    mechanisms: WorldMechanisms, county: np.ndarray, recent_move: np.ndarray
+) -> np.ndarray:
+    """Probability that an observed identifier survives from one vintage to the next.
+
+    Version three drew one identifier per truth entity and reused it in both vintages,
+    so a preliminary-to-revised join was exact and longitudinal matching was free.  Here
+    persistence is a declared family in the county's urbanity and whether the entity
+    moved recently, and the stale-address term is itself scaled by the world's migration
+    intensity: that product of two axes is the migration by stale-address-linkage
+    interaction the protocol predeclares.  A world that moves people harder also loses
+    their identifiers faster, so linkage quality cannot be read off urbanity alone.
+    """
+    coefficients = mechanisms.coefficients
+    urban = mechanisms.covariate("urban", county)
+    move_term = float(coefficients["id_persist_recent_move"]) * (
+        1.0
+        + float(coefficients["id_persist_move_by_migration"])
+        * (float(coefficients["migration_age_pattern"]) - 1.0)
+    )
+    return expit(
+        float(coefficients["id_persist_intercept"])
+        + float(coefficients["id_persist_urban"]) * (urban - 0.5)
+        + move_term * np.asarray(recent_move, dtype=np.float64)
+        + mechanisms.effect("id_persist", county)
+    )
+
+
+def _vintage_identifiers(
+    seed: int,
+    source_index: int,
+    vintage: int,
+    count: int,
+    domains: dict[str, tuple[int, int]],
+    persistence: np.ndarray,
+    reissue_rate: float,
+    merge_pairs: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Record and entity identifiers for one vintage of one source.
+
+    Record identifiers are always fresh: a file row is not the same row next vintage.
+    An entity identifier survives with the declared probability, is replaced from a
+    second pool when it does not, and is sometimes reissued to a different entity.
+    """
+    rng = np.random.default_rng(
+        np.random.SeedSequence([int(seed), 0x1DC8, int(source_index), int(vintage)])
+    )
+    record_id = _random_tokens(seed, domains["record"][vintage], 2 * count).reshape(count, 2)
+    primary_id = _random_tokens(seed, domains["primary"][0], count)
+    secondary_id = _random_tokens(seed, domains["secondary"][0], count)
+    if vintage > 0 and count:
+        alternate_primary = _random_tokens(seed, domains["primary"][1], count)
+        alternate_secondary = _random_tokens(seed, domains["secondary"][1], count)
+        persists = rng.random(count) < np.asarray(persistence, dtype=np.float64)
+        released = np.flatnonzero(~persists)
+        primary_id = np.where(persists, primary_id, alternate_primary)
+        secondary_id = np.where(persists, secondary_id, alternate_secondary)
+        reissued = released[rng.random(len(released)) < float(reissue_rate)]
+        if len(reissued):
+            donor = _random_tokens(seed, domains["primary"][0], count)
+            primary_id[reissued] = donor[(reissued + 1) % count]
+    for pair in merge_pairs:
+        primary_id[int(pair[1])] = primary_id[int(pair[0])]
+    return {
+        "record_id": record_id,
+        "primary_id": primary_id.astype(np.uint64, copy=False),
+        "secondary_id": secondary_id.astype(np.uint64, copy=False),
+    }
+
+
 def _mechanism_plan(
     seed: int,
     source_index: int,
+    source: str,
     truth_ids: np.ndarray,
     county: np.ndarray,
     county_is_outpost: np.ndarray,
     coverage: float,
     params: SourceParams,
-    token_domains: tuple[int, int, int],
+    mechanisms: WorldMechanisms,
+    band: np.ndarray,
+    frailty: np.ndarray,
+    age_years: np.ndarray,
     identity: dict | None = None,
 ) -> dict:
+    """Everything about a source's defects that belongs to the truth entity itself.
+
+    Identifiers are not here: they are drawn per vintage by ``_vintage_identifiers``, so
+    the preliminary and revised files no longer share a record key.
+    """
     count = len(truth_ids)
     rng = np.random.default_rng(np.random.SeedSequence([seed, 0xAE61A7E, source_index]))
     probability = np.full(count, coverage, dtype=np.float64)
+    n_counties = len(county_is_outpost)
     if count:
         probability -= params.outpost_coverage_penalty * county_is_outpost[county]
-    covered = rng.random(count) < probability
-    split = rng.random(count) < params.split_rate
-    duplicate = (rng.random(count) < params.duplicate_rate) | split
-    county_error = rng.random(count) < params.county_error_rate
-    if len(county_is_outpost) == 1:
+    rates = _record_mechanism_rates(
+        params, mechanisms, source, county, band, frailty, age_years, probability
+    )
+    covered = rng.random(count) < rates["covered"]
+    split = rng.random(count) < rates["split"]
+    duplicate = (rng.random(count) < rates["duplicate"]) | split
+    county_error = rng.random(count) < rates["county_error"]
+    if n_counties == 1:
         county_error[:] = False
-    linkage_error = rng.random(count) < params.linkage_error_rate
-    item_missing = rng.random(count) < params.item_missing_rate
+    linkage_error = rng.random(count) < rates["linkage_error"]
+    item_missing = rng.random(count) < rates["item_missing"]
+    county_error_offset = (
+        rng.integers(1, n_counties, size=count).astype(np.int32)
+        if n_counties > 1 and count
+        else np.zeros(count, dtype=np.int32)
+    )
 
-    primary_id = _random_tokens(seed, token_domains[1], count)
-    secondary_id = _random_tokens(seed, token_domains[2], count)
-    record_id = _random_tokens(seed, token_domains[0], 2 * count).reshape(count, 2)
     merge_group = np.full(count, -1, dtype=np.int64)
-    merge_candidate = np.flatnonzero(rng.random(count) < params.merge_rate)
+    merge_candidate = np.flatnonzero(rng.random(count) < rates["merge"])
     if len(merge_candidate) % 2:
         merge_candidate = merge_candidate[:-1]
     merge_pairs = merge_candidate.reshape(-1, 2)
     for group, pair in enumerate(merge_pairs):
-        first, second = int(pair[0]), int(pair[1])
-        primary_id[second] = primary_id[first]
-        merge_group[first] = merge_group[second] = group
+        merge_group[int(pair[0])] = merge_group[int(pair[1])] = group
 
     plan = {
         "truth_entity_id": np.asarray(truth_ids, dtype=np.uint64).copy(),
@@ -968,13 +1169,13 @@ def _mechanism_plan(
         "county_error": county_error.astype(np.bool_),
         "linkage_error": linkage_error.astype(np.bool_),
         "item_missing": item_missing.astype(np.bool_),
-        "primary_id": primary_id,
-        "secondary_id": secondary_id,
-        "record_id": record_id,
+        "county_error_offset": county_error_offset,
+        "merge_pairs": merge_pairs,
+        "rates": rates,
     }
     if identity is not None:
         plan.update(
-            _reported_identity(rng, count, identity, params, plan["linkage_error"], plan["split"], merge_pairs)
+            _reported_identity(rng, count, identity, rates, plan["linkage_error"], plan["split"], merge_pairs)
         )
     else:
         plan["name_error_slot"] = np.zeros((count, 2), dtype=np.bool_)
@@ -1039,9 +1240,7 @@ def _county_values(
     county = np.asarray(true_county[position], dtype=np.int32).copy()
     error = plan["county_error"][position]
     if error.any():
-        offset = (
-            plan["primary_id"][position[error]] % np.uint64(n_counties - 1) + 1
-        ).astype(np.int32)
+        offset = plan["county_error_offset"][position[error]].astype(np.int32)
         county[error] = (county[error] + offset) % n_counties
     return county
 
@@ -1157,6 +1356,31 @@ def _population_source(
     )
 
 
+def _local_money_scale(
+    mechanisms: WorldMechanisms,
+    income_scale: float,
+    county: np.ndarray,
+    band: np.ndarray,
+) -> np.ndarray:
+    """Register money unit for one record: s_cr = s_0 * exp(b1 urban_c + b2 band_r + u_c).
+
+    Version three multiplied every money value in both registers by one world-global
+    float, so a single national ratio of register earnings to survey income recovered
+    the unit exactly.  Here the unit varies by county and by income band, and the
+    survey still reports true-scale income in every county, so b1, b2 and the county
+    spread stay identifiable while the level does not fall out of one ratio.
+    """
+    coefficients = mechanisms.coefficients
+    urban = mechanisms.covariate("urban", county)
+    return float(income_scale) * np.exp(
+        float(coefficients["income_scale_urban"]) * (urban - 0.5)
+        + float(coefficients["income_scale_band"])
+        * (np.asarray(band, dtype=np.float64) - 2.0)
+        / 2.0
+        + mechanisms.effect("income_scale", county)
+    )
+
+
 def _business_source(
     state: dict,
     plan: dict,
@@ -1165,6 +1389,7 @@ def _business_source(
     n_counties: int,
     enterprise_id: np.ndarray,
     income_scale: float,
+    mechanisms: WorldMechanisms,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     establishment = state["establishment"]
     active = establishment["exists"] & establishment["is_active"]
@@ -1179,7 +1404,15 @@ def _business_source(
     enterprise_position = _sequence_position(
         establishment["truth_enterprise_id"][position]
     )
-    payroll_value = np.rint(payroll[position].astype(np.float64) * income_scale)
+    payroll_value = np.rint(
+        payroll[position].astype(np.float64)
+        * _local_money_scale(
+            mechanisms,
+            income_scale,
+            np.maximum(true_county[position], 0),
+            quintile_band(payroll)[position],
+        )
+    )
     payroll_value[plan["item_missing"][position]] = np.nan
     table = {
         "record_id": rows["record_id"],
@@ -1208,6 +1441,7 @@ def _income_source(
     history: dict,
     snapshot_tick: int,
     income_scale: float,
+    mechanisms: WorldMechanisms,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     person = state["person"]
     snapshot_county = _recorded_county(person["cell"], county_flat)
@@ -1230,7 +1464,15 @@ def _income_source(
     )
     true_county = snapshot_county.copy()
     true_county[position] = _recorded_county(lagged_cell, county_flat)
-    income = np.rint(earnings[position].astype(np.float64) * income_scale)
+    income = np.rint(
+        earnings[position].astype(np.float64)
+        * _local_money_scale(
+            mechanisms,
+            income_scale,
+            np.maximum(true_county[position], 0),
+            quintile_band(earnings)[position],
+        )
+    )
     missing = plan["item_missing"][position]
     income[missing] = np.nan
     selected_employer_position = employer_position[position]
@@ -1346,6 +1588,32 @@ def _health_source(
     )
 
 
+def _recent_move_flags(
+    history: dict,
+    truth_household_id: np.ndarray,
+    at_tick: int,
+    window: int = IDENTIFIER_RECENT_MOVE_MONTHS,
+) -> np.ndarray:
+    """One where the entity's household changed address inside the last ``window`` months.
+
+    This is the observable side of the migration by stale-address-linkage interaction:
+    a recent mover's register identifier is the one most likely to be reissued.
+    """
+    event = history["event"]
+    address_change = np.isin(
+        event["event_type"],
+        np.asarray(
+            [EVENT_TYPES["household_moved"], EVENT_TYPES["household_formed"]],
+            dtype=event["event_type"].dtype,
+        ),
+    )
+    recent = address_change & (event["tick"] > at_tick - window) & (event["tick"] <= at_tick)
+    moved_households = np.unique(event["truth_household_id"][recent])
+    return np.isin(
+        np.asarray(truth_household_id, dtype=np.uint64), moved_households
+    ).astype(np.float64)
+
+
 def _build_observed_sources_unchecked(
     history: dict,
     seed: int,
@@ -1354,6 +1622,7 @@ def _build_observed_sources_unchecked(
     preliminary_tick: int,
     revised_tick: int,
     params: SourceParams,
+    mechanisms: WorldMechanisms,
 ) -> dict:
     county_flat = np.asarray(admin["county"], dtype=np.int64).reshape(-1)
     n_counties = int(admin["n_counties"])
@@ -1389,12 +1658,7 @@ def _build_observed_sources_unchecked(
         "income": person_county,
         "health": encounter_county,
     }
-    domains = {
-        "population": (0, 1, 2),
-        "business": (3, 4, 5),
-        "income": (6, 7, 8),
-        "health": (9, 10, 11),
-    }
+    domains = TOKEN_DOMAINS
     n_persons = _table_length(person)
     vocabulary = _name_vocabulary(seed)
     true_given, true_family = _true_names(seed, vocabulary, n_persons)
@@ -1416,19 +1680,70 @@ def _build_observed_sources_unchecked(
             "person_position": _sequence_position(encounter["truth_person_id"]),
         },
     }
+    # Covariates every local mechanism keys off, one value per truth entity.
+    earnings_all, _, _, payroll_all = _employment_summary(
+        terminal, n_persons, _table_length(establishment)
+    )
+    person_frailty = np.asarray(person["frailty_centi"], dtype=np.float64) / 100.0
+    person_age_years = np.maximum(
+        0.0, (revised_tick - np.asarray(person["birth_tick"], dtype=np.float64)) / 12.0
+    )
+    encounter_person_position = _sequence_position(encounter["truth_person_id"])
+    person_band = quintile_band(earnings_all)
+    recent_move = _recent_move_flags(
+        history, np.asarray(person["truth_household_id"], dtype=np.uint64), revised_tick
+    )
+    covariates = {
+        "population": {
+            "band": person_band,
+            "frailty": person_frailty,
+            "age_years": person_age_years,
+            "recent_move": recent_move,
+        },
+        "business": {
+            "band": quintile_band(payroll_all),
+            "frailty": np.ones(_table_length(establishment)),
+            "age_years": np.full(_table_length(establishment), 45.0),
+            "recent_move": np.zeros(_table_length(establishment), dtype=np.float64),
+        },
+        "income": {
+            "band": person_band,
+            "frailty": person_frailty,
+            "age_years": person_age_years,
+            "recent_move": recent_move,
+        },
+        "health": {
+            "band": quintile_band(np.asarray(encounter["cost_cents"], dtype=np.float64)),
+            "frailty": person_frailty[encounter_person_position],
+            "age_years": person_age_years[encounter_person_position],
+            "recent_move": recent_move[encounter_person_position],
+        },
+    }
     plans = {
         source: _mechanism_plan(
             seed,
             source_index,
+            source,
             truth_ids[source],
             counties[source],
             county_is_outpost,
             coverage[source],
             params,
-            domains[source],
+            mechanisms,
+            covariates[source]["band"],
+            covariates[source]["frailty"],
+            covariates[source]["age_years"],
             identities[source],
         )
         for source_index, source in enumerate(OBSERVED_SOURCES)
+    }
+    persistence = {
+        source: _identifier_persistence(
+            mechanisms,
+            np.maximum(counties[source], 0),
+            covariates[source]["recent_move"],
+        )
+        for source in OBSERVED_SOURCES
     }
 
     n_households = _table_length(terminal["household"])
@@ -1436,6 +1751,7 @@ def _build_observed_sources_unchecked(
     n_enterprises = int(enterprise_position.max()) + 1
     n_hospitals = len(hospitals["hospital"]["truth_hospital_id"])
     income_scale = float(params.register_income_scale)
+    params_reissue_rate = float(mechanisms.coefficients["id_reissue_rate"])
     population_household_id = _random_tokens(seed, 13, n_households)
     income_household_id = _random_tokens(seed, 14, n_households)
     enterprise_id = _random_tokens(seed, 15, n_enterprises)
@@ -1444,16 +1760,33 @@ def _build_observed_sources_unchecked(
 
     public_snapshots: dict[str, dict] = {}
     crosswalks: dict[str, dict] = {}
-    for label, snapshot_tick in (
-        ("preliminary", preliminary_tick),
-        ("revised", revised_tick),
+    for vintage, (label, snapshot_tick) in enumerate(
+        (("preliminary", preliminary_tick), ("revised", revised_tick))
     ):
         recorded = _recorded_state(history, hospitals, snapshot_tick)
         exact = _padded_exact_state(history, snapshot_tick)
         stale = _stale_flags(recorded, exact)
+        # Identifiers are redrawn for this vintage: record keys are always new, and an
+        # entity key survives only with its declared probability.
+        vintage_plans = {
+            source: {
+                **plans[source],
+                **_vintage_identifiers(
+                    seed,
+                    source_index,
+                    vintage,
+                    len(truth_ids[source]),
+                    domains[source],
+                    persistence[source],
+                    params_reissue_rate,
+                    plans[source]["merge_pairs"],
+                ),
+            }
+            for source_index, source in enumerate(OBSERVED_SOURCES)
+        }
         population_table, population_crosswalk = _population_source(
             recorded,
-            plans["population"],
+            vintage_plans["population"],
             stale["population"],
             county_flat,
             n_counties,
@@ -1462,29 +1795,31 @@ def _build_observed_sources_unchecked(
         )
         business_table, business_crosswalk = _business_source(
             recorded,
-            plans["business"],
+            vintage_plans["business"],
             stale["business"],
             county_flat,
             n_counties,
             enterprise_id,
             income_scale,
+            mechanisms,
         )
         income_table, income_crosswalk = _income_source(
             recorded,
-            plans["income"],
+            vintage_plans["income"],
             stale["income"],
             county_flat,
             n_counties,
             income_household_id,
             vocabulary,
-            plans["business"],
+            vintage_plans["business"],
             history,
             snapshot_tick,
             income_scale,
+            mechanisms,
         )
         health_table, health_crosswalk = _health_source(
             recorded,
-            plans["health"],
+            vintage_plans["health"],
             stale["health"],
             county_flat,
             n_counties,
@@ -1515,6 +1850,7 @@ def _build_observed_sources_unchecked(
         "preliminary_tick": np.int64(preliminary_tick),
         "revised_tick": np.int64(revised_tick),
         "source_params": _params_record(params),
+        "mechanism_record": mechanisms.record(),
         "public_snapshots": public_snapshots,
         "hidden": {
             "mechanisms": {
@@ -1559,6 +1895,7 @@ def _validate_structure(package: dict, history: dict, admin: dict) -> None:
         "preliminary_tick",
         "revised_tick",
         "source_params",
+        "mechanism_record",
         "public_snapshots",
         "hidden",
     }
@@ -1731,9 +2068,17 @@ def build_observed_sources(
     preliminary_tick: int | None = None,
     revised_tick: int | None = None,
     params: SourceParams = SourceParams(),
+    mechanisms: WorldMechanisms | None = None,
 ) -> dict:
-    """Build two deterministic observed-source snapshots plus sealed evidence."""
+    """Build two deterministic observed-source snapshots plus sealed evidence.
+
+    ``mechanisms`` carries the world's local defect coefficients and county effects.
+    Without it the world is treated as a single neutral county, which is what the
+    standalone source tests use; a packet always supplies the real one.
+    """
     _validate_params(params)
+    if mechanisms is None:
+        mechanisms = build_world_mechanisms(int(seed), "development", admin)
     preliminary_tick, revised_tick, _, _ = _validate_inputs(
         history,
         seed,
@@ -1750,6 +2095,7 @@ def build_observed_sources(
         preliminary_tick,
         revised_tick,
         params,
+        mechanisms,
     )
     _validate_structure(package, history, admin)
     return package
@@ -1761,8 +2107,11 @@ def validate_observed_sources(
     seed: int,
     admin: dict,
     hospitals: dict,
+    mechanisms: WorldMechanisms | None = None,
 ) -> None:
     """Fail unless a package is the exact seeded build from the retained inputs."""
+    if mechanisms is None:
+        mechanisms = build_world_mechanisms(int(seed), "development", admin)
     try:
         preliminary_tick = int(package["preliminary_tick"])
         revised_tick = int(package["revised_tick"])
@@ -1793,6 +2142,7 @@ def validate_observed_sources(
         preliminary_tick,
         revised_tick,
         params,
+        mechanisms,
     )
     _assert_equal(package, expected)
 

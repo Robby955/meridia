@@ -1,4 +1,4 @@
-"""Microdata: exact census consistency, household coherence, and determinism."""
+"""Microdata: exact population-grid consistency, household coherence, and determinism."""
 
 import hashlib
 import sys
@@ -31,7 +31,7 @@ def _microdata():
     return people, micro
 
 
-def test_persons_match_census_exactly():
+def test_persons_match_the_population_grid_exactly():
     people, micro = _microdata()
     assert micro["n_persons"] == TOTAL
     counts = np.bincount(micro["person"]["cell"], minlength=H * W)

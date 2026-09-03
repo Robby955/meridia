@@ -29,6 +29,42 @@ means the gate it targets is too loose.
   the pooled count coverage floor (the fitted constant does not transfer to a world
   whose coverage sits outside the development band, and the exact key no longer
   identifies a person).
+
+The version-four battery, one per targeted ablation of protocol section 11. Each keeps
+the strong line intact and removes exactly one step, so a control that clears its gate
+says the gate is loose rather than that the control was subtle.
+
+- ``deterministic_linkage``: exact-key linkage between the register vintages instead of
+  a probabilistic one, and rates read straight off the archive with raw register counts
+  as exposure. Ablation 3. Targets the mortality and incidence rate gates: the exact key
+  misses every record whose name, birth month or sex was reported differently in the two
+  vintages and over-links whenever a key repeats, and unadjusted archive counts carry
+  the coverage churn into the death rate.
+- ``ignore_health_selection``: the whole line with the inclusion probability held at one,
+  so the survey anchor is never used. Ablation 4. Targets the incidence gate and, through
+  the projected first events, the tail and reserve gates.
+- ``development_average_regime``: mortality improvement and its uncertainty fixed at the
+  development-world average instead of read from this world's experience file.
+  Ablation 5. Targets the projection and the tails.
+- ``mean_only_tail``: the reference's own liability paths, with the mean submitted as the
+  95th percentile. Ablation 6. Targets the exceedance criterion.
+- ``normal_tail``: the reference's paths summarised by mean plus 1.645 standard
+  deviations. Ablation 6. Targets the quantile score, to the extent the regional
+  liability distribution is skewed.
+- ``padded_tail``: the reference's quantile plus a cushion of six tenths of the expected
+  cost. Ablation 7. Targets the lower calibration bound and the quantile score. The
+  public reserve total bounds how far a padded tail can travel, since the submission
+  must satisfy sum A = R.
+- ``proportional_reserve``: the reference forecast with the reserve split in proportion
+  to projected eligible exposure rather than by marginal expected shortfall.
+  Ablation 8. Targets the decision skill gate.
+- ``version_three_recipe``: the recipe that solved version three, on the
+  version-four surface.
+  Longitudinal matching on the within-source identifier, one national growth factor for
+  every county, one global register income scale from a single national ratio, counts
+  built as a national total times register county shares, archive rates with no
+  selection correction, and a normal tail. Proof obligation 2. Targets the county count
+  and rate gates, then the tail and reserve gates.
 """
 
 from __future__ import annotations
@@ -38,12 +74,36 @@ from pathlib import Path
 
 import numpy as np
 
-from ..release import ESTIMAND_IDS
+from ..release import AGE_BAND_LABELS, ESTIMAND_IDS, SEX_LABELS
+from . import actuarial_reference as AR
 from . import design_based as A
 from .common import COUNT_ITEMS, load_packet, rows_from_draws, write_submission
 
 CONTROLS = ("register_only", "survey_only", "no_dedup", "inflated_intervals",
             "static_projection", "uniform_allocation", "benchmark_only", "exact_key_union")
+ACTUARIAL_CONTROLS = ("deterministic_linkage", "ignore_health_selection",
+                      "development_average_regime", "mean_only_tail", "normal_tail",
+                      "padded_tail", "proportional_reserve", "version_three_recipe",
+                      "suppress_all_detail")
+ALL_CONTROLS = CONTROLS + ACTUARIAL_CONTROLS
+
+# One layer switch per version-four control. version_three_recipe also rebuilds the release
+# and projection tables, so it is handled apart from this table.
+ACTUARIAL_SWITCHES = {
+    "deterministic_linkage": {"deterministic_linkage": True, "archive_only_rates": True},
+    "ignore_health_selection": {"ignore_health_selection": True},
+    "development_average_regime": {"regime_override": {"mortality_drift": 0.0,
+                                                       "mortality_drift_se": 0.002,
+                                                       "incidence_drift": 0.0,
+                                                       "incidence_drift_se": 0.002}},
+    "mean_only_tail": {"tail": "mean"},
+    "normal_tail": {"tail": "normal"},
+    "padded_tail": {"tail": "padded", "padding": 1.6},
+    "proportional_reserve": {"allocation": "proportional"},
+    "version_three_recipe": {"deterministic_linkage": True, "archive_only_rates": True,
+                        "ignore_health_selection": True, "tail": "normal",
+                        "allocation": "proportional"},
+}
 
 EXACT_KEY = ["given_code", "family_code", "birth_tick", "sex"]
 UNION_WIDTH = {"nation": 2.5, "state": 2.2, "county": 2.0}   # multiples of the development spread
@@ -142,12 +202,127 @@ def _rows_with_relative_half(point: dict, rel: float) -> list[dict]:
     return rows
 
 
+
+def deterministic_reserve_rows(contract: dict, county_state: np.ndarray,
+                               county_weight: np.ndarray) -> list[dict] | None:
+    """The reserve a recipe with no tail model can honestly file.
+
+    Every count control treats the future as a point: it has a projection and nothing
+    that says how wide the distribution around it is. The reserve that follows treats the
+    regional liability as deterministic, so the mean, the quantile and the shortfall are
+    one number and the total is split on the region's projected share. It fails the
+    exceedance criterion at once, which is the point of a control that carries no tail.
+    """
+    block = contract.get("reserve")
+    if not block or "total" not in block:
+        return None
+    total = float(block["total"])
+    n_regions = int(county_state.max()) + 1
+    weight = np.bincount(county_state, weights=np.maximum(county_weight, 0.0),
+                         minlength=n_regions)
+    share = weight / weight.sum() if weight.sum() > 0 else np.full(n_regions, 1.0 / n_regions)
+    value = share * total
+    value[-1] = total - float(value[:-1].sum())        # the total holds exactly
+    return [{"region": r, "liability_mean": float(value[r]), "q95": float(value[r]),
+             "es95": float(value[r]), "allocation": float(value[r])}
+            for r in range(n_regions)]
+
+
 def _read_rows(path: Path) -> list[dict]:
     import pandas as pd
     return pd.read_csv(path).to_dict("records")
 
 
+def _version_three_release(data: dict, tick: int, county_state: np.ndarray, register: dict,
+                    stats: dict, horizon_months: int) -> tuple[list[dict], list[dict]]:
+    """The version-three recipe: one national total split on register county shares, one
+    global income scale, one growth factor for every county.
+
+    Longitudinal matching is the within-source identifier, which version four no longer
+    keeps across vintages, so the growth factor is read off a join that mostly fails; one
+    income scale is a single national ratio, so a scale that varies by county and income
+    band collapses to its average; and every county moves by the same factor, so the
+    projection carries no structure at all. The counts add exactly by construction, which
+    is the point: arithmetic additivity was free in version three and stays free here.
+    """
+    n_states = int(county_state.max()) + 1
+    shares = {}
+    for item in COUNT_ITEMS:
+        raw = np.asarray(register[item], dtype=np.float64)
+        shares[item] = np.maximum(raw, 1e-9) / max(raw.sum(), 1e-9)
+    nation = {item: float(np.asarray(register[item], dtype=np.float64).sum())
+              for item in COUNT_ITEMS}
+    pre = data["population_preliminary"].drop_duplicates("person_id")
+    rev = data["population"].drop_duplicates("person_id")
+    matched = len(rev.merge(pre[["person_id"]], on="person_id", how="inner"))
+    months = max(tick - int(data["contract"]["ticks"]["preliminary"]), 1)
+    ratio = len(rev) / max(matched, 1) if matched else 1.0
+    growth = float(np.clip(ratio ** (horizon_months / months), 0.5, 2.0))
+    scale = A.register_income_scale(data["income"], stats["mean_income_adults"]["nation"])
+    now, future = {}, {}
+    for item in COUNT_ITEMS:
+        now[item] = nation[item] * shares[item]
+        future[item] = now[item] * growth
+    for target in (now, future):
+        target["tertiary_share_25_plus"] = register["tertiary_share_25_plus"]
+        for e in ("median_household_income", "mean_income_adults",
+                  "low_income_household_share"):
+            level = np.asarray([stats[e][s] for s in range(n_states)])[county_state]
+            target[e] = np.clip(level * scale, 0.0, 1.0) if e.endswith("share") \
+                else level * scale
+    release = _rows_with_relative_half(
+        A.aggregate(now, county_state, stats, now["persons"]), 0.01)
+    projection = _rows_with_relative_half(
+        A.aggregate(future, county_state, stats, future["persons"]), 0.02)
+    return release, projection
+
+
+def _actuarial_control(name: str, packet_dir: Path, out_dir: Path,
+                       calibration_path: str | None) -> None:
+    """Run the strong design-based line with exactly one step removed."""
+    if name == "suppress_all_detail":
+        # A strong submission whose protected table publishes nothing. Disclosure
+        # protection is one-sided and a blank table meets it; the utility floor is what
+        # refuses one, and this control is what shows the floor firing.
+        import pandas as pd
+        A.run(packet_dir, out_dir,
+              A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path,
+                             actuarial="on"))
+        detail = pd.read_csv(out_dir / "detailed.csv")
+        detail["count"] = float("nan")
+        detail.to_csv(out_dir / "detailed.csv", index=False)
+        return
+    layer = AR.LayerParams(**ACTUARIAL_SWITCHES[name])
+    if name != "version_three_recipe":
+        A.run(packet_dir, out_dir,
+              A.MethodParams(bootstrap_replicates=60, calibration_path=calibration_path,
+                             actuarial="on", actuarial_params=layer))
+        return
+    data = load_packet(packet_dir)
+    contract, county_state = data["contract"], data["county_state"]
+    tick = int(contract["ticks"]["revised"])
+    horizon_months = int(contract["ticks"]["horizon"]) - tick
+    register_frame = A.deduplicate_population(data["population"], tick)
+    register = A.register_counts(register_frame, len(county_state), 0.0)
+    survey = A.impute_income(data["survey"].assign(weight=data["survey"]["design_weight"]))
+    stats = A.survey_statistics(survey, county_state)
+    release, projection = _version_three_release(data, tick, county_state, register, stats,
+                                          horizon_months)
+    age_sex = np.asarray(register["age_sex"], dtype=np.float64)
+    result = AR.actuarial_submission(
+        Path(packet_dir), data, county_state, age_sex[None], 0.055, release, projection,
+        np.asarray(register["cube"], dtype=np.float64),
+        2.0 * int(contract["disclosure_threshold"]), Path(out_dir),
+        AGE_BAND_LABELS, SEX_LABELS, layer)
+    if result is None:
+        raise AR.MissingActuarialInputs(
+            "version_three_recipe needs a version-four packet with the experience file")
+
+
 def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None = None) -> None:
+    if name in ACTUARIAL_CONTROLS:
+        _actuarial_control(name, Path(packet_dir), Path(out_dir), calibration_path)
+        return
     if name not in CONTROLS:
         raise ValueError(f"unknown control {name!r}")
     data = load_packet(packet_dir)
@@ -177,10 +352,19 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
             pd.DataFrame(_rows_with_relative_half(point, 0.40)).to_csv(out_dir / "release.csv", index=False)
         elif name == "static_projection":
             pd.DataFrame(base["release"]).to_csv(out_dir / "projection.csv", index=False)
-        else:
-            pd.DataFrame({"county": np.arange(n_counties),
-                          "allocation": np.full(n_counties, np.floor(budget / n_counties * 1e6) / 1e6)}
-                         ).to_csv(out_dir / "allocation.csv", index=False)
+        else:   # uniform_allocation: a strong forecast with the reserve split evenly
+            reserve_path = out_dir / "reserve.csv"
+            if reserve_path.exists():
+                rows = pd.read_csv(reserve_path)
+                total = float(data["contract"]["reserve"]["total"])
+                even = np.full(len(rows), total / len(rows))
+                even[-1] = total - float(even[:-1].sum())
+                rows["allocation"] = even
+                rows.to_csv(reserve_path, index=False)
+            else:
+                pd.DataFrame({"county": np.arange(n_counties),
+                              "allocation": np.full(n_counties, np.floor(budget / n_counties * 1e6) / 1e6)}
+                             ).to_csv(out_dir / "allocation.csv", index=False)
         return
 
     survey = A.impute_income(data["survey"].assign(weight=data["survey"]["design_weight"]))
@@ -235,4 +419,5 @@ def run(name: str, packet_dir: Path, out_dir: Path, calibration_path: str | None
     elders = np.maximum(A.project(county, register["age_sex"], horizon_months, np.random.default_rng(1))["elders_65_plus"], 0.0)
     allocation = np.floor(elders / max(elders.sum(), 1e-9) * budget * 1e6) / 1e6
     write_submission(out_dir, _rows_with_relative_half(now, 0.01), _rows_with_relative_half(future, 0.02),
-                     register["cube"], 2.0 * threshold, allocation)
+                     register["cube"], 2.0 * threshold, allocation,
+                     deterministic_reserve_rows(contract, county_state, elders))

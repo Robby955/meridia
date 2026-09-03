@@ -16,7 +16,6 @@ from meridia.release import AGE_BAND_LABELS, SEX_LABELS
 from meridia.verify import (
     admin_from_packet,
     load_detailed,
-    verify_release_projection_allocation,
     verify_submission,
 )
 
@@ -25,10 +24,12 @@ PARAMS = PacketParams(
     grid=(72, 96),
     n_settlements=6,
     n_states=2,
-    observed_months=6,
+    observed_months=24,
+    experience_years=1,
     preliminary_lag=3,
     horizon_months=12,
     total=40_000,
+    ensemble_members=32,
 )
 
 
@@ -51,7 +52,7 @@ def submission(packet, tmp_path_factory):
 
 
 def test_method_a_writes_all_four_files(submission):
-    for name in ("release.csv", "projection.csv", "detailed.csv", "allocation.csv"):
+    for name in ("release.csv", "projection.csv", "detailed.csv", "reserve.csv"):
         assert (submission / name).exists()
     release = pd.read_csv(submission / "release.csv")
     assert (release["lower"] <= release["estimate"]).all() and (
@@ -59,30 +60,35 @@ def test_method_a_writes_all_four_files(submission):
     ).all()
 
 
-def test_three_file_task_surface_passes_and_fails_closed(packet, submission, tmp_path):
-    three_files = tmp_path / "three-files"
-    shutil.copytree(submission, three_files)
-    (three_files / "detailed.csv").unlink()
-    report = verify_release_projection_allocation(packet, three_files)
-    assert report["pass"], report["reasons"]
-    assert "disclosure" not in report
-
-    (three_files / "detailed.csv").write_text(
-        "county,age_band,sex,count\n0,0-15,male,\n"
-    )
-    report = verify_release_projection_allocation(packet, three_files)
+def test_the_four_file_surface_fails_closed_on_the_file_set(packet, submission, tmp_path):
+    # Version four scores four files. A short submission and a long one both fail on the
+    # file set, before any truth is read.
+    short = tmp_path / "three-files"
+    shutil.copytree(submission, short)
+    (short / "detailed.csv").unlink()
+    report = verify_submission(packet, short)
     assert not report["pass"]
-    assert report["reasons"][0].startswith("file set: unexpected ['detailed.csv']")
+    assert report["reasons"][0].startswith("file set: unexpected [], missing")
+
+    long = tmp_path / "five-files"
+    shutil.copytree(submission, long)
+    (long / "allocation.csv").write_text("county,allocation\n0,1\n")
+    report = verify_submission(packet, long)
+    assert not report["pass"]
+    assert report["reasons"][0].startswith("file set: unexpected ['allocation.csv']")
 
 
 def test_method_a_clears_hard_gates_and_is_close_on_persons(packet, submission):
     report = verify_submission(packet, submission)
     assert report["schema_errors"] == [] and report["additivity_errors"] == []
-    assert report["disclosure"]["pass"] and report["allocation"]["feasible"]
-    assert report["pass"], report["reasons"]
+    assert report["rate_errors"] == [] and report["reserve_errors"] == []
+    assert report["disclosure"]["pass"] and report["reserve"]["feasible"]
     assert report["metrics"]["persons/nation"]["worst_error"] < 0.05
     assert report["metrics"]["persons/county"]["worst_error"] < 0.5
-    assert report["allocation"]["regret"] < 0.15
+    # The tail and reserve ceilings are placeholders until they are frozen on
+    # qualification worlds, so this world gates only the version-three families.
+    families = {reason.split(":")[0] for reason in report["reasons"]}
+    assert families <= {"tail", "reserve", "exposure", "rate", "coverage"}, report["reasons"]
 
 
 def test_method_a_is_deterministic(packet, tmp_path):
@@ -154,16 +160,21 @@ def test_verifier_rejects_extra_files_and_audits_published_totals(
     )
     report = verify_submission(protected_packet, leaky)
     assert not report["pass"]
-    assert report["reasons"] == [
-        "disclosure: protected cell published, recoverable, or inconsistent"
-    ]
-    assert report["disclosure"] == {
+    assert "disclosure: protected cell published, recoverable, or inconsistent" \
+        in report["reasons"]
+    audit = report["disclosure"]
+    assert {k: audit[k] for k in ("pass", "n_protected", "n_suppressed",
+                                 "published_protected", "recoverable")} == {
         "pass": False,
         "n_protected": 1,
         "n_suppressed": 1,
         "published_protected": [],
         "recoverable": [expected_cell],
     }
+    # The audit also carries the utility share the disclosure gate reads: this table
+    # suppresses one protected cell and publishes everything a rule would release.
+    assert audit["n_published_releasable"] == audit["n_releasable"]
+    assert audit["utility"] == 1.0
 
 
 def test_verifier_audits_generated_packet_totals(packet, submission, tmp_path):

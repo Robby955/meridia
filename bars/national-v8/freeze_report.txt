@@ -1,0 +1,146 @@
+# Version-four bar freeze report
+
+## Bars written at their declared attainability limit
+
+- tau_mean: the worse witness needed 0.7024, the declared attainability cap is 0.1500; written at the cap, so the witness does not clear it
+- tau_worst: the worse witness needed 1.4250, the declared attainability cap is 0.3000; written at the cap, so the witness does not clear it
+- es_error_ceiling: the worse witness needed 0.3060, the declared attainability cap is 0.1000; written at the cap, so the witness does not clear it
+- regional_shortfall_ceiling: the worse witness needed 1.5000, the declared attainability cap is 0.3500; written at the cap, so the witness does not clear it
+- mortality_error_ceiling: the worse witness needed 5.0543, the declared attainability cap is 1.0000; written at the cap, so the witness does not clear it
+- incidence_error_ceiling: the worse witness needed 2.7178, the declared attainability cap is 1.0000; written at the cap, so the witness does not clear it
+- skill_minimum: the worse witness reached only -23.3659, the declared minimum for a gate is 0.0500; written at the minimum, so the witness does not clear it
+- rate_coverage_floor: the witnesses' own interval coverage on the gated rate cells minus the declared slack is at or below zero, so this bar cannot refuse anything. The protocol makes the coverage gate an empirical tolerance rather than a nominal level, so it is recorded at zero and reported as not gating rather than invented
+
+## Witnesses under the frozen bars
+- witness A on qual-0: FAIL reserve: skill -3.1645 < 0.05
+- witness A on qual-1: FAIL rate: mortality_rate/state percentile error 2.2637 > 1.0; tail: pooled exceedance deviation 0.3325 > 0.15; tail: worst-region exceedance deviation 0.7376 > 0.3; tail: quantile score 0.0157 > 0.013438; reserve: worst regional shortfall probability 0.7876 > 0.35
+- witness A on qual-2: FAIL rate: mortality_rate/state percentile error 3.3560 > 1.0; rate: qualifying_event_rate/state percentile error 1.8076 > 1.0; tail: worst-region exceedance deviation 0.4944 > 0.3; reserve: skill -8.5469 < 0.05; reserve: worst regional shortfall probability 0.5444 > 0.35
+- witness A on qual-3: FAIL tail: pooled exceedance deviation 0.2121 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0385 > 0.013438; tail: expected shortfall error 0.1186 > 0.1; reserve: skill -0.2819 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+- witness A on qual-4: PASS
+- witness A on qual-5: FAIL tail: pooled exceedance deviation 0.2290 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0225 > 0.013438; reserve: skill -0.0903 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+- witness B on qual-0: FAIL reserve: skill -3.7745 < 0.05
+- witness B on qual-1: FAIL rate: mortality_rate/state percentile error 2.2583 > 1.0; tail: pooled exceedance deviation 0.4683 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0426 > 0.013438; tail: expected shortfall error 0.1825 > 0.1; reserve: skill -0.2791 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+- witness B on qual-2: FAIL rate: mortality_rate/state percentile error 3.3695 > 1.0; rate: qualifying_event_rate/state percentile error 1.8119 > 1.0; tail: pooled exceedance deviation 0.2205 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0200 > 0.013438; tail: expected shortfall error 0.1858 > 0.1; reserve: skill -23.2159 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+- witness B on qual-3: FAIL tail: pooled exceedance deviation 0.2257 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0420 > 0.013438; tail: expected shortfall error 0.2040 > 0.1; reserve: skill -0.5634 < 0.05; reserve: worst regional shortfall probability 1.0000 > 0.35
+- witness B on qual-4: PASS
+- witness B on qual-5: FAIL tail: pooled exceedance deviation 0.2488 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3; tail: quantile score 0.0204 > 0.013438; reserve: worst regional shortfall probability 1.0000 > 0.35
+
+## Reserve decision value (proof obligation 4)
+- A on qual-0: J(A_B) 875,275.6  J(A*) 329,471.6  oracle gain 62.36%  submitted skill -3.1645
+- A on qual-1: J(A_B) 6,788,227.1  J(A*) 117,974.9  oracle gain 98.26%  submitted skill 0.7082
+- A on qual-2: J(A_B) 586,568.6  J(A*) 418,029.3  oracle gain 28.73%  submitted skill -8.5469
+- A on qual-3: J(A_B) 4,237,394.2  J(A*) 524,224.4  oracle gain 87.63%  submitted skill -0.2819
+- A on qual-4: J(A_B) 1,488,037.4  J(A*) 370,413.3  oracle gain 75.11%  submitted skill 0.8466
+- A on qual-5: J(A_B) 2,677,771.1  J(A*) 173,000.4  oracle gain 93.54%  submitted skill -0.0903
+- B on qual-0: J(A_B) 875,275.6  J(A*) 329,471.6  oracle gain 62.36%  submitted skill -3.7745
+- B on qual-1: J(A_B) 6,788,227.1  J(A*) 117,974.9  oracle gain 98.26%  submitted skill -0.2791
+- B on qual-2: J(A_B) 586,568.6  J(A*) 418,029.3  oracle gain 28.73%  submitted skill -23.2159
+- B on qual-3: J(A_B) 4,237,394.2  J(A*) 524,224.4  oracle gain 87.63%  submitted skill -0.5634
+- B on qual-4: J(A_B) 1,488,037.4  J(A*) 370,413.3  oracle gain 75.11%  submitted skill 0.8418
+- B on qual-5: J(A_B) 2,677,771.1  J(A*) 173,000.4  oracle gain 93.54%  submitted skill 0.0734
+
+## Control battery
+- register_only on qual-0: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.1848 > 0.088541; accuracy: persons/state worst error 0.2194 > 0.180687
+- register_only on qual-1: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.2162 > 0.088541; accuracy: persons/state worst error 0.3023 > 0.180687
+- register_only on qual-2: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.1337 > 0.088541; coverage: persons/all 0.000 < 0.5
+- register_only on qual-3: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema; accuracy: persons/nation worst error 0.2202 > 0.088541; accuracy: persons/state worst error 0.2508 > 0.180687
+- register_only on qual-4: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.1094 > 0.088541; coverage: persons/all 0.000 < 0.5
+- register_only on qual-5: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.1533 > 0.088541; accuracy: persons/state worst error 0.2153 > 0.180687
+- survey_only on qual-0: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.2081 > 0.088541; accuracy: persons/state worst error 0.5254 > 0.180687
+- survey_only on qual-1: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.1613 > 0.088541; accuracy: persons/state worst error 0.4194 > 0.180687
+- survey_only on qual-2: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.2916 > 0.088541; accuracy: persons/state worst error 0.3609 > 0.180687
+- survey_only on qual-3: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema; accuracy: persons/nation worst error 0.3178 > 0.088541; accuracy: persons/state worst error 0.4211 > 0.180687
+- survey_only on qual-4: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.1549 > 0.088541; accuracy: persons/state worst error 0.5249 > 0.180687
+- survey_only on qual-5: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.3041 > 0.088541; accuracy: persons/state worst error 0.4855 > 0.180687
+- no_dedup on qual-0: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.1482 > 0.088541; accuracy: persons/state worst error 0.1842 > 0.180687
+- no_dedup on qual-1: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.2045 > 0.088541; accuracy: persons/state worst error 0.2910 > 0.180687
+- no_dedup on qual-2: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.0975 > 0.088541; coverage: persons/all 0.000 < 0.5
+- no_dedup on qual-3: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema; accuracy: persons/nation worst error 0.1999 > 0.088541; accuracy: persons/state worst error 0.2319 > 0.180687
+- no_dedup on qual-4: FAILS accuracy, coverage, interval score, projection coverage, projection interval score, rate schema, reserve; accuracy: persons/nation worst error 0.0898 > 0.088541; coverage: persons/all 0.000 < 0.5
+- no_dedup on qual-5: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; accuracy: persons/nation worst error 0.1262 > 0.088541; coverage: persons/all 0.080 < 0.5
+- inflated_intervals on qual-0: FAILS interval score, rate schema, reserve; interval score: tertiary_share_25_plus/all 0.7990 > 0.092119; rate schema: 989 violation(s)
+- inflated_intervals on qual-1: FAILS interval score, rate schema, reserve, tail; interval score: tertiary_share_25_plus/all 0.7986 > 0.092119; rate schema: 1032 violation(s)
+- inflated_intervals on qual-2: FAILS interval score, rate schema, reserve, tail; interval score: tertiary_share_25_plus/all 0.7993 > 0.092119; rate schema: 989 violation(s)
+- inflated_intervals on qual-3: FAILS interval score, rate schema, reserve, tail; interval score: tertiary_share_25_plus/all 0.7969 > 0.092119; rate schema: 989 violation(s)
+- inflated_intervals on qual-4: FAILS interval score, rate schema; interval score: tertiary_share_25_plus/all 0.7886 > 0.092119; rate schema: 1032 violation(s)
+- inflated_intervals on qual-5: FAILS interval score, rate schema, reserve, tail; interval score: tertiary_share_25_plus/all 0.7938 > 0.092119; rate schema: 1032 violation(s)
+- static_projection on qual-0: FAILS projection accuracy, projection coverage, reserve; projection accuracy: children_under_16/nation worst error 0.1074 > 0.103957; projection coverage: tertiary_share_25_plus/all 0.208 < 0.317
+- static_projection on qual-1: FAILS projection accuracy, projection coverage, rate, reserve, tail; projection accuracy: children_under_16/nation worst error 0.1555 > 0.103957; projection accuracy: children_under_16/state worst error 0.2221 > 0.173476
+- static_projection on qual-2: FAILS projection coverage, rate, reserve, tail; projection coverage: tertiary_share_25_plus/all 0.083 < 0.317; rate: mortality_rate/state percentile error 3.3711 > 1.0
+- static_projection on qual-3: FAILS projection accuracy, reserve, tail; projection accuracy: persons/nation worst error 0.1041 > 0.075; projection accuracy: children_under_16/nation worst error 0.1543 > 0.103957
+- static_projection on qual-4: FAILS projection accuracy; projection accuracy: persons/state worst error 0.2188 > 0.21057; projection accuracy: households/nation worst error 0.0754 > 0.075
+- static_projection on qual-5: FAILS projection accuracy, reserve, tail; projection accuracy: children_under_16/nation worst error 0.1207 > 0.103957; tail: pooled exceedance deviation 0.2318 > 0.15
+- uniform_allocation on qual-0: FAILS reserve; reserve: infeasible (an allocation falls below the region's own submitted q95)
+- uniform_allocation on qual-1: FAILS rate, reserve; rate: mortality_rate/state percentile error 2.2680 > 1.0; reserve: infeasible (an allocation falls below the region's own submitted q95)
+- uniform_allocation on qual-2: FAILS rate, reserve; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- uniform_allocation on qual-3: FAILS reserve; reserve: infeasible (an allocation falls below the region's own submitted q95)
+- uniform_allocation on qual-4: FAILS reserve; reserve: infeasible (an allocation falls below the region's own submitted q95)
+- uniform_allocation on qual-5: FAILS reserve; reserve: infeasible (an allocation falls below the region's own submitted q95)
+- benchmark_only on qual-0: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; coverage: persons/all 0.042 < 0.5; coverage: households/all 0.208 < 0.5
+- benchmark_only on qual-1: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; coverage: persons/all 0.000 < 0.5; interval score: persons/all 1.8188 > 1.386469
+- benchmark_only on qual-2: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; coverage: persons/all 0.125 < 0.5; coverage: households/all 0.208 < 0.5
+- benchmark_only on qual-3: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema; coverage: persons/all 0.042 < 0.5; interval score: persons/all 1.5880 > 1.386469
+- benchmark_only on qual-4: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve; coverage: persons/all 0.080 < 0.5; interval score: persons/all 1.4257 > 1.386469
+- benchmark_only on qual-5: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate schema, reserve, tail; coverage: persons/all 0.040 < 0.5; interval score: persons/all 1.7587 > 1.386469
+- exact_key_union on qual-0: FAILS accuracy, reserve; accuracy: households/nation worst error 0.0597 > 0.05; accuracy: elders_65_plus/nation worst error 0.0972 > 0.071195
+- exact_key_union on qual-1: FAILS accuracy, rate, reserve, tail; accuracy: households/nation worst error 0.0651 > 0.05; accuracy: elders_65_plus/nation worst error 0.1353 > 0.071195
+- exact_key_union on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- exact_key_union on qual-3: FAILS accuracy, reserve, tail; accuracy: persons/nation worst error 0.1267 > 0.088541; accuracy: households/nation worst error 0.0740 > 0.05
+- exact_key_union on qual-4: PASSES (bar too loose)
+- exact_key_union on qual-5: FAILS accuracy, reserve, tail; accuracy: elders_65_plus/nation worst error 0.0724 > 0.071195; tail: pooled exceedance deviation 0.2318 > 0.15
+- deterministic_linkage on qual-0: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 36.7676 > 1.0; tail: pooled exceedance deviation 0.1852 > 0.15
+- deterministic_linkage on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 22.5976 > 1.0; tail: pooled exceedance deviation 0.2742 > 0.15
+- deterministic_linkage on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 30.3993 > 1.0; tail: pooled exceedance deviation 0.1856 > 0.15
+- deterministic_linkage on qual-3: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 11.5228 > 1.0; tail: pooled exceedance deviation 0.2099 > 0.15
+- deterministic_linkage on qual-4: FAILS rate; rate: mortality_rate/state percentile error 16.3840 > 1.0
+- deterministic_linkage on qual-5: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 23.6223 > 1.0; tail: pooled exceedance deviation 0.2170 > 0.15
+- ignore_health_selection on qual-0: FAILS reserve, tail; tail: expected shortfall error 0.1015 > 0.1; reserve: skill -3.7507 < 0.05
+- ignore_health_selection on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.2565 > 1.0; tail: pooled exceedance deviation 0.2156 > 0.15
+- ignore_health_selection on qual-2: FAILS rate, reserve; rate: mortality_rate/state percentile error 3.3567 > 1.0; rate: qualifying_event_rate/state percentile error 1.8668 > 1.0
+- ignore_health_selection on qual-3: FAILS reserve, tail; tail: pooled exceedance deviation 0.1932 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- ignore_health_selection on qual-4: FAILS reserve, tail; tail: worst-region exceedance deviation 0.3885 > 0.3; reserve: worst regional shortfall probability 0.4385 > 0.35
+- ignore_health_selection on qual-5: PASSES (bar too loose)
+- development_average_regime on qual-0: FAILS reserve; reserve: skill -3.5817 < 0.05
+- development_average_regime on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 1.7129 > 1.0; tail: pooled exceedance deviation 0.3539 > 0.15
+- development_average_regime on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.0471 > 1.0; rate: qualifying_event_rate/state percentile error 1.1058 > 1.0
+- development_average_regime on qual-3: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 1.1117 > 1.0; tail: pooled exceedance deviation 0.2112 > 0.15
+- development_average_regime on qual-4: PASSES (bar too loose)
+- development_average_regime on qual-5: FAILS reserve, tail; tail: pooled exceedance deviation 0.2323 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- mean_only_tail on qual-0: FAILS reserve, tail; tail: pooled exceedance deviation 0.2773 > 0.15; tail: worst-region exceedance deviation 0.9388 > 0.3
+- mean_only_tail on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.2680 > 1.0; tail: pooled exceedance deviation 0.2606 > 0.15
+- mean_only_tail on qual-2: FAILS rate, reserve; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- mean_only_tail on qual-3: FAILS reserve, tail; tail: pooled exceedance deviation 0.3863 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- mean_only_tail on qual-4: FAILS reserve, tail; tail: pooled exceedance deviation 0.2404 > 0.15; tail: worst-region exceedance deviation 0.6863 > 0.3
+- mean_only_tail on qual-5: FAILS reserve, tail; tail: pooled exceedance deviation 0.5850 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- normal_tail on qual-0: FAILS reserve; reserve: skill -3.2902 < 0.05
+- normal_tail on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.2680 > 1.0; tail: pooled exceedance deviation 0.3342 > 0.15
+- normal_tail on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- normal_tail on qual-3: FAILS reserve, tail; tail: pooled exceedance deviation 0.2120 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- normal_tail on qual-4: PASSES (bar too loose)
+- normal_tail on qual-5: FAILS reserve, tail; tail: pooled exceedance deviation 0.2304 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- padded_tail on qual-0: FAILS reserve; reserve: skill -3.0723 < 0.05
+- padded_tail on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.2680 > 1.0; tail: pooled exceedance deviation 0.3081 > 0.15
+- padded_tail on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- padded_tail on qual-3: FAILS reserve, tail; tail: pooled exceedance deviation 0.2163 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- padded_tail on qual-4: PASSES (bar too loose)
+- padded_tail on qual-5: FAILS reserve, tail; tail: pooled exceedance deviation 0.2322 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- proportional_reserve on qual-0: FAILS reserve; reserve: skill -3.6825 < 0.05
+- proportional_reserve on qual-1: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 2.2680 > 1.0; tail: pooled exceedance deviation 0.3572 > 0.15
+- proportional_reserve on qual-2: FAILS rate, reserve, tail; rate: mortality_rate/state percentile error 3.3711 > 1.0; rate: qualifying_event_rate/state percentile error 1.8122 > 1.0
+- proportional_reserve on qual-3: FAILS reserve, tail; tail: pooled exceedance deviation 0.2126 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- proportional_reserve on qual-4: PASSES (bar too loose)
+- proportional_reserve on qual-5: FAILS reserve, tail; tail: pooled exceedance deviation 0.2318 > 0.15; tail: worst-region exceedance deviation 0.9500 > 0.3
+- version_three_recipe on qual-0: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate, reserve, tail; accuracy: persons/nation worst error 0.1848 > 0.088541; accuracy: persons/state worst error 0.2193 > 0.180687
+- version_three_recipe on qual-1: FAILS accuracy, coverage, exposure, interval score, projection accuracy, projection coverage, projection interval score, rate, reserve, tail; accuracy: persons/nation worst error 0.2162 > 0.088541; accuracy: persons/state worst error 0.2989 > 0.180687
+- version_three_recipe on qual-2: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate, reserve; accuracy: persons/nation worst error 0.1337 > 0.088541; coverage: persons/all 0.000 < 0.5
+- version_three_recipe on qual-3: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate, reserve, tail; accuracy: persons/nation worst error 0.2202 > 0.088541; accuracy: persons/state worst error 0.2519 > 0.180687
+- version_three_recipe on qual-4: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate, tail; accuracy: persons/nation worst error 0.1094 > 0.088541; coverage: persons/all 0.000 < 0.5
+- version_three_recipe on qual-5: FAILS accuracy, coverage, interval score, projection accuracy, projection coverage, projection interval score, rate, tail; accuracy: persons/nation worst error 0.1533 > 0.088541; accuracy: persons/state worst error 0.2059 > 0.180687
+- suppress_all_detail on qual-0: FAILS disclosure utility, reserve; disclosure utility: 0.000 of the releasable cells published < 0.878; reserve: skill -3.3042 < 0.05
+- suppress_all_detail on qual-1: FAILS disclosure utility, rate, reserve, tail; disclosure utility: 0.000 of the releasable cells published < 0.878; rate: mortality_rate/state percentile error 2.2680 > 1.0
+- suppress_all_detail on qual-2: FAILS disclosure utility, rate, reserve, tail; disclosure utility: 0.000 of the releasable cells published < 0.878; rate: mortality_rate/state percentile error 3.3711 > 1.0
+- suppress_all_detail on qual-3: FAILS disclosure utility, reserve, tail; disclosure utility: 0.000 of the releasable cells published < 0.878; tail: pooled exceedance deviation 0.2126 > 0.15
+- suppress_all_detail on qual-4: FAILS disclosure utility; disclosure utility: 0.000 of the releasable cells published < 0.878
+- suppress_all_detail on qual-5: FAILS disclosure utility, reserve, tail; disclosure utility: 0.000 of the releasable cells published < 0.878; tail: pooled exceedance deviation 0.2318 > 0.15
+
+RESULT: NOT FROZEN

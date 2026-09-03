@@ -14,7 +14,8 @@ from meridia.businesses import build_businesses
 from meridia.character import draw_world_character
 from meridia.dwellings import build_dwellings
 from meridia.events import CAUSE_CODES, EVENT_TYPES, EventHistoryParams
-from meridia.events import build_event_history, events_visible_at
+from meridia.events import build_event_history, continuation_events
+from meridia.events import continuation_shocks, events_visible_at
 from meridia.events import replay_event_history, validate_event_history
 from meridia.hospitals import HospitalParams, build_hospitals
 from meridia.hydrology import fill_depressions, flow_accumulation, flow_directions
@@ -169,29 +170,56 @@ def test_longer_generation_only_appends_and_vintages_hide_late_reports():
     assert (preliminary["recorded_tick"] <= 6).all()
 
 
-def test_recording_lag_never_reorders_same_tick_dependencies():
+def _late_dependency_history():
+    """A one-month ledger that actually contains a job end recorded after its death.
+
+    The pair the test needs is a coincidence of a churn closure and a death in the same
+    month for the same person, reported in the wrong order. The fixture raises the
+    closure rate until the coincidence happens rather than resting on one draw: any
+    change to a coefficient upstream moves which draw produces it, and a test that
+    asserts a coincidence at one draw is testing the draw.
+    """
     micro, identities, dwellings, businesses, hospitals = _start()
-    history = build_event_history(
-        micro,
-        SEED,
-        identities,
-        dwellings,
-        businesses,
-        hospitals,
-        months=1,
-        params=EventHistoryParams(
-            monthly_establishment_churn_rate=0.05,
-            late_report_probability=1.0,
-            max_report_delay_months=3,
-        ),
-        shocks=[
-            {
-                "year": 0,
-                "kind": "compound_intervention",
-                "mortality_multiplier": 20.0,
-            }
-        ],
-    )
+    for churn in (0.05, 0.09, 0.14, 0.20, 0.28):
+        history = build_event_history(
+            micro,
+            SEED,
+            identities,
+            dwellings,
+            businesses,
+            hospitals,
+            months=1,
+            params=EventHistoryParams(
+                monthly_establishment_churn_rate=churn,
+                late_report_probability=1.0,
+                max_report_delay_months=3,
+            ),
+            shocks=[
+                {
+                    "year": 0,
+                    "kind": "compound_intervention",
+                    "mortality_multiplier": 20.0,
+                }
+            ],
+        )
+        event = history["event"]
+        ends = np.flatnonzero(
+            (event["event_type"] == EVENT_TYPES["job_ended"])
+            & (event["cause_code"] == CAUSE_CODES["business_churn"])
+        )
+        death_of = {int(event["truth_person_id"][position]): int(position)
+                    for position in np.flatnonzero(
+                        event["event_type"] == EVENT_TYPES["person_death"])}
+        if any(int(event["truth_person_id"][position]) in death_of
+               and event["recorded_tick"][position]
+               > event["recorded_tick"][death_of[int(event["truth_person_id"][position])]]
+               for position in ends):
+            return history
+    raise AssertionError("no churn closure met a death in the same month at any rate")
+
+
+def test_recording_lag_never_reorders_same_tick_dependencies():
+    history = _late_dependency_history()
     event = history["event"]
     closure_job_ends = np.flatnonzero(
         (event["event_type"] == EVENT_TYPES["job_ended"])
@@ -243,6 +271,106 @@ def test_recording_lag_never_reorders_same_tick_dependencies():
     visible_ids = set(map(int, visible_at_death["truth_event_id"]))
     assert int(event["truth_event_id"][death_position]) in visible_ids
     assert int(event["truth_event_id"][end_position]) not in visible_ids
+
+
+def test_continuations_share_the_prefix_and_diverge_after_the_branch():
+    """A committed continuation is the same ledger to the branch month and its own
+    substream after it, so the ensemble's members agree on the past and disagree on the
+    future. The member key is never arithmetic on the root seed."""
+    from meridia.events import CONTINUATION_DOMAIN, LEDGER_DOMAIN
+
+    micro, identities, dwellings, businesses, hospitals = _start()
+    branch = 6
+    base = _history(12)
+    members = [
+        build_event_history(micro, SEED, identities, dwellings, businesses, hospitals,
+                            months=12, continuation_member=m, branch_month=branch)
+        for m in range(3)
+    ]
+    assert CONTINUATION_DOMAIN != LEDGER_DOMAIN
+    for member in members:
+        early = member["event"]["tick"] <= member["snapshot_tick"] + branch
+        base_early = base["event"]["tick"] <= base["snapshot_tick"] + branch
+        for column in ("truth_event_id", "tick", "event_type", "truth_person_id"):
+            assert np.array_equal(member["event"][column][early],
+                                  base["event"][column][base_early]), column
+    # Measured on this world: base 18,117 events against member counts 17,905, 18,247
+    # and 18,244, with different survivor sets, so the futures are genuinely independent.
+    assert len({int(member["n_events"]) for member in members}) == len(members)
+    survivors = {int(member["terminal_state"]["person"]["is_alive"].sum()) for member in members}
+    assert len(survivors) > 1
+    repeat = build_event_history(micro, SEED, identities, dwellings, businesses, hospitals,
+                                 months=12, continuation_member=1, branch_month=branch)
+    assert np.array_equal(repeat["event"]["event_type"], members[1]["event"]["event_type"])
+    with pytest.raises(ValueError, match="continuation"):
+        build_event_history(micro, SEED, identities, dwellings, businesses, hospitals,
+                            months=12, continuation_member=0)
+
+
+def test_a_resumed_continuation_equals_the_one_that_replayed_its_prefix():
+    """The branch capture is what makes an ensemble affordable, so it has to be exact.
+
+    A member resumed from the state the ledger kept at the branch month must agree, event
+    for event and identifier for identifier, with the member that re-ran every month
+    before the branch. Without that equality the ensemble would be a different object
+    from the one the substream rule defines.
+    """
+    micro, identities, dwellings, businesses, hospitals = _start()
+    branch = 6
+    captured = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                   hospitals, months=12, capture_month=branch)
+    assert int(captured["branch"]["tick"]) == int(captured["snapshot_tick"]) + branch
+    for member in (0, 1, 7):
+        full = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                   hospitals, months=12, continuation_member=member,
+                                   branch_month=branch)
+        after = full["event"]["tick"] > captured["branch"]["tick"]
+        suffix = {name: values[after] for name, values in full["event"].items()}
+        resumed = continuation_events(captured["branch"], member, 12 - branch)
+        assert sorted(resumed) == sorted(suffix)
+        for column in suffix:
+            assert np.array_equal(suffix[column], resumed[column]), (member, column)
+    assert not np.array_equal(
+        continuation_events(captured["branch"], 1, 6)["event_type"],
+        continuation_events(captured["branch"], 2, 6)["event_type"])
+    with pytest.raises(ValueError, match="capture month"):
+        build_event_history(micro, SEED, identities, dwellings, businesses, hospitals,
+                            months=12, capture_month=0)
+
+
+def test_a_continuation_draws_its_own_future_shock_years():
+    """Systematic risk is what gives the sealed tail a width worth predicting.
+
+    A member keeps the world's realized shock years up to the branch and draws every year
+    after it from the published family at the published rate. Members that share one
+    frozen future schedule differ only by demographic noise, which on a population of any
+    size is a fraction of a percent, far under the error any reconstruction of the same
+    regions carries.
+    """
+    micro, identities, dwellings, businesses, hospitals = _start()
+    branch = 24
+    captured = build_event_history(micro, SEED, identities, dwellings, businesses,
+                                   hospitals, months=48, capture_month=branch,
+                                   shocks=[{"year": 0, "kind": "baby_bust",
+                                            "fertility_multiplier": 0.5},
+                                           {"year": 3, "kind": "mortality_spike",
+                                            "mortality_multiplier": 2.0,
+                                            "admission_multiplier": 2.0}])
+    schedules = [continuation_shocks(captured["branch"], m, 24) for m in range(64)]
+    for schedule in schedules:
+        past = [s for s in schedule if s["year"] < 2]
+        assert past == [{"year": 0, "kind": "baby_bust", "fertility_multiplier": 0.5}]
+        assert all(s["year"] >= 2 for s in schedule if s not in past)
+    futures = {tuple(sorted((s["year"], s["kind"]) for s in schedule if s["year"] >= 2))
+               for schedule in schedules}
+    assert len(futures) > 1, "every member drew the same future"
+    drawn = sum(len([s for s in schedule if s["year"] >= 2]) for schedule in schedules)
+    years = sum(len({s["year"] for s in schedule if s["year"] >= 2}) or 0
+                for schedule in schedules)
+    assert years == drawn                      # at most one shock a year
+    assert 0.05 < drawn / (len(schedules) * 3) < 0.45   # around the published rate
+    assert continuation_shocks(captured["branch"], 5, 24) == \
+        continuation_shocks(captured["branch"], 5, 24)
 
 
 def test_history_is_byte_deterministic():

@@ -50,7 +50,7 @@ def _oracle_rows(truth, rel=0.02):
                             e.startswith("tertiary") else rel * max(abs(v), 1.0))
 
 
-def test_truth_counts_match_census_and_hierarchy():
+def test_truth_counts_match_the_population_grid_and_hierarchy():
     s = _setup()
     truth, admin, people = s["truth"], s["admin"], s["people"]
     assert truth[("persons", "nation", 0)] == TOTAL
@@ -206,3 +206,25 @@ def test_disclosure_audit_accepts_complementary_suppression_and_catches_linear_r
 def test_levels_and_estimands_are_frozen_names():
     assert LEVELS == ("nation", "state", "county")
     assert "persons" in ESTIMAND_IDS and len(set(ESTIMAND_IDS)) == len(ESTIMAND_IDS)
+
+
+def test_a_suppress_everything_table_protects_everything_and_fails_the_utility_gate():
+    """Disclosure protection is one-sided, so the gate needs a utility requirement."""
+    truth = np.array([[[12, 3], [40, 9]], [[7, 60], [2, 25]]])
+    blank = np.full(truth.shape, np.nan)
+    audit = disclosure_audit(blank, truth, threshold=10)
+    assert audit["pass"] is True
+    assert audit["n_releasable"] == 4
+    assert audit["n_published_releasable"] == 0
+    assert audit["utility"] == 0.0
+    assert evaluate_gates([], [], {}, audit, None)["pass"] is True
+    gated = evaluate_gates([], [], {}, audit, {"disclosure_utility_floor": 0.8})
+    assert gated["pass"] is False
+    assert any(r.startswith("disclosure utility") for r in gated["reasons"])
+
+    published = truth.astype(float)
+    published[truth < 10] = np.nan
+    honest = disclosure_audit(published, truth, threshold=10)
+    assert honest["utility"] == 1.0
+    assert evaluate_gates([], [], {}, honest,
+                          {"disclosure_utility_floor": 0.8})["pass"] is True

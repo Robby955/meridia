@@ -1,0 +1,9 @@
+# Identifiability of the six axes, 18 generator-only worlds
+
+- mortality_improvement: experience file mortality drift within cells; signed rank correlation +0.437 pooled, within regime development +0.133, hidden +0.600; intensity spread -0.016 to 0.072
+    drift estimator standard error, mean over worlds 0.0102, against an intensity spread of 0.0884
+- migration_age_pattern: urban pull of net migration, young minus old; signed rank correlation +0.864 pooled, within regime development +0.846, hidden +0.657; intensity spread 0.218 to 2.391
+- age_reporting_error: birth ticks off a year boundary; signed rank correlation +0.664 pooled, within regime development +0.490, hidden +0.771; intensity spread 0.709 to 2.502
+- linkage_urban_gradient: missing-name share against urbanity; signed rank correlation +0.465 pooled, within regime development +0.343, hidden +0.657; intensity spread 0.339 to 1.699
+- administrative_completeness: register coverage against economic rank; signed rank correlation -0.057 pooled, within regime development +0.273, hidden -0.257; intensity spread 0.399 to 2.142
+- missingness_target_dependence: archive against anchor admission rate; signed rank correlation -0.430 pooled, within regime development -0.350, hidden -0.486; intensity spread 0.216 to 1.425
