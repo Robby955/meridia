@@ -518,3 +518,65 @@ def test_the_shock_family_publishes_its_regional_loadings(packet):
     assert len(loading) == PARAMS.n_states
     assert all(band[0] <= float(v) <= band[1] for v in loading)
     assert len(set(round(float(v), 9) for v in loading)) == len(loading)
+
+
+def test_the_continuation_ensemble_is_cached_on_the_baseline_ledger(tmp_path,
+                                                                    monkeypatch):
+    """A rebuild that changes nothing upstream of the ledger does not pay for futures.
+
+    The ensemble is what a packet costs at the committed size, and it is a function of
+    the branch state, the shock law, the horizon and the obligation. None of those is
+    downstream of a verifier or a bar, so refreezing does not have to rebuild them.
+    """
+    import meridia.packet as packet_module
+    cache = tmp_path / "ensembles"
+    first_dir = tmp_path / "first"
+    first = build_packet(SEED, first_dir, PARAMS, development=False, cache_dir=cache)
+    stored = sorted(cache.glob("*.npz"))
+    assert len(stored) == 1
+    assert len(stored[0].stem) == 64
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the cached ensemble was rebuilt")
+
+    monkeypatch.setattr(packet_module, "continuation_liabilities", refuse)
+    second_dir = tmp_path / "second"
+    second = build_packet(SEED, second_dir, PARAMS, development=False, cache_dir=cache)
+    assert second["retained"]["continuation_liabilities.npz"]["sha256"] == \
+        first["retained"]["continuation_liabilities.npz"]["sha256"]
+    assert second["participant"]["contract.json"]["sha256"] == \
+        first["participant"]["contract.json"]["sha256"]
+
+    # A world the cache has not seen is built, not read: the key covers the ledger.
+    third_dir = tmp_path / "third"
+    with pytest.raises(AssertionError, match="rebuilt"):
+        build_packet(SEED + 1, third_dir, PARAMS, development=False, cache_dir=cache)
+
+
+def test_the_cache_key_moves_when_the_priced_world_moves(tmp_path):
+    """The digest covers the branch, the shock law, the horizon and the obligation."""
+    from meridia.actuarial import ObligationContract, regions_from_admin
+    from meridia.mechanisms import QUALIFYING_DIAGNOSIS_GROUPS
+    from meridia.packet import baseline_ledger_digest
+
+    built = build_world(SEED, PARAMS)
+    region = regions_from_admin(built["admin"])
+    obligation = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS)
+    key = baseline_ledger_digest(built["history"], obligation, PARAMS.horizon_months,
+                                 region)
+    assert key == baseline_ledger_digest(built["history"], obligation,
+                                         PARAMS.horizon_months, region)
+    assert key != baseline_ledger_digest(built["history"], obligation,
+                                         PARAMS.horizon_months + 1, region)
+    dearer = ObligationContract(
+        horizon_months=PARAMS.horizon_months,
+        qualifying_diagnosis_groups=QUALIFYING_DIAGNOSIS_GROUPS,
+        death_benefit=ObligationContract().death_benefit + 100.0)
+    assert key != baseline_ledger_digest(built["history"], dearer,
+                                         PARAMS.horizon_months, region)
+    other = build_world(SEED + 1, PARAMS)
+    assert key != baseline_ledger_digest(other["history"], obligation,
+                                         PARAMS.horizon_months,
+                                         regions_from_admin(other["admin"]))

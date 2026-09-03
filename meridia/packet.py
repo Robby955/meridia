@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -462,12 +463,88 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+ENSEMBLE_CACHE_SCHEMA = "meridia.ensemble.cache.v1"
+
+
+def baseline_ledger_digest(history: dict, obligation: ObligationContract,
+                           horizon_months: int, region_of_county: np.ndarray) -> str:
+    """The key the continuation ensemble is cached under.
+
+    Every member is a deterministic function of four things: the branch state the ledger
+    kept at the revised snapshot, the shock law it redraws its own future from, the
+    horizon it is priced over, and the obligation that prices it. This digest covers all
+    four, so a cached ensemble is reused exactly when the world that produced it is
+    unchanged and is rebuilt as soon as anything upstream of it moves. A verifier or a
+    bar is downstream of all of it and does not enter, which is the point: refreezing a
+    bar on twenty-one worlds no longer pays for their futures a second time.
+    """
+    digest = hashlib.sha256(ENSEMBLE_CACHE_SCHEMA.encode())
+    branch = history["branch"]
+    digest.update(json.dumps({
+        "seed": int(branch["seed"]), "month": int(branch["month"]),
+        "tick": int(branch["tick"]), "n_events": int(branch["n_events"]),
+        "order": int(branch["order"]),
+        "annual_shock_rate": float(branch["annual_shock_rate"]),
+        "generator": int(history["generator_version"]),
+        "schema": int(history["event_schema_version"]),
+        "horizon_months": int(horizon_months),
+        "obligation": obligation.as_public(),
+        "shocks": history["shock_schedule"],
+        # The mechanism record covers the coefficients and the regional shock loadings a
+        # member runs under. Most of them are already in the branch state, since they
+        # produced it, but a loading only shows there once a shock year has been run, and
+        # a member's own future is where the rest of them go.
+        "mechanisms": history["mechanism_record"],
+    }, sort_keys=True, default=str).encode())
+    for table in sorted(branch["state"]):
+        for name, values in sorted(branch["state"][table].items()):
+            digest.update(table.encode())
+            digest.update(name.encode())
+            digest.update(np.ascontiguousarray(values).tobytes())
+    digest.update(np.ascontiguousarray(branch["household_last_move_tick"]).tobytes())
+    digest.update(np.ascontiguousarray(region_of_county).tobytes())
+    return digest.hexdigest()
+
+
+def _cached_liability(cache_dir: Path | None, key: str, members: int) -> np.ndarray | None:
+    if cache_dir is None:
+        return None
+    path = Path(cache_dir) / f"{key}.npz"
+    if not path.is_file():
+        return None
+    stored = np.load(path)["liability"]
+    if stored.shape[0] < members:
+        return None
+    return np.ascontiguousarray(stored[:members])
+
+
+def _store_liability(cache_dir: Path | None, key: str, liability: np.ndarray) -> None:
+    if cache_dir is None:
+        return
+    directory = Path(cache_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    # numpy appends the suffix itself, so the scratch name has to carry it: the write is
+    # done under a name nothing reads and moved into place, which keeps a build that dies
+    # part way from leaving a half-written ensemble for the next one to trust.
+    scratch = directory / f"partial-{os.getpid()}-{key}.npz"
+    np.savez_compressed(scratch, liability=liability)
+    scratch.replace(directory / f"{key}.npz")
+
+
 def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams(),
-                 development: bool = False, workers: int = 1) -> dict:
+                 development: bool = False, workers: int = 1,
+                 cache_dir: Path | None = None) -> dict:
     """Write one packet and return its manifest.
 
     ``workers`` divides the continuation ensemble between processes and changes nothing
     else: every member is a deterministic function of the seed and its own index.
+
+    ``cache_dir`` holds continuation ensembles keyed on the digest of the baseline ledger
+    that produced them. The ensemble is the whole cost of a packet at the committed size,
+    and it depends on nothing downstream of the ledger, so a rebuild that changes only
+    what a verifier or a bar reads takes the futures back off the shelf. A cached
+    ensemble with more members than the packet asks for is used from the front, since a
+    member is a function of its own index.
     """
     out_dir = Path(out_dir)
     if out_dir.exists():
@@ -531,10 +608,15 @@ def build_packet(seed: int, out_dir: Path, params: PacketParams = PacketParams()
     baseline_share = reserve_baseline_share(population_revised, admin["county_state"],
                                             ticks["revised"], n_regions,
                                             obligation.eligibility_min_age)
-    liability = continuation_liabilities(built["history"], admin, ticks["revised"],
-                                         params.horizon_months, obligation,
-                                         params.ensemble_members, region_of_county,
-                                         workers=workers)
+    cache_key = baseline_ledger_digest(built["history"], obligation,
+                                       params.horizon_months, region_of_county)
+    liability = _cached_liability(cache_dir, cache_key, params.ensemble_members)
+    if liability is None:
+        liability = continuation_liabilities(built["history"], admin, ticks["revised"],
+                                             params.horizon_months, obligation,
+                                             params.ensemble_members, region_of_county,
+                                             workers=workers)
+        _store_liability(cache_dir, cache_key, liability)
     tail = ensemble_truth(liability)
     reserve = {"obligation": obligation.as_public(),
                "total": reserve_total(tail["q"], tail["es"], thresholds),
