@@ -216,8 +216,8 @@ lanes. They are listed so nothing is silently decided by default.
     `total` (protocol section 9 R), and optionally `gamma`, `regions` and `weights`.
   - `rate_truth_horizon.csv`: columns estimand, level, unit, sex, age_band, value, which
     is `exposure_and_rate_truth` over the sixty-month horizon.
-  - `continuation_liabilities.npz`: `liability` of shape (members, regions) and
-    `realized_member`.
+  - `continuation_liabilities.npz`: `liability` of shape (members, regions). The horizon
+    point truth is a separate retained quantity, not a designated ensemble row.
 
   The first two are cheap. The third is the ensemble, and it waits on M and on the
   monthly-loop extraction described above. Wiring all three into `build_packet` is one
@@ -361,7 +361,7 @@ that no single lane could take because each of them changed what another lane re
 them needed three things settled first: how a continuation member is built, how many
 there are, and what the reserve block publishes.
 
-### Ensemble size M = 2048, and a member that pays only for its own future
+### Ensemble size M = 2048, and every member is a predictive future
 
 The protocol names 2,048 or 4,096; 2,048 is taken, the lower of the two.
 
@@ -385,8 +385,10 @@ and changes nothing: a packet built serially and one built on six processes have
 manifests, including the ensemble digest
 `20c92935a5d3d6b1bc1262e7a4307522c5957be47fa215baef839d6c9e1902a8`.
 
-Member zero is the ledger's own future, which is the future the horizon truth tables are
-read from, so the designated realized path and the tail truth are one world.
+The horizon truth tables are point truth from the world's ledger. They are outside the
+predictive ensemble. Members 0 through 2,047 all redraw their own future process; member
+zero has no special realized-path status. New V4 liability archives therefore contain no
+`realized_member` field.
 
 ### The continuation carries systematic risk, and the shock family is published
 
@@ -1699,7 +1701,8 @@ Five stochastic composites remain:
 - `tail_calibration`, pooled exceedance deviation and the q95 and ES95 errors measured in
   regional tail-width units;
 - `reserve_skill`, one minus skill against the public proportional baseline and the sealed
-  perfect-information allocation.
+  perfect-information allocation together with the worst sealed regional shortfall
+  probability. These are two components of one composite, not two pass events.
 
 The all-gates rule remains binary on all three graded worlds. At a one percent target
 false-fail rate per stochastic composite, its marginal-rate product is
@@ -1708,18 +1711,24 @@ failures can be correlated, so it is not an empirical joint pass probability.
 
 ### How a bar is allowed to freeze
 
-Each component ceiling is the exact empirical 99th percentile from balanced,
-deterministically identified resampling reports. The order statistic is at one-based rank
-`ceiling(0.99 * N)`. Final line-by-world reports are separate witnesses and are never
-resampled as substitute evidence. At least 100 balanced replicate reports are required so
-the empirical sample can resolve a one percent tail.
+Calibration is joint at the composite-gate level and separate by reference line. Every
+component is a dimensionless loss with a fixed normalizer of one. For each resampled report,
+the gate severity is the maximum normalized component loss. Each reference line has 102
+independent reports: seventeen resamples on each of six qualification worlds. Its gate bar
+is the exact empirical 99th percentile severity at one-based rank
+`ceiling(0.99 * 102) = 101`. The common gate severity ceiling is the maximum of the A, B,
+and C line-specific p99 values. A component ceiling is that severity ceiling times its
+fixed normalizer, capped only at the component's registered attainable maximum. This makes
+the union over a multi-component gate, rather than each marginal component, the object with
+at most a one-percent false-fail rate.
 
-Attainability is measured by leaving out one qualification world at a time, setting each
-component ceiling from the other five worlds, and scoring the held-out reports. A
-composite fails the attainability check when more than one percent of held-out reports
-exceed any component ceiling. The final ceiling is then the all-qualification-world 99th
-percentile. Every final reference report must clear it. No fixed margin, cap, or manual
-increase can replace this evidence.
+The report preserves every component's observed range and empirical p99 as diagnostics,
+but it makes no marginal component false-fail claim. A, B, and C are not pooled for target
+claims. Their achieved per-gate rates and five-gate, three-world arithmetic products are
+reported separately; the headline achieved product is the conservative minimum over the
+three lines. Final line-by-world reports are separate witnesses and are never resampled as
+substitute evidence. Every final reference report must clear the common bars. No fixed
+margin, data-fitted normalizer, or manual increase can replace this evidence.
 
 Every retained composite also needs a registered, structurally valid wrong method that
 fails it. The freeze report records the control, world, component, and failure. A composite
@@ -1767,8 +1776,9 @@ exposure, coefficient, rounding direction, and unit so the value can be recomput
 participant files.
 
 The coefficient is not frozen yet. Qualification must select the smallest preregistered
-coefficient for which the legitimate reference lines are feasible and clear reserve skill
-while the proportional allocation fails. A red-team fit uses the twelve development
+coefficient for which the legitimate reference lines satisfy the public allocation rule
+and clear the reserve-skill composite while the proportional allocation fails. A red-team
+fit uses the twelve development
 worlds to regress regional q95 and ES95 on the public total and reports held-out predictive
 R squared on the six qualification worlds. The same report gives world-aggregate results.
 No reserve coefficient is accepted until that held-out measurement is recorded here.
@@ -1897,6 +1907,17 @@ policy, and source digests. A completed bar freeze requires that receipt. The ch
 the generator, so the v9 packets and bars are evidence for the decision but cannot be the
 final freeze inputs. All worlds must be rebuilt before the next qualification run.
 
+Receipt schema v2 separates two quantities that the earlier audit conflated. The hidden
+axis policy is checked against raw regime intensity. Identifiability correlations use the
+realized mechanism after the generator's predeclared interactions, and the receipt reports
+raw and realized development, hidden, and pooled ranges separately. It independently
+registers the attainable development and public interaction envelopes before reading the
+eighteen packets. For example, missingness target dependence is the raw intensity times
+`1 + health_inclusion_completeness_by_target * (administrative_completeness - 1)`; a
+realized value above the raw development maximum is not a policy violation when it remains
+inside that registered interaction envelope. Administrative completeness has no such
+interaction and therefore has identical raw and realized ranges.
+
 The tail ceilings remain unchanged until the elder cohort-component report supplies all
 six before-and-after exposure errors, regional liability means, and pooled exceedance
 deviations. A fresh freeze must then satisfy the one-percent false-fail condition and the
@@ -1909,8 +1930,10 @@ It no longer identifies the sealed regional quantiles or expected shortfalls. Th
 contract now states that semantic explicitly, and the final method API has no
 tail-to-total calibration switch. The third line, decomposition controls, deletion
 controls, and their A and B comparators use the public total only as the required sum of
-regional allocations and keep each allocation above its submitted quantile. Tail-to-total
-calibration has been removed from the active V4 API.
+regional allocations. A legal allocation is finite, nonnegative, and sums to that total
+within the published tolerance. Whether an allocation lies above its submitted regional
+q95 is retained as an authenticated diagnostic only; it is not a hard feasibility rule or
+a freeze prerequisite. Tail-to-total calibration has been removed from the active V4 API.
 
 The detailed-table and disclosure stage is not part of the retained phase-three surface.
 The integrated verifier and method writers require exactly `release.csv`,
@@ -1925,7 +1948,8 @@ The phase-three measurement preserves the verifier's structured `composite_metri
 - `release_accuracy`: release accuracy and projection accuracy;
 - `interval_quality`: release and projection coverage and interval score;
 - `tail_calibration`: regional quantile and expected-shortfall calibration;
-- `reserve_skill`: expected uncovered obligation, regional shortfall, and allocation skill.
+- `reserve_skill`: allocation skill and worst sealed regional shortfall probability in one
+  joint composite.
 
 No disclosure, detailed-table, or structural reason belongs to one of those composites. If
 any registered control passes its target composite on even one qualification world, that
@@ -1959,12 +1983,15 @@ composite separates. The methods report records them under `hard_check_failures`
 
 Each method output is first written to a same-directory staging path. A completed output is
 reused only when a run receipt binds the measurement contract, packet manifest, method
-configuration, and every submitted file hash. Linked packet or output paths are rejected
+configuration, the exact registered final measurement parameters (100 bootstraps, 400
+Bayesian sweeps, 2,048 simulation paths, and 12 linkage bootstraps), and every submitted
+file hash. Linked packet or output paths are rejected
 before their contents are opened. Missing or unexpected flat submission files are still
 bound and passed to the verifier so their structural failure remains visible.
 
-Freeze calibration requires 126 balanced deterministic line reports: six worlds times
-seven paired resamples times reference lines A, B, and C. Every report has a unique
+Freeze calibration requires 306 balanced deterministic line reports: six worlds times
+seventeen paired resamples times reference lines A, B, and C. This is 102 independent
+reports per line. Every report has a unique
 `evidence_id`; A, B, and C intentionally share the same `replicate_id` and materialized
 resample digest within each world and replicate. Final qualification reports are a
 separate class. The methods resampling lane materializes and binds the paired inputs; the
@@ -1977,13 +2004,18 @@ at or above that observation, including ties. The integrated verifier and `tail_
 use that rule. Its regression test includes an untied four-member boundary where NumPy's
 historical `higher` convention differs.
 
-Packet manifests currently distinguish development from non-development
-only. Qualification and graded packets both carry `development: false`, so that field cannot
-prove that a renamed packet is safe to inspect. The methods runner also requires the exact
-canonical `qualification/qual-0` through `qual-5` paths and refuses any resolved path with a
-graded component. The generator integration request is a signed packet-class field with
-distinct `development`, `qualification`, and `graded` values. The methods runner should bind
-that field after it exists; canonical path checking is only the current fail-closed bridge.
+P4 packet manifests and retained world metadata carry one authenticated `packet_class`
+value: `development`, `qualification`, or `graded`. Participant files carry none of those
+labels. The methods runner verifies the class, file inventory, byte counts, digests,
+canonical world names, and shared build root before opening a measurement. A renamed graded
+packet therefore cannot enter qualification evidence.
+
+Each participant contract also lists the exact relative path and ordered columns of all
+fourteen participant CSV inputs under `participant_csv_schemas`; development-only truth is
+excluded. The verifier compares that map to the actual regular, non-linked files before
+scoring. The benchmark path is `sources/benchmark_revised.csv`. The reserve block publishes
+the allocation rule as finite values, minimum zero, sum equal to `reserve.total`, and the
+registered feasibility tolerance.
 
 The third line now treats elder exposure as a level rather than only a state share. It
 spreads the last annual state-band-sex exposure over single ages using the reconstructed
@@ -2014,8 +2046,9 @@ every floor and sum to the published total. Fitting those q95 values back to the
 reintroduce the sealed-tail leakage that phase three removes. The partial tree at
 `/Users/robsneiderman/Projects/meridia-v4-methods-p3-evidence-20260903` is preserved as a
 failed checkpoint; it contains no final elder audit. The exposure-rule reserve contract is
-now integrated. The exact run must restart in a fresh directory after all six qualification
-packets are rebuilt.
+now integrated. This checkpoint diagnosed why the q95 allocation floor had to be removed;
+its negative margin remains reportable but no longer invalidates a legal allocation. The
+exact run must restart in a fresh directory after all six qualification packets are rebuilt.
 
 The administrative benchmark anchor is retained after measuring +0.715. The proposed
 health/survey anchor is removed after measuring only +0.020 and +0.139 in its two
@@ -2023,3 +2056,75 @@ preflights. Both hidden-axis constraints remain in force. Neither administrative
 completeness nor missingness target dependence may receive an out-of-development-range
 hidden value. The phase-three methods make no unsupported separation claim for either
 axis.
+
+### P4 construction and sealing boundary
+
+P4 packet construction is atomic. A world is written to a uniquely named sibling staging
+directory, its complete manifest and retained parameters are authenticated, and only then
+is it renamed into the final family directory. An existing world is reusable only after
+the same validation. An interrupted or stale directory stops the build and remains in
+place for diagnosis.
+
+The continuation cache now binds an explicit schema, the baseline ledger, the requested
+horizon and obligation, the regional mechanism record, the continuation random-number
+domains, the public shock family, and source digests for the event and pricing law. A cache
+entry must contain its own matching key and a finite two-dimensional liability array with
+the exact region count. Invalid worker counts and nested world/member process pools stop
+before generation begins.
+
+Development and qualification worlds are separate explicit builder invocations. A graded
+invocation first authenticates the completed composite bars and the accepted reserve-rate
+audit, then verifies a V4 keyed seal before deriving any seed. V4 uses a domain-separated
+HMAC derivation with a fresh public seal nonce. Its context binds the three-world count,
+exact hidden `GRADING_WORLD` parameters, packet-generator and continuation-law digests,
+runtime versions, and both freeze-receipt digests. Each commitment binds that context and
+the derived seed. The public seal manifest contains no seed.
+
+Each authorization attempt opens the key file once. A graded build plan and its worker
+jobs carry only the public world index and authorization binding, never a raw seed. Every
+worker reauthenticates the seal, key, source, runtime, and receipts before construction and
+again while the completed packet is still private staging. It then revalidates every
+staged byte before an exclusive atomic rename. A failed final check removes the staging
+directory and leaves no visible world that could later be mistaken for a reusable packet.
+Exact seeds remain only in ephemeral authorization/build state and each sealed packet's
+retained metadata; they never enter participant files or build output.
+
+Reserve calibration is also fail-closed. The calibration script emits an unaccepted
+candidate. Only the freezer can promote it, after every other freeze blocker is empty.
+Promotion fixes `RATE_GRID=1.0` and `TAIL_SLACK_SHARE=0.25`; it binds verifier-computed q95
+and ES95 sums, the exact `reserve.csv` bytes, the public exposure rule, and a common
+rounding unit. The reserve red-team record is content-addressed and cross-bound to its
+measurement source, packet input hashes, verifier evidence identifiers, and the public
+exposure and reserve-total values. Its R-squared measurements must be finite and no greater
+than one. A failed freeze writes no accepted standalone audit and removes any stale one.
+
+The legacy V1 seal covers a different grid and population policy and is not accepted by a
+V4 graded builder. This boundary supersedes the earlier seed-file and V1 construction
+commands retained above as chronological history. The P4 seal has not been minted and no
+P4 world build has started. These changes are a construction checkpoint, not qualification
+evidence.
+
+## Integration close, 2026-09-03
+
+The tree is green at 602 passing tests with no skips. Two gaps were closed to get there,
+and both are recorded because they change what a reader can rely on.
+
+The toy packet the actuarial tests build was written before the contract published a
+participant column map, a benchmark path, and a reserve allocation rule. The verifier now
+compares all three against the packet on disk, so four tests read a contract error where
+they expected a scored report. The fixture writes header-only stand-ins for all fourteen
+participant CSV inputs and publishes the same three blocks the real builder does. Only
+only the experience table and the geography map carry rows, because those are the two
+the verifier reads a number from. This is a test fixture and not a change to the packet
+surface. A stand-in file is the smallest thing that satisfies a header comparison, and
+nothing in the version-four measurement path reads the other twelve for a value.
+
+Packet build provenance binds three quantities: the generator source law, the interpreter
+and numerical-library law, and the normalized packet parameters. Only the first had a
+drift test. Five tests now cover the record. Runtime drift is rejected by validation on
+the same footing as source drift. A parameter change moves the parameter digest and leaves
+the source digest alone. A malformed digest raises rather than being written. Construction
+recomputes the record instead of trusting the one it is handed, so a provenance that moved
+after the build intent was locked stops before any world is generated. A restart offered a
+build intent minted under a different generator refuses to adopt the staging and leaves it
+in place for diagnosis.
