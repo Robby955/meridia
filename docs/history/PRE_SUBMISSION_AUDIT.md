@@ -1,8 +1,8 @@
 # Pre-submission audit
 
-Every item is checked and recorded before a Terminal-Bench Science reviewer sees the
-task. The first two merged tasks burned review cycles on items in the second list; the
-first list is what this task adds. A line is closed only with the artifact named beside it.
+Every item is checked and recorded before an outside reviewer sees the task. The second
+list is carried forward from two earlier merged tasks. The first list is what this task
+adds. A line is closed only with the artifact named beside it.
 
 ## Items this task adds
 
@@ -26,9 +26,10 @@ first list is what this task adds. A line is closed only with the artifact named
   led to a verifier fix and is retained as evidence. Artifact: the packaging thread's
   red-team report and resolution note.
 - Reference solutions run inside the participant container and receive reward 1 from the
-  separate verifier image with zero accommodation. Artifact: Harbor witness receipts.
-- Development worlds ship with truth (three); the hidden world exists only in the test
-  image; no truth column reaches the participant side. Artifact: packet manifests,
+  separate verifier image, with no change made to either image. Artifact: the trial
+  receipts under the task package's authoring directory.
+- Development worlds ship with truth (twelve, one per row of the committed design); the
+  hidden world exists only in the test image; no truth column reaches the participant side. Artifact: packet manifests,
   `FORBIDDEN_COLUMN_PREFIXES` in `meridia/packet.py`.
 - Public vocabulary: world, state, county, sources, archives, snapshots; no agency
   framing anywhere in the task, the instruction, or the repository. Artifact: the voice
@@ -40,8 +41,6 @@ first list is what this task adds. A line is closed only with the artifact named
 
 - Instruction under 700 words, outcome not method; the contract carries the detail.
 - Scientific vocabulary matches what the task does; no borrowed domain dress.
-- Author expertise stated plainly in the proposal; understating it reads as "no
-  specialist needed".
 - `tests/test.sh` runs every test file; a green run must not hide a regression.
 - Data regenerate from the generator; no hand-edited generated file.
 - Timeouts and resource limits in the instruction match the configuration; changing one

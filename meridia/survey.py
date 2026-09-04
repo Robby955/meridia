@@ -49,9 +49,9 @@ class SurveyParams:
 
 
 # Published bands for the instrument's own mechanism, one continuous draw per world.
-# Version four's first pass drew twenty source rates per world and left these nine at
-# their dataclass defaults, so the whole nonresponse and measurement model was the same
-# in every world and estimable exactly on the development worlds, which ship truth. The
+# Nine instrument axes are drawn per world. A constant here would be estimable once on
+# the twelve development worlds, which ship truth, and would then carry unchanged into a
+# world nobody has seen. The
 # form is public and written into the packet contract; a world's realized values are
 # retained. The anchor's sensitivity and specificity are deliberately not in this table:
 # they are declared to the participant, which is what makes the anchor an anchor.
@@ -70,9 +70,9 @@ SURVEY_BANDS = {
 # The instrument's public plausibility envelope, wider than the development band on both
 # sides of every axis. A hidden world places at most two of its nine survey axes between
 # the development band and this edge, which is the same arrangement the mechanism layer
-# uses for its six regime axes. Without it the whole instrument was inside one band that
-# twelve worlds shipping truth covered densely, so a nonresponse and measurement model
-# fitted there transferred to a world nobody had seen. Every value in the envelope keeps
+# uses for its six regime axes. Without an envelope the whole instrument sits inside one
+# band that twelve worlds shipping truth cover densely, and a nonresponse and measurement
+# model fitted there transfers to a world nobody has seen. Every value in the envelope keeps
 # the instrument well formed: the rates stay strictly inside zero and one and the money
 # error stays positive.
 SURVEY_ENVELOPE = {
@@ -94,8 +94,8 @@ SURVEY_REGIMES = ("development", "hidden")
 
 # Domain tags. The instrument draw and the sample draw are separate streams, and the
 # sample stream takes the world seed and a vintage index rather than a seed shifted by
-# the snapshot tick: consecutive development seeds and consecutive ticks made two worlds
-# share a survey stream, which is a joint draw nobody declared.
+# the snapshot tick. A seed shifted by the snapshot tick lets consecutive development seeds
+# and consecutive ticks collide, which is a joint draw nobody declared.
 _INSTRUMENT_DOMAIN = 0x5A12
 _SAMPLE_DOMAIN = 0x5A11
 

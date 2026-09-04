@@ -7,12 +7,11 @@ every local coefficient keys off, the committed development design that assigns 
 its mechanism configuration, and the coefficient draw that turns that configuration into
 the numbers the ledger and the sources actually use.
 
-Version three had none of this. Fifteen of its nineteen source rates were the same
-constant in every world, household growth was one global scalar, and register money was
-one global multiplier, so those quantities could be measured once on a development world
-and carried unchanged to the hidden world. Here every rate is a per-record or per-person
-probability from a published family with hidden coefficients and a county effect, and no
-two worlds share a coefficient vector.
+Every rate here is a per-record or per-person probability from a published family with
+hidden coefficients and a county effect, and no two worlds share a coefficient vector. A
+constant rate, one global household growth scalar, or one global register-money multiplier
+would be measurable once on a development world and carried unchanged to a hidden one,
+which is the property this layer exists to remove.
 
 Form is public, value is hidden. The families and the covariate definitions are written
 into the packet contract; a world's realized coefficients are retained metadata. Every
@@ -73,12 +72,11 @@ DEVELOPMENT_BAND: Final = {
 # Predeclared interactions (protocol section 10, last paragraph). Nothing outside this
 # list is generated, and each entry names the coefficient that carries it.
 #
-# Three of them are a product of two axes at one site, listed first. Until version four's
-# second pass only one was, so every other axis entered additively at a single place and a
-# method that fitted the six axes separately on the twelve development worlds transferred
-# exactly to any recombination of them. The hidden corner then carried no difficulty
-# beyond its six marginals, which is the whole point of putting the hidden world in a
-# corner the design does not spend.
+# Three of them are a product of two axes at one site, listed first. With every axis
+# entering additively at a single place, a method that fitted the six axes separately on
+# the twelve development worlds would transfer exactly to any recombination of them, and
+# the hidden corner would carry no difficulty beyond its six marginals, which is the whole
+# point of putting the hidden world in a corner the design does not spend.
 PAIRWISE_AXIS_INTERACTIONS: Final = (
     "linkage_gradient_by_migration",
     "health_completeness_by_latent_frailty",
@@ -136,8 +134,9 @@ N_DEVELOPMENT_CELLS: Final = int(DEVELOPMENT_DESIGN.shape[0])
 # The hidden world draws its level pattern from the sixty-four sign patterns the six axes
 # admit, minus the twelve the development design already spends. Only axes with a measured
 # participant-file trace may leave the development band. The administrative benchmark
-# anchor measured +0.715, while two health/survey preflights measured only +0.020 and
-# +0.139. The freeze policy nevertheless keeps both axes in band: anchor availability and
+# anchor reads +0.676 pooled on the freeze evidence, under
+# `regime_identifiability_audit` in `bars/national-v14-standard/bars.json`; an earlier
+# preflight read +0.715, and two health/survey preflights read only +0.020 and +0.139. The freeze policy nevertheless keeps both axes in band: anchor availability and
 # hidden-axis scope are separate fail-closed decisions. They still vary continuously and
 # enter the joint hidden level pattern.
 HIDDEN_IN_BAND_AXES: Final = (

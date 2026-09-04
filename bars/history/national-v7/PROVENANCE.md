@@ -110,10 +110,11 @@ large counties outnumber such a county's own population, and the misfiled-record
 deconvolution in `register_counts` does not hold there. Every qualification and fresh
 world so far had 1.6 to 4.1 million persons and a smallest county of 2,700 or more.
 This is a small-county gap in the reference lines, not a bar-derivation matter: adding
-index 3 to the qualification set would lift the county bars past the point where the
-`exact_key_union` control passes. The seed-free receipts of the three stopped
-confirmations are kept beside the packets
-(`~/Projects/meridia-packets/confirm-v3-index{1,2,3}-stop/confirmation.json`).
+index 3 to the qualification set would lift the county bars past the point where
+the `exact_key_union` control passes.
+
+The three stopped confirmations are kept with the packets, outside this repository, and
+their receipt digests are listed above.
 
 The one permitted confirmation on keyed world index 4, run against the frozen set in
 this directory, PASSED: both strong witnesses cleared every bar and all eight controls

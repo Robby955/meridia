@@ -1,9 +1,12 @@
-# Release contract v0
+# Release contract v0, superseded by docs/SUBMISSION_FORMAT.md
 
-What a published estimate table for a Meridia world must contain, how it is laid out, and how
-it is scored against the retained population. This is the participant-facing half of the
-capstone task; the scoring code in `meridia/scoring.py` implements exactly what is written
-here, and `meridia/release.py` computes the truth it is scored against.
+What a published estimate table for a Meridia world must contain, how it is laid out, and
+how it is scored against the retained population. The estimand definitions, the geographic
+hierarchy, and the release schema below are the ones version four uses. The version-four
+submission surface, its file set, and its gates are in `docs/SUBMISSION_FORMAT.md`; the
+projection-and-allocation sections below describe the version-three surface and are kept as
+the record of it. The scoring code in `meridia/scoring.py` implements what is written here,
+and `meridia/release.py` computes the truth it is scored against.
 
 ## Geography
 
@@ -138,9 +141,3 @@ ranges. Realized values are never shipped.
   second total to reconcile against the county-up count, not an answer.
 - Allocation budget. The budget is a fraction of persons aged 65 and over in the revised
   population source as reported, birth-tick reporting error included.
-
-## Not yet in v0
-
-Movement classification between vintages and the executable audit trail are scored by
-later versions of this contract; the same error, coverage, and interval-score definitions
-apply to them.

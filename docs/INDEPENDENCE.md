@@ -9,9 +9,10 @@ below at the point of use; the parameter ranges of a world's character are decla
 `meridia/character.py`; the defect mechanisms of the observed sources are declared in
 `meridia/sources.py` and `meridia/survey.py`.
 
-Two mechanical guards enforce the boundary. The voice gate run by the git hooks blocks
-agency vocabulary and the employer's name in every committed file. The packet builder
-refuses to write any truth-side column to the participant side.
+The packet builder refuses to write any truth-side column to the participant side, and
+`tests/test_packet.py::test_participant_side_carries_no_truth_columns` asserts it. A second
+guard, a voice gate blocking agency vocabulary, runs from a local git hook during authoring
+and is not part of this distribution.
 
 ## Methods and their public sources
 
@@ -44,7 +45,7 @@ refuses to write any truth-side column to the participant side.
 - Priority-flood depression filling in the terrain layer: Barnes, Lehman, and Mulla
   (2014), Computers and Geosciences 62.
 
-## How independent the two strong lines are on the version-four surface
+## How independent the three reference lines are on the version-four surface
 
 Less than on the version-three surface, and the difference is worth stating plainly. The
 design-based line and the Bayesian line keep their own reconstruction of the county age
@@ -61,6 +62,13 @@ provenance says so. A second implementation of the chain would be the way to str
 it; one copy of the arithmetic per line would not, since two copies of the same recipe
 drift apart between releases without ever disagreeing about the science.
 
+The third line is a fourth degree of freedom on that surface rather than a fully separate
+one. It keeps its own elder cohort-component, its own vintage linkage and its own cellwise
+mortality trend, and it does not use the shared fitted mixture or the shock-posterior
+trend, but it reads the design-based reconstruction and the same
+`meridia/methods/actuarial_reference.py` simulation and reserve optimiser. It calibrates
+`reserve_skill/skill_loss` and contributes one of the three lines behind every other bar.
+
 ## What a participant may and may not learn
 
 Participants see the parameter ranges and the mechanism families, never a sealed
@@ -70,18 +78,29 @@ in any participant file.
 
 Every axis an evaluation world pushes past the development band must have a participant-
 file statistic whose signed rank correlation with the realized intensity clears 0.4 on
-the freeze worlds. The contract publishes the four currently eligible axes under
+the freeze worlds, recorded under `regime_identifiability_audit.axes` in
+`bars/national-v14-standard/bars.json`. The contract publishes the four currently eligible
+axes under
 `mechanisms.hidden_world.eligible_for_outside_development_band` and publishes
 `administrative_completeness` and `missingness_target_dependence` under
 `held_inside_development_band`. Both constrained axes still vary over their full public
 development ranges and still enter hidden joint configurations; the generator simply
 does not extrapolate them beyond evidence participants can read.
 
+Two of the four eligible axes clear the threshold pooled but not within the hidden regime
+alone: `migration_age_pattern` reads +0.257 and `mortality_improvement` reads -0.086 inside
+that regime. The freeze records both under
+`regime_identifiability_audit.hidden_regime_correlation_shortfalls` in
+`bars/national-v14-standard/bars.json`. The pooled threshold is what the policy binds on,
+and the within-regime figures are published beside it.
+
 The administrative benchmark anchor remains public. It publishes the resident-person
 count of each economic band of counties, with each county's band in `geography.csv` and
 the definition, reference tick, rounding, and numerical bias ranges in `contract.json`.
-Its measured correlation was +0.715, but the hidden-axis constraint remains as a separate
-fail-closed policy. The attempted age-gradient health/survey anchor was removed after two
+Its correlation on the freeze evidence is +0.676 pooled, +0.699 within the development
+regime and +0.943 within the hidden regime, recorded under `regime_identifiability_audit`
+in `bars/national-v14-standard/bars.json`; an earlier preflight read +0.715. The
+hidden-axis constraint remains as a separate fail-closed policy. The attempted age-gradient health/survey anchor was removed after two
 preflights measured only +0.020 and +0.139. The original admission item remains a public
 diagnostic and a reference input; it is not evidence for hidden extrapolation and no
 development truth file is supplied for that failed experiment.

@@ -13,21 +13,20 @@ not exist.
 
 ## Who, how many, how much
 
-- Models: the two strongest frontier models available through the participant container
-  at trial time, named with their exact identifiers in the research ledger's sealed
-  prediction; three trials each in the first batch.
-- Budget cap for the first batch: USD 300 all in, from the research API credit. The
-  last single-stage task cost about USD 10 per trial; the capstone is longer, so the
-  cap allows for three times that per trial with margin. If a trial exceeds USD 60 it
-  is stopped and counted as a failure with the reason recorded.
+- Systems: the strongest solvers available through the participant container at trial
+  time, named with their exact identifiers in the sealed prediction; three trials each in
+  the first batch.
+- A per-trial cost ceiling and a batch cap are registered with the packaging repository,
+  which is where the trials are run and paid for. A trial that exceeds its ceiling is
+  stopped and counted as a failure with the reason recorded.
 - Time limit per trial: fixed in the task configuration before the batch and never
   changed between batches, since a changed limit voids earlier evidence.
 
 ## What the number means
 
-- At or below 20 percent across the batch: the task sits in the intended band; report
-  it as measured and proceed to the proposal.
-- Above 20 percent: climb the pre-registered escalation ladder one rung (degrade the
+- At or below the registered band, which is 20 percent and is registered here and nowhere
+  else: the task sits in the intended band; report it as measured and proceed.
+- Above that band: climb the pre-registered escalation ladder one rung (degrade the
   sources along measured dials; then lengthen the horizon; then add a second evidence
   function on the same world), re-qualify the bars on fresh worlds with both strong
   methods, and run a new batch. Never tighten a bar to manufacture failure.

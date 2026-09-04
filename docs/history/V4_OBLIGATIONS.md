@@ -1,5 +1,11 @@
 # Proof obligations one to four, read against the P4 state
 
+Superseded. This file reads the tree as it stood at the close of P4, when no bar was
+frozen. The shipping freeze is `bars/national-v14-standard`, recorded as frozen under the
+standard profile. The world and evidence trees these readings were taken on are not
+committed, so the figures below are the record of a measurement rather than a claim a
+reader can reproduce from this repository.
+
 This file answers the first four of the seven proof obligations in the actuarial protocol,
 section "Proof obligations before version four is called qualified", against this tree at
 the close of P4. Each obligation is quoted verbatim, then given the artifact that
@@ -53,19 +59,18 @@ the eighteen reports sit there.
 
 ## Obligation 1
 
-Verbatim: "A strong legal-information reference passes using only the files the agent
-receives."
+Verbatim: "A strong participant-side reference passes using only the files the
+participant receives."
 
 Artifacts.
 
-- The legal-information half is discharged by the reference tests. `tests/test_methods.py`
+- The participant-side half is discharged by the reference tests. `tests/test_methods.py`
   builds line A's submission by copying only the packet's `participant` directory into a
   fresh location and running the method against that copy, and
   `tests/test_methods_b_and_controls.py` does the same for lines B and C. A method that
   read anything on the truth side would fail on a missing file rather than pass. The suite
-  was run in this working copy and its last line is:
-
-      602 passed, 2 warnings in 237.43s (0:03:57)
+  was run in this working copy and passed in full. The current test count is in the
+  repository README, which names the command that produces it.
 
 - The passing half is not discharged, because there is no threshold in this tree for a
   submission to clear. `bars/national-v10/bars.json` is not frozen and its `gates` object
@@ -93,8 +98,9 @@ before that.
 
 ## Obligation 2
 
-Verbatim: "The version-three Sol strategy (one growth factor, one global income scale,
-additivity) fails for named reasons."
+Verbatim: "The version-three recipe (one growth factor, one global income scale,
+additivity) fails for named reasons." The control that implements it is
+`version_three_recipe` in `meridia/methods/controls.py`.
 
 Artifacts.
 

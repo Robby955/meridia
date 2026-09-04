@@ -1,8 +1,11 @@
 """The control battery: plausible shortcuts that must each fail a named gate.
 
-Each control is a deliberate omission a rushed analyst might make. Bars are frozen only
-if every control fails at least one gate on every hidden world; a control that passes
-means the gate it targets is too loose.
+Each control is a deliberate omission a rushed analyst might make. A deciding block does
+one of two jobs. Either it carries discriminating science, and a registered control has to
+fail it on every qualification world, or it is registered as a validity gate that rejects
+an empty or broken submission without telling two methods apart at this world size.
+``scripts/freeze_v4_bars.py`` enforces the distinction and the freeze report records which
+role each block took.
 
 - ``register_only``: trust the deduplicated register as the population; no coverage
   correction, survey used only for incomes with design weights, tight intervals.
@@ -21,8 +24,8 @@ means the gate it targets is too loose.
 - ``benchmark_only``: the benchmark nation total spread over counties in proportion
   to raw register counts, with tight intervals. Targets the accuracy bar on national
   counts (the benchmark carries its own bias) and the county bars.
-- ``exact_key_union``: the count recipe that cleared version two, on the version-three
-  surface. One row per exact name, birth-tick, and sex key in each source; the nation
+- ``exact_key_union``: one row per exact name, birth-tick, and sex key in each source.
+  The nation
   is the union of keys across the population, income, and health sources times a
   constant fitted on the development worlds; counties are the nation times the
   population source's reported county shares; widths come from the between-world

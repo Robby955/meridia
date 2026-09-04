@@ -3,17 +3,19 @@
 The benchmark's review rubric (`rubrics/task-implementation.toml` upstream) has 39 named
 criteria; the proposal rubric has seven; the trial-analysis rubric has eight. Each line
 below names the criterion, the artifact that satisfies it, and who owns it: S for the
-science on Meridia main, P for the packaging in the task directory. Nothing is marked
-done without the artifact.
+science in this repository, P for the packaging in the task directory. A line marked S
+names a file here. A line marked P is owned by the task package and its artifact lives
+there.
 
 ## Implementation criteria
 
-- verifiable: S, `meridia/verify.py` recomputes every gate from the four output files
+- verifiable: S, `meridia/verify.py` recomputes every gate from the three output files
   and retained truth; deterministic, under a minute.
 - well_specified: S and P, `docs/RELEASE_CONTRACT_V0.md` and the instruction name every
   scored file, schema, interval level, threshold, budget.
-- solvable: S, two strong methods pass the frozen bars on seven qualification worlds and
-  the confirmation world; P, witness receipts from inside the container.
+- solvable: S, three reference lines clear every frozen standard bar on the six
+  qualification worlds (`bars/national-v14-standard/PROVENANCE.md`); P, witness receipts
+  from inside the container.
 - difficult: S, compounding stages with only final tables scored; measured by the frontier
   trials of `docs/FRONTIER_TRIALS.md`.
 - scientifically_grounded: S, `docs/INDEPENDENCE.md` cites every method at its use.
@@ -21,18 +23,19 @@ done without the artifact.
 - outcome_verified: S, the verifier reads outputs only; the instruction describes the end
   state.
 - anti_cheat_robustness: S, red-team with five attacks and the fixed disclosure hole;
-  strict file set; eight controls that must fail, one of them the count recipe that
-  cleared version two.
+  strict file set; the twenty-two registered controls in `meridia/methods/controls.py`.
 - task_security: P, no network needed, no credentials, no execution of agent code by the
   verifier beyond reading files.
 - functional_verification: S, numbers recomputed, never pattern-matched.
 - ctrf_reporting: P, per-gate CTRF report to `/logs/verifier/ctrf.json`.
 - ground_truth_provenance: S, retained truth is the generator's exact population; stated
-  in the contract and `bars/national-v7/PROVENANCE.md`.
-- graded_instances_discriminate: S, both strong methods pass every bar and all eight
-  controls fail a named gate on every one of the nine qualification worlds and on the
-  sealed world (`bars/national-v7/freeze_report.txt`,
-  `seals/meridia-reconstruction-v3-confirmation.md`).
+  in the contract and `bars/national-v14-standard/PROVENANCE.md`.
+- graded_instances_discriminate: S, under the standard profile the tail block is the only
+  deciding block a registered wrong method fails on every qualification world;
+  `bars/national-v14-standard/freeze_report.txt` names the separating controls and the
+  validity gates per block. The version-three record is
+  `bars/history/national-v7/freeze_report.txt` and
+  `seals/meridia-reconstruction-v3-confirmation.md`.
 - deterministic_reproducible: S, same seed same world byte for byte; pinned dependencies.
 - essential_difficulty: S, no formatting traps; schema is exact but trivial to meet.
 - test_instruction_alignment: S and P, contract to verifier one to one; audit item.
@@ -47,7 +50,7 @@ done without the artifact.
 - separate_verifier_configured: P, verifier image with Meridia pinned and retained truth
   baked in.
 - verifier_execution_isolation: P, the verifier never executes agent code.
-- artifact_efficiency: P, only the four output files collected; data baked into images.
+- artifact_efficiency: P, only the three output files collected; data baked into images.
 - environment_hygiene: P, no tests or solution in the participant image.
 - structured_data_schema: S, exact schemas in the contract and `contract.json`.
 - typos: P, spellcheck pass on instruction and file names.
@@ -59,8 +62,6 @@ done without the artifact.
 - resource_configuration: P, timeout fixed before trials and never changed between batches.
 - task_readme: P, development context for reviewers, including the red-team record.
 - task_authoring_dir: P, evidence, freeze reports, red-team, and blockers under `authoring/`.
-- expert_time_estimate: P, two to four weeks for one world with the reusable program as the
-  substantive part.
 - task_toml_schema: P, valid fields only.
 - no_extraneous_files: P, audited at sealing.
 
@@ -78,8 +79,3 @@ boundary_fairness, policy_refusal, execution_blocked, unearned_credit,
 meaningful_difficulty. Only a failure attributed to meaningful_difficulty counts toward
 the difficulty measurement; the others are task defects to fix and rerun once, with both
 records kept.
-
-## Author-fit review
-
-The upstream review includes a conflict-of-interest section. Recusal from reviewing own
-submissions is stated in the proposal.
