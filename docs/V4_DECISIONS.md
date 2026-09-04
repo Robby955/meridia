@@ -2384,3 +2384,83 @@ calibrating a component the full profile has never had. Under lite the regional 
 carried by the blocks that do decide, and the per-region comparison against the sealed
 mean stays a reported quantity. If that comparison should decide, it needs its own
 calibrated component in a freeze, which is a separate decision from this one.
+
+## P4 close, 2026-09-03
+
+### The reserve rate now targets the submitted means and has to keep the decision identified
+
+The published rate rule is replaced. It read the widest reference's submitted q95 sum plus
+a quarter of the gap to its ES95 sum, which sized the public reserve from a tail forecast
+that seven of the eighteen reports over-covered, and selected 6321. It now reads the
+submitted regional liability means.
+
+The rule has two halves and both are recorded in the calibration receipt.
+
+Each reference contributes one candidate rate, the sum of its submitted regional
+`liability_mean` divided by that packet's public exposure, rounded up to the rate grid of
+one. That is the target half, and it is reproducible from participant-visible quantities
+in the same way the total always was.
+
+The published rate is the largest of those eighteen candidates at which the reserve
+decision is still identified on every qualification world. A world is identified at a rate
+when the expected uncovered obligation under the published proportional baseline exceeds
+the same quantity under a perfect-information allocation of the same total by at least one
+percent of that world's sealed mean total liability. That difference is the denominator of
+the reserve skill score, and where it collapses the score is undefined and no allocation
+can be told from any other. The identification half reads the qualification packet's
+retained continuation ensemble, which is freeze-side evidence and never reaches a
+participant. The rate it selects is a published number, and the total stays exposure times
+rate rounded up.
+
+One percent is the smallest gap that still carries a decision on this world set. The
+denominator falls to a few thousand currency units within a few hundred rate points of
+where it vanishes, and a gap that small is a rounding artefact.
+
+### The eighteen candidate rates and the chosen one
+
+Required rate by line and world, as the submitted mean sum over the public exposure. Line
+A: 3601.69 on qual-0, 3734.97 on qual-1, 4049.15 on qual-2, 3846.84 on qual-3, 3997.69 on
+qual-4, 3982.66 on qual-5. Line B: 3670.30, 3768.21, 4139.10, 3910.02, 4042.36, 3987.11.
+Line C: 3615.39, 3706.90, 3951.74, 3831.35, 3856.14, 3875.91. Rounded up to the grid these
+are the eighteen candidates, from 3602 to 4140.
+
+The candidate ladder from the top, each with the worst margin it leaves over the six
+worlds: 4140 at 0.02 percent, 4050 at 0.13, 4043 at 0.15, 3998 at 0.35, 3988 at 0.42, 3983
+at 0.45, 3952 at 0.50, 3911 at 0.51, 3876 at 0.51, 3857 at 0.55, 3847 at 0.58, 3832 at
+0.64, then 3769 at 1.07. The first twelve are refused. The chosen rate is 3769, which is
+line B on qual-1.
+
+The binding world moves down the ladder. Above 3952 it is qual-1, whose denominator is
+gone by 4566. From 3952 down it is qual-5 or qual-3. At the chosen rate the worst world is
+qual-5.
+
+Per world at 3769, as published total, expected uncovered obligation under the baseline,
+the same under the oracle, their difference, and that difference as a share of the sealed
+mean total liability. qual-0: 215,532,000; 17,476,991; 7,818,457; 9,658,534; 4.34 percent.
+qual-1: 237,900,000; 6,330,197; 18,087; 6,312,110; 2.85 percent. qual-2: 211,084,000;
+14,572,682; 11,916,368; 2,656,315; 1.17 percent. qual-3: 222,969,000; 14,375,981;
+11,679,911; 2,696,070; 1.15 percent. qual-4: 220,306,000; 15,160,509; 9,931,983;
+5,228,526; 2.26 percent. qual-5: 229,439,000; 4,765,273; 2,322,943; 2,442,330; 1.07
+percent.
+
+The published total at 3769 runs from 0.92 to 1.07 times the sealed mean total liability,
+against 1.13 to 1.31 at the compiled 4600 and 1.55 to 1.80 at the rule's old selection of
+6321. The reserve no longer covers the mean on five of the six worlds, which is what makes
+the allocation decision bind.
+
+### What the packet lane has to change
+
+This lane does not hold `meridia/packet.py`. The exact request, and the only change this
+rate needs there:
+
+    meridia/packet.py, dataclass PacketParams:
+      reserve_rate_per_person_year: float = 4_600.0
+    becomes
+      reserve_rate_per_person_year: float = 3_769.0
+
+Nothing else in that file moves. `GRADING_WORLD` does not name the field, so it inherits
+the new default, and `scripts/build_v4_worlds.py` reads `GRADING_WORLD` unchanged.
+`scripts/build_v4_freeze_evidence.py` compares the calibrated candidate against
+`PacketParams()` before it runs a battery, so until the default moves the evidence pass
+stops at the preflight with the candidate rate named. That stop is the intended behaviour
+and was not weakened here.

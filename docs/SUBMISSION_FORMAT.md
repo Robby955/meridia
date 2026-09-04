@@ -95,6 +95,16 @@ The reserve total is reproducible from participant-visible quantities. The
 `rounding_unit`. A participant can recompute the exposure sum from the named file and
 check it against the contract before allocating the total.
 
+The rate itself is calibrated once, before the freeze, and never from a submission the
+task is scoring. Each qualification reference contributes one candidate rate, the sum of
+its submitted regional `liability_mean` over that packet's public exposure, rounded up to
+the rate grid. The published rate is the largest candidate at which the reserve decision
+stays identified on every qualification world, meaning the expected uncovered obligation
+under the published proportional baseline exceeds the same quantity under a
+perfect-information allocation of the same total by at least one percent of that world's
+mean total liability. Submitted q95 and ES95 values do not enter the rate. The published
+total is not an estimate of the liability and is not guaranteed to cover it.
+
 The 0.95 truth quantile is the order statistic at one-based rank
 `ceiling(0.95 * M)` among the `M` continuation liabilities. Truth ES95 is the mean of all
 members at or above that order statistic, including every tie.
