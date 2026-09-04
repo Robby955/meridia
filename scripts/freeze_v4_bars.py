@@ -243,6 +243,22 @@ GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "reserve_skill": ("skill_loss", "worst_regional_shortfall_probability"),
 }
 
+# A gate profile selects which of the five calibrated composites decide a verdict. It is
+# a subset of GATE_COMPONENTS: no profile adds a gate, adds a component, or moves a bar.
+# Every profile calibrates all five gates on the same replicate design and reports all
+# five; the profile only says which ones decide. "lite" reports the tail block and
+# decides on the population, exposure and rate, projection, and reserve-skill blocks.
+DEFAULT_GATE_PROFILE = "full"
+GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "full": {gate: tuple(components) for gate, components in GATE_COMPONENTS.items()},
+    "lite": {
+        "exposures_and_rates": ("p95_relative_error",),
+        "release_accuracy": ("p95_relative_error",),
+        "interval_quality": ("coverage_deviation", "mean_interval_score"),
+        "reserve_skill": ("skill_loss",),
+    },
+}
+
 # Every component is already a dimensionless loss with zero as its ideal value.  Keeping
 # these normalizers fixed at registration time makes the composite order statistic a
 # transparent max loss and prevents the qualification sample from tuning relative weights.
@@ -344,6 +360,26 @@ EXPECTED_ADMISSION_SHOCK_RANGES = [
 
 class EvidenceError(ValueError):
     """Evidence is absent, ambiguous, duplicated, or non-finite."""
+
+
+def gate_profile_selection(name: Any) -> dict[str, tuple[str, ...]]:
+    """Return the gates and components one profile decides on.
+
+    The selection is validated against the registered gate list on every call, so a
+    profile can never name a gate or a component the freeze does not calibrate.
+    """
+
+    if not isinstance(name, str) or name not in GATE_PROFILES:
+        raise EvidenceError(f"unknown gate profile {name!r}")
+    selection: dict[str, tuple[str, ...]] = {}
+    for gate, components in GATE_PROFILES[name].items():
+        if gate not in GATE_COMPONENTS or not components \
+                or not set(components) <= set(GATE_COMPONENTS[gate]):
+            raise EvidenceError(
+                f"gate profile {name!r} is not a selection over the registered gates"
+            )
+        selection[gate] = tuple(components)
+    return selection
 
 
 def _canonical_digest(value: Any) -> str:
@@ -3062,11 +3098,82 @@ def _control_matrix(
     return matrix
 
 
+def _profile_separation(
+    matrix: Mapping[str, Any],
+    primary_gate: Mapping[str, str],
+    worlds: Sequence[str],
+    profile: str,
+    selection: Mapping[str, Sequence[str]],
+) -> dict[str, Any]:
+    """Record which controls fail a gated block on every qualification world.
+
+    A control whose registered primary gate decides under the profile is judged on that
+    gate, exactly as the registered battery is judged. A control whose primary gate does
+    not decide has to fail some other gated gate on every world to separate anything, so
+    a control that only fails the tail block separates nothing under a profile that does
+    not gate the tail. Those controls are named as deletion candidates for the profile:
+    under it they no longer test the surface a participant is scored on.
+    """
+
+    def fails_gated(record: Mapping[str, Any], gate: str,
+                    components: Sequence[str], world: str) -> bool:
+        row = record["gates"][gate]["per_world"].get(world)
+        return isinstance(row, Mapping) \
+            and row.get("hard_structure_pass") is True \
+            and any(row["components"][component]["exceeds"]
+                    for component in components)
+
+    separating: list[str] = []
+    candidates: list[dict[str, Any]] = []
+    for name in sorted(primary_gate):
+        gate = primary_gate[name]
+        record = matrix[name]
+        on_primary = gate in selection
+        if on_primary:
+            gated_failed = [world for world in worlds
+                            if fails_gated(record, gate, selection[gate], world)]
+        else:
+            gated_failed = [
+                world for world in worlds
+                if any(fails_gated(record, other, components, world)
+                       for other, components in selection.items())
+            ]
+        if record["coverage_complete"] and gated_failed == list(worlds):
+            separating.append(name)
+            continue
+        candidates.append({
+            "control": name,
+            "primary_gate": gate,
+            "primary_gate_decides": on_primary,
+            "judged_on": gate if on_primary else "any gated gate",
+            "failed_gated_worlds": gated_failed,
+            "unseparated_worlds": [
+                world for world in worlds if world not in gated_failed
+            ],
+            "missing_worlds": record["missing_worlds"],
+        })
+    return {
+        "name": profile,
+        "gated_components": {gate: list(components)
+                             for gate, components in selection.items()},
+        "reported_only_gates": [gate for gate in GATE_COMPONENTS
+                                if gate not in selection],
+        "requirement": (
+            "every registered control fails a gated composite gate on every "
+            "qualification world"
+        ),
+        "separating_controls": separating,
+        "deletion_candidates": candidates,
+        "deletion_candidate_controls": [record["control"] for record in candidates],
+    }
+
+
 def _attach_control_separation(
     gates: dict[str, Any],
     controls: list[dict[str, Any]],
     registry: Mapping[str, Sequence[str]],
     worlds: Sequence[str],
+    profile: str = DEFAULT_GATE_PROFILE,
 ) -> dict[str, Any]:
     """Attach the all-controls-by-all-worlds separation requirement."""
 
@@ -3124,6 +3231,9 @@ def _attach_control_separation(
         name for name, record in matrix.items() if record["registered"] is False
     )
     return {
+        "gate_profile": _profile_separation(
+            matrix, primary_gate, worlds, profile, gate_profile_selection(profile)
+        ),
         "requirement": (
             "every registered control hard-passes structure and fails its primary "
             "composite gate on every qualification world"
@@ -3146,13 +3256,21 @@ def _attach_control_separation(
 
 
 def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
-                  graded_world_count: int) -> dict[str, Any]:
+                  graded_world_count: int,
+                  gate_profile: str = DEFAULT_GATE_PROFILE) -> dict[str, Any]:
     target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
         len(GATE_COMPONENTS) * graded_world_count
     )
+    try:
+        selection = gate_profile_selection(gate_profile)
+    except EvidenceError:
+        selection = {}
     return {
         "schema": SCHEMA,
         "frozen": False,
+        "gate_profile": gate_profile,
+        "gate_profile_selection": {gate: list(components)
+                                   for gate, components in selection.items()},
         "gates": {},
         "blockers": list(blockers),
         "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
@@ -3184,6 +3302,7 @@ def calibrate_composite_bars(
     expected_qualification_worlds: int = EXPECTED_QUALIFICATION_WORLDS,
     graded_world_count: int = GRADED_WORLD_COUNT,
     control_registry: Mapping[str, Sequence[str]] = SCIENTIFIC_CONTROLS_BY_GATE,
+    gate_profile: str = DEFAULT_GATE_PROFILE,
 ) -> dict[str, Any]:
     """Build a complete or explicitly blocked composite bar document.
 
@@ -3191,8 +3310,24 @@ def calibrate_composite_bars(
     mandatory, uniquely identified observations used for the order statistics. The elder
     reconstruction audit binds the third participant-only line to its before-and-after
     level and tail measurements.
+
+    ``gate_profile`` names which calibrated gates decide. Every profile calibrates all
+    five on the same per-line replicate design, so the receipt a verifier reads is the
+    same document under either profile; the profile only moves gates between deciding and
+    reported. A reference exceedance on a reported gate is recorded rather than blocking,
+    and a control that separates no gated gate is named as a deletion candidate for the
+    profile.
     """
 
+    try:
+        profile_selection = gate_profile_selection(gate_profile)
+    except EvidenceError as exc:
+        return _empty_result(
+            [str(exc)],
+            expected_world_count=expected_qualification_worlds,
+            graded_world_count=graded_world_count,
+            gate_profile=gate_profile,
+        )
     if isinstance(expected_qualification_worlds, bool) \
             or not isinstance(expected_qualification_worlds, int) \
             or isinstance(graded_world_count, bool) \
@@ -3203,6 +3338,7 @@ def calibrate_composite_bars(
             ["world counts must be positive"],
             expected_world_count=EXPECTED_QUALIFICATION_WORLDS,
             graded_world_count=GRADED_WORLD_COUNT,
+            gate_profile=gate_profile,
         )
     if expected_qualification_worlds != EXPECTED_QUALIFICATION_WORLDS \
             or graded_world_count != GRADED_WORLD_COUNT:
@@ -3212,6 +3348,7 @@ def calibrate_composite_bars(
             ],
             expected_world_count=expected_qualification_worlds,
             graded_world_count=graded_world_count,
+            gate_profile=gate_profile,
         )
     try:
         _validated_control_registry(control_registry)
@@ -3279,32 +3416,43 @@ def calibrate_composite_bars(
             [str(exc)],
             expected_world_count=expected_qualification_worlds,
             graded_world_count=graded_world_count,
+            gate_profile=gate_profile,
         )
 
     blockers: list[str] = []
     reference_failures: list[dict[str, Any]] = []
+    ungated_reference_failures: list[dict[str, Any]] = []
     for entry in references:
         for gate, components in GATE_COMPONENTS.items():
+            gated = profile_selection.get(gate, ())
             failures = [
                 component for component in components
                 if entry["metrics"][gate][component]
                 > gates[gate]["components"][component]["value"]
             ]
-            if failures:
-                reference_failures.append({
-                    "reference_line": entry["reference_line"],
-                    "world": entry["world"],
-                    "gate": gate,
-                    "components": failures,
-                    "evidence_id": entry["evidence_id"],
-                })
+            if not failures:
+                continue
+            record = {
+                "reference_line": entry["reference_line"],
+                "world": entry["world"],
+                "gate": gate,
+                "components": failures,
+                "evidence_id": entry["evidence_id"],
+            }
+            # A reference exceedance on a gate the profile does not gate is recorded, not
+            # blocking. That is the whole content of a reduced profile, so the receipt
+            # has to carry the exceedance where a reader cannot miss it.
+            if [component for component in failures if component in gated]:
+                reference_failures.append(record)
+            else:
+                ungated_reference_failures.append(record)
     if reference_failures:
         blockers.append(
             f"{len(reference_failures)} final reference gate results exceed the p99 bars"
         )
 
     control_support = _attach_control_separation(
-        gates, controls, control_registry, worlds
+        gates, controls, control_registry, worlds, gate_profile
     )
     if control_support["unexpected_controls"]:
         blockers.append(
@@ -3391,6 +3539,11 @@ def calibrate_composite_bars(
     result = {
         "schema": SCHEMA,
         "frozen": not blockers,
+        "gate_profile": gate_profile,
+        "gate_profile_selection": {gate: list(components)
+                                   for gate, components in profile_selection.items()},
+        "reported_only_gates": [gate for gate in GATE_COMPONENTS
+                                if gate not in profile_selection],
         "gates": gates,
         "blockers": blockers,
         "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
@@ -3416,6 +3569,7 @@ def calibrate_composite_bars(
         "elder_reconstruction_audit": elder_audit,
         "regime_identifiability_audit": regime_audit,
         "reference_failures": reference_failures,
+        "ungated_reference_failures": ungated_reference_failures,
         "control_support": control_support,
         "achieved_false_fail_rates": gate_rates,
         "achieved_false_fail_rates_by_reference_line": gate_rates_by_line,
@@ -3564,6 +3718,76 @@ def _append_elder_audit(lines: list[str], bars: Mapping[str, Any]) -> None:
         f"- audit digest: `{audit.get('digest_sha256')}`",
         "",
     ])
+
+
+def _profile_accounting_line(bars: Mapping[str, Any]) -> str:
+    """Say how many of the calibrated gates the reported rates actually decide."""
+
+    selection = bars.get("gate_profile_selection")
+    deciding = len(selection) if isinstance(selection, Mapping) else len(GATE_COMPONENTS)
+    return (
+        f"- the rates below cover all {len(GATE_COMPONENTS)} calibrated gates; "
+        f"{deciding} of them decide under the "
+        f"{bars.get('gate_profile', DEFAULT_GATE_PROFILE)} profile"
+    )
+
+
+def _append_gate_profile(lines: list[str], bars: Mapping[str, Any]) -> None:
+    """State which gates decide, which are reported only, and what that costs."""
+
+    profile = bars.get("gate_profile", DEFAULT_GATE_PROFILE)
+    selection = bars.get("gate_profile_selection")
+    selection = selection if isinstance(selection, Mapping) else {}
+    reported_only = [gate for gate in GATE_COMPONENTS if gate not in selection]
+    lines.extend([
+        "## Gate profile",
+        "",
+        f"- profile: {profile}",
+        "- gates that decide: "
+        + (", ".join(
+            f"{gate} ({', '.join(selection.get(gate, []))})"
+            for gate in GATE_COMPONENTS if gate in selection
+        ) or "none"),
+        "- measured and reported, deciding nothing: "
+        + (", ".join(
+            gate + (
+                " (" + ", ".join(
+                    component for component in GATE_COMPONENTS[gate]
+                    if component not in selection.get(gate, [])
+                ) + ")"
+                if gate in selection else ""
+            )
+            for gate in GATE_COMPONENTS
+            if gate in reported_only
+            or set(selection.get(gate, [])) != set(GATE_COMPONENTS[gate])
+        ) or "none"),
+    ])
+    ungated = bars.get("ungated_reference_failures")
+    lines.append("- reference results above a reported bar:")
+    if isinstance(ungated, list) and ungated:
+        for record in ungated:
+            if not isinstance(record, Mapping):
+                continue
+            lines.append(
+                f"  - {record.get('reference_line')}/{record.get('world')}: "
+                f"{record.get('gate')} "
+                f"{', '.join(record.get('components', []))}; evidence "
+                f"`{record.get('evidence_id')}`"
+            )
+    else:
+        lines.append("  - none")
+    support = bars.get("control_support")
+    profile_support = support.get("gate_profile") \
+        if isinstance(support, Mapping) else None
+    if isinstance(profile_support, Mapping):
+        candidates = profile_support.get("deletion_candidate_controls")
+        lines.append(
+            f"- {profile} profile deletion candidates, controls that fail no gate this "
+            "profile decides on, on every qualification world: "
+            + (", ".join(candidates) if isinstance(candidates, list) and candidates
+               else "none")
+        )
+    lines.append("")
 
 
 def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> None:
@@ -3777,18 +4001,27 @@ def _append_reference_gate_results(
 def render_freeze_report(bars: Mapping[str, Any]) -> str:
     lines = ["# Version-four composite bar freeze report", ""]
     lines.append("RESULT: " + ("FROZEN" if bars.get("frozen") else "NOT FROZEN"))
+    lines.append(
+        "PROFILE: " + str(bars.get("gate_profile", DEFAULT_GATE_PROFILE))
+    )
     lines.append("")
     blockers = bars.get("blockers", [])
     if blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in blockers)
         lines.append("")
+    _append_gate_profile(lines, bars)
     gates = bars.get("gates", {})
     if gates:
         lines.extend(["## Composite gates", ""])
+        selection = bars.get("gate_profile_selection")
+        selection = selection if isinstance(selection, Mapping) else {}
         for gate, components in GATE_COMPONENTS.items():
             record = gates[gate]
-            lines.append(f"- {gate}")
+            gated = list(selection.get(gate, []))
+            decision = "decides on " + ", ".join(gated) if gated \
+                else "reported, decides nothing"
+            lines.append(f"- {gate} ({decision})")
             lines.append(
                 "  joint per-reference-line false-fail rates: "
                 + ", ".join(
@@ -3842,6 +4075,7 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
     _append_elder_audit(lines, bars)
     _append_regime_identifiability(lines, bars)
     lines.extend(["## False-fail accounting", ""])
+    lines.append(_profile_accounting_line(bars))
     lines.append(f"- target per gate: {float(bars['target_false_fail_rate']):.2%}")
     lines.append(
         "- target marginal product over five gates and three graded worlds: "
@@ -3876,6 +4110,7 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
         "",
         f"Schema: `{bars.get('schema')}`.",
         f"Frozen: `{json.dumps(bool(bars.get('frozen')))}`.",
+        f"Gate profile: `{bars.get('gate_profile', DEFAULT_GATE_PROFILE)}`.",
         "",
     ]
     if bars.get("reference_lines"):
@@ -3893,9 +4128,14 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     gates = bars.get("gates", {})
     if gates:
         lines.extend(["", "## Per-bar provenance", ""])
+        selection = bars.get("gate_profile_selection")
+        selection = selection if isinstance(selection, Mapping) else {}
         for gate, components in GATE_COMPONENTS.items():
             record = gates[gate]
-            lines.append(f"- {gate}")
+            gated = list(selection.get(gate, []))
+            decision = "decides on " + ", ".join(gated) if gated \
+                else "reported, decides nothing"
+            lines.append(f"- {gate} ({decision})")
             lines.append(
                 "  joint per-reference-line false-fail rates: "
                 + ", ".join(
@@ -3943,6 +4183,8 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                         )
                     _append_eligibility_audit(lines, eligible, "    ")
             _append_reference_gate_results(lines, bars, gate, record)
+    lines.append("")
+    _append_gate_profile(lines, bars)
     _append_control_separation(lines, bars)
     _append_authenticated_evidence(lines, bars)
     lines.extend(["", "## Empirical tail definition", "", *TAIL_DEFINITION_LINES, ""])
@@ -3950,6 +4192,7 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     _append_elder_audit(lines, bars)
     _append_regime_identifiability(lines, bars)
     lines.extend(["## False-fail accounting", ""])
+    lines.append(_profile_accounting_line(bars))
     lines.append(
         "- target marginal product over five gates and three graded worlds: "
         f"{float(bars['target_marginal_product']):.6f}"
@@ -3997,6 +4240,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reserve-red-team-audit",
         help="raw held-out reserve-total red-team measurement",
+    )
+    parser.add_argument(
+        "--gate-profile", choices=sorted(GATE_PROFILES), default=DEFAULT_GATE_PROFILE,
+        help="which calibrated composites decide; the rest are reported only",
     )
     parser.add_argument("--qualification-world-count", type=int,
                         default=EXPECTED_QUALIFICATION_WORLDS)
@@ -4140,12 +4387,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             reserve_red_team_audit=reserve_red_team_audit,
             expected_qualification_worlds=args.qualification_world_count,
             graded_world_count=args.graded_world_count,
+            gate_profile=args.gate_profile,
         )
     except (EvidenceError, OSError, json.JSONDecodeError) as exc:
         bars = _empty_result(
             [str(exc)],
             expected_world_count=args.qualification_world_count,
             graded_world_count=args.graded_world_count,
+            gate_profile=args.gate_profile,
         )
 
     if (args.dev or args.qualification) and not replicates:
