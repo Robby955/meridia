@@ -398,6 +398,15 @@ def test_standard_reports_the_whole_reserve_block_with_no_bar():
     assert skill["unpublishable"]["decides_under_profile"] is False
     assert skill["unpublishable"]["reason"] == registered["reserve_skill/skill_loss"]
     assert all(witness["pass"] is None for witness in skill["reference_witnesses"])
+    # Nothing is compared against a component with no bar, so its false-fail rate is
+    # zero on every line and the block's union reads the same.
+    assert set(skill["false_fail_count_by_reference_line"].values()) == {0}
+    for line in bars["reference_lines"]:
+        assert bars["achieved_false_fail_rates_by_reference_line_and_component"][line][
+            "reserve_skill"] == {"skill_loss": 0.0,
+                                 "worst_regional_shortfall_probability": 0.0}
+        assert bars["achieved_gate_union_false_fail_rates_by_reference_line"][line][
+            "reserve_skill"] == 0.0
     shortfall = reserve["worst_regional_shortfall_probability"]
     assert shortfall["value"] is None and shortfall["publishable"] is False
     assert shortfall["unpublishable"]["attainable_ceiling"] == 1.0

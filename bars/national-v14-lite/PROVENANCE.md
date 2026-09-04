@@ -1,0 +1,2473 @@
+# Provenance of the version-four composite bars
+
+Each component bar is the empirical p99 of that component's own values on the
+reference line whose p99 for it is largest. Each line contributes 102
+independent deterministic replicate reports; lines are never pooled for the
+one-percent claim, and no component is carried to a ceiling another component
+set. The one-percent false-fail target is per component and line.
+Final witness reports are checked against the bars but are not resampled.
+Scientific controls must pass the deterministic hard checks before a failure
+can support a gate.
+
+Schema: `meridia.v4.composite-bars.v1`.
+Frozen: `false`.
+Gate profile: `lite`.
+
+Reference lines: A, B, C.
+Qualification worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5.
+Evidence provenance digest: `57b5fae1bfc042441a6f3014886053d996eac1e641958e9fda3e239aa3b1125e`.
+
+## Per-bar provenance
+
+- exposures_and_rates (decides on p95_relative_error)
+  per-reference-line union false-fail rates: A 0.980392%, B 0.980392%, C 0.000000%
+  each component is calibrated on its own values; rank 101 of 102 per line
+  supporting controls: none
+  - p95_relative_error
+    value: 15.6675162688
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 1
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 15.6675162688, B 15.5206829995, C 1.39371621527
+    calibrating line: A
+    component false-fail rates by line: A 0.980392%, B 0.980392%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+    eligible cells by qualification world:
+      qual-0: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"female","65+"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",1,"male","65+"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"female","65+"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",11,"male","65+"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",15,"female","0-17"],["person_years_exposure","county",15,"female","18-64"],["person_years_exposure","county",15,"female","65+"],["person_years_exposure","county",15,"male","0-17"],["person_years_exposure","county",15,"male","18-64"],["person_years_exposure","county",15,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"female","65+"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",2,"male","65+"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"female","65+"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",3,"male","65+"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"female","65+"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",6,"male","65+"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"female","65+"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",7,"male","65+"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"female","65+"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",8,"male","65+"],["person_years_exposure","county",9,"female","0-17"],["person_years_exposure","county",9,"female","18-64"],["person_years_exposure","county",9,"female","65+"],["person_years_exposure","county",9,"male","0-17"],["person_years_exposure","county",9,"male","18-64"],["person_years_exposure","county",9,"male","65+"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+      qual-1: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"female","65+"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",1,"male","65+"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"female","65+"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",10,"male","65+"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"female","65+"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",11,"male","65+"],["person_years_exposure","county",12,"female","0-17"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"female","65+"],["person_years_exposure","county",12,"male","0-17"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",12,"male","65+"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"female","65+"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","0-17"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"female","65+"],["person_years_exposure","county",14,"male","0-17"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",14,"male","65+"],["person_years_exposure","county",15,"female","0-17"],["person_years_exposure","county",15,"female","18-64"],["person_years_exposure","county",15,"female","65+"],["person_years_exposure","county",15,"male","0-17"],["person_years_exposure","county",15,"male","18-64"],["person_years_exposure","county",15,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"female","65+"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",16,"male","65+"],["person_years_exposure","county",17,"female","0-17"],["person_years_exposure","county",17,"female","18-64"],["person_years_exposure","county",17,"female","65+"],["person_years_exposure","county",17,"male","0-17"],["person_years_exposure","county",17,"male","18-64"],["person_years_exposure","county",17,"male","65+"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",2,"male","65+"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"female","65+"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",3,"male","65+"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"female","65+"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",6,"male","65+"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"female","65+"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",7,"male","65+"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",8,"male","65+"],["person_years_exposure","county",9,"female","0-17"],["person_years_exposure","county",9,"female","18-64"],["person_years_exposure","county",9,"female","65+"],["person_years_exposure","county",9,"male","0-17"],["person_years_exposure","county",9,"male","18-64"],["person_years_exposure","county",9,"male","65+"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+      qual-2: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"female","65+"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",1,"male","65+"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"female","65+"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",10,"male","65+"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"female","65+"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",11,"male","65+"],["person_years_exposure","county",12,"female","0-17"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"female","65+"],["person_years_exposure","county",12,"male","0-17"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",12,"male","65+"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"female","65+"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","0-17"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"female","65+"],["person_years_exposure","county",14,"male","0-17"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",14,"male","65+"],["person_years_exposure","county",15,"female","0-17"],["person_years_exposure","county",15,"female","18-64"],["person_years_exposure","county",15,"female","65+"],["person_years_exposure","county",15,"male","0-17"],["person_years_exposure","county",15,"male","18-64"],["person_years_exposure","county",15,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"female","65+"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",16,"male","65+"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"female","65+"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",2,"male","65+"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"female","65+"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",6,"male","65+"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"female","65+"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",8,"male","65+"],["person_years_exposure","county",9,"female","0-17"],["person_years_exposure","county",9,"female","18-64"],["person_years_exposure","county",9,"female","65+"],["person_years_exposure","county",9,"male","0-17"],["person_years_exposure","county",9,"male","18-64"],["person_years_exposure","county",9,"male","65+"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+      qual-3: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"female","65+"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",1,"male","65+"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"female","65+"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",10,"male","65+"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",12,"female","0-17"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"female","65+"],["person_years_exposure","county",12,"male","0-17"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",12,"male","65+"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"female","65+"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","0-17"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"female","65+"],["person_years_exposure","county",14,"male","0-17"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",14,"male","65+"],["person_years_exposure","county",15,"female","0-17"],["person_years_exposure","county",15,"female","18-64"],["person_years_exposure","county",15,"female","65+"],["person_years_exposure","county",15,"male","0-17"],["person_years_exposure","county",15,"male","18-64"],["person_years_exposure","county",15,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"female","65+"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",3,"male","65+"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"female","65+"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"female","65+"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",8,"male","65+"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+      qual-4: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"female","65+"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",1,"male","65+"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"female","65+"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",10,"male","65+"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"female","65+"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",11,"male","65+"],["person_years_exposure","county",12,"female","0-17"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"female","65+"],["person_years_exposure","county",12,"male","0-17"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"female","65+"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","0-17"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"male","0-17"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",15,"female","0-17"],["person_years_exposure","county",15,"female","18-64"],["person_years_exposure","county",15,"female","65+"],["person_years_exposure","county",15,"male","0-17"],["person_years_exposure","county",15,"male","18-64"],["person_years_exposure","county",15,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",17,"female","0-17"],["person_years_exposure","county",17,"female","18-64"],["person_years_exposure","county",17,"female","65+"],["person_years_exposure","county",17,"male","0-17"],["person_years_exposure","county",17,"male","18-64"],["person_years_exposure","county",17,"male","65+"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"female","65+"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",2,"male","65+"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"female","65+"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",6,"male","65+"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"female","65+"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",7,"male","65+"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"female","65+"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",9,"female","0-17"],["person_years_exposure","county",9,"female","18-64"],["person_years_exposure","county",9,"female","65+"],["person_years_exposure","county",9,"male","0-17"],["person_years_exposure","county",9,"male","18-64"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+      qual-5: [["mortality_rate","state",0,"female","0-17"],["mortality_rate","state",0,"female","18-64"],["mortality_rate","state",0,"female","65+"],["mortality_rate","state",0,"male","0-17"],["mortality_rate","state",0,"male","18-64"],["mortality_rate","state",0,"male","65+"],["mortality_rate","state",1,"female","0-17"],["mortality_rate","state",1,"female","18-64"],["mortality_rate","state",1,"female","65+"],["mortality_rate","state",1,"male","0-17"],["mortality_rate","state",1,"male","18-64"],["mortality_rate","state",1,"male","65+"],["mortality_rate","state",2,"female","0-17"],["mortality_rate","state",2,"female","18-64"],["mortality_rate","state",2,"female","65+"],["mortality_rate","state",2,"male","0-17"],["mortality_rate","state",2,"male","18-64"],["mortality_rate","state",2,"male","65+"],["mortality_rate","state",3,"female","0-17"],["mortality_rate","state",3,"female","18-64"],["mortality_rate","state",3,"female","65+"],["mortality_rate","state",3,"male","0-17"],["mortality_rate","state",3,"male","18-64"],["mortality_rate","state",3,"male","65+"],["mortality_rate","state",4,"female","0-17"],["mortality_rate","state",4,"female","18-64"],["mortality_rate","state",4,"female","65+"],["mortality_rate","state",4,"male","0-17"],["mortality_rate","state",4,"male","18-64"],["mortality_rate","state",4,"male","65+"],["mortality_rate","state",5,"female","0-17"],["mortality_rate","state",5,"female","18-64"],["mortality_rate","state",5,"female","65+"],["mortality_rate","state",5,"male","0-17"],["mortality_rate","state",5,"male","18-64"],["mortality_rate","state",5,"male","65+"],["person_years_exposure","county",0,"female","0-17"],["person_years_exposure","county",0,"female","18-64"],["person_years_exposure","county",0,"female","65+"],["person_years_exposure","county",0,"male","0-17"],["person_years_exposure","county",0,"male","18-64"],["person_years_exposure","county",0,"male","65+"],["person_years_exposure","county",1,"female","0-17"],["person_years_exposure","county",1,"female","18-64"],["person_years_exposure","county",1,"male","0-17"],["person_years_exposure","county",1,"male","18-64"],["person_years_exposure","county",10,"female","0-17"],["person_years_exposure","county",10,"female","18-64"],["person_years_exposure","county",10,"female","65+"],["person_years_exposure","county",10,"male","0-17"],["person_years_exposure","county",10,"male","18-64"],["person_years_exposure","county",10,"male","65+"],["person_years_exposure","county",11,"female","0-17"],["person_years_exposure","county",11,"female","18-64"],["person_years_exposure","county",11,"male","0-17"],["person_years_exposure","county",11,"male","18-64"],["person_years_exposure","county",12,"female","0-17"],["person_years_exposure","county",12,"female","18-64"],["person_years_exposure","county",12,"male","0-17"],["person_years_exposure","county",12,"male","18-64"],["person_years_exposure","county",12,"male","65+"],["person_years_exposure","county",13,"female","0-17"],["person_years_exposure","county",13,"female","18-64"],["person_years_exposure","county",13,"female","65+"],["person_years_exposure","county",13,"male","0-17"],["person_years_exposure","county",13,"male","18-64"],["person_years_exposure","county",13,"male","65+"],["person_years_exposure","county",14,"female","0-17"],["person_years_exposure","county",14,"female","18-64"],["person_years_exposure","county",14,"female","65+"],["person_years_exposure","county",14,"male","0-17"],["person_years_exposure","county",14,"male","18-64"],["person_years_exposure","county",14,"male","65+"],["person_years_exposure","county",16,"female","0-17"],["person_years_exposure","county",16,"female","18-64"],["person_years_exposure","county",16,"female","65+"],["person_years_exposure","county",16,"male","0-17"],["person_years_exposure","county",16,"male","18-64"],["person_years_exposure","county",16,"male","65+"],["person_years_exposure","county",17,"female","0-17"],["person_years_exposure","county",17,"female","18-64"],["person_years_exposure","county",17,"female","65+"],["person_years_exposure","county",17,"male","0-17"],["person_years_exposure","county",17,"male","18-64"],["person_years_exposure","county",17,"male","65+"],["person_years_exposure","county",2,"female","0-17"],["person_years_exposure","county",2,"female","18-64"],["person_years_exposure","county",2,"female","65+"],["person_years_exposure","county",2,"male","0-17"],["person_years_exposure","county",2,"male","18-64"],["person_years_exposure","county",2,"male","65+"],["person_years_exposure","county",3,"female","0-17"],["person_years_exposure","county",3,"female","18-64"],["person_years_exposure","county",3,"female","65+"],["person_years_exposure","county",3,"male","0-17"],["person_years_exposure","county",3,"male","18-64"],["person_years_exposure","county",3,"male","65+"],["person_years_exposure","county",4,"female","0-17"],["person_years_exposure","county",4,"female","18-64"],["person_years_exposure","county",4,"female","65+"],["person_years_exposure","county",4,"male","0-17"],["person_years_exposure","county",4,"male","18-64"],["person_years_exposure","county",4,"male","65+"],["person_years_exposure","county",5,"female","0-17"],["person_years_exposure","county",5,"female","18-64"],["person_years_exposure","county",5,"female","65+"],["person_years_exposure","county",5,"male","0-17"],["person_years_exposure","county",5,"male","18-64"],["person_years_exposure","county",5,"male","65+"],["person_years_exposure","county",6,"female","0-17"],["person_years_exposure","county",6,"female","18-64"],["person_years_exposure","county",6,"female","65+"],["person_years_exposure","county",6,"male","0-17"],["person_years_exposure","county",6,"male","18-64"],["person_years_exposure","county",6,"male","65+"],["person_years_exposure","county",7,"female","0-17"],["person_years_exposure","county",7,"female","18-64"],["person_years_exposure","county",7,"male","0-17"],["person_years_exposure","county",7,"male","18-64"],["person_years_exposure","county",8,"female","0-17"],["person_years_exposure","county",8,"female","18-64"],["person_years_exposure","county",8,"female","65+"],["person_years_exposure","county",8,"male","0-17"],["person_years_exposure","county",8,"male","18-64"],["person_years_exposure","county",8,"male","65+"],["person_years_exposure","county",9,"female","0-17"],["person_years_exposure","county",9,"female","18-64"],["person_years_exposure","county",9,"female","65+"],["person_years_exposure","county",9,"male","0-17"],["person_years_exposure","county",9,"male","18-64"],["person_years_exposure","county",9,"male","65+"],["qualifying_event_rate","state",0,"female","0-17"],["qualifying_event_rate","state",0,"female","18-64"],["qualifying_event_rate","state",0,"female","65+"],["qualifying_event_rate","state",0,"male","0-17"],["qualifying_event_rate","state",0,"male","18-64"],["qualifying_event_rate","state",0,"male","65+"],["qualifying_event_rate","state",1,"female","0-17"],["qualifying_event_rate","state",1,"female","18-64"],["qualifying_event_rate","state",1,"female","65+"],["qualifying_event_rate","state",1,"male","0-17"],["qualifying_event_rate","state",1,"male","18-64"],["qualifying_event_rate","state",1,"male","65+"],["qualifying_event_rate","state",2,"female","0-17"],["qualifying_event_rate","state",2,"female","18-64"],["qualifying_event_rate","state",2,"female","65+"],["qualifying_event_rate","state",2,"male","0-17"],["qualifying_event_rate","state",2,"male","18-64"],["qualifying_event_rate","state",2,"male","65+"],["qualifying_event_rate","state",3,"female","0-17"],["qualifying_event_rate","state",3,"female","18-64"],["qualifying_event_rate","state",3,"female","65+"],["qualifying_event_rate","state",3,"male","0-17"],["qualifying_event_rate","state",3,"male","18-64"],["qualifying_event_rate","state",3,"male","65+"],["qualifying_event_rate","state",4,"female","0-17"],["qualifying_event_rate","state",4,"female","18-64"],["qualifying_event_rate","state",4,"female","65+"],["qualifying_event_rate","state",4,"male","0-17"],["qualifying_event_rate","state",4,"male","18-64"],["qualifying_event_rate","state",4,"male","65+"],["qualifying_event_rate","state",5,"female","0-17"],["qualifying_event_rate","state",5,"female","18-64"],["qualifying_event_rate","state",5,"female","65+"],["qualifying_event_rate","state",5,"male","0-17"],["qualifying_event_rate","state",5,"male","18-64"],["qualifying_event_rate","state",5,"male","65+"]]
+    state-by-sex cell counts per band and world:
+      qual-0 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 1782.583333
+        state 0 female: 9259.0 person-years; eligible True
+        state 0 male: 9345.666667 person-years; eligible True
+        state 1 female: 8087.333333 person-years; eligible True
+        state 1 male: 8241.666667 person-years; eligible True
+        state 2 female: 6969.166667 person-years; eligible True
+        state 2 male: 7390.5 person-years; eligible True
+        state 3 female: 1782.583333 person-years; eligible True
+        state 3 male: 1877.75 person-years; eligible True
+        state 4 female: 5812.083333 person-years; eligible True
+        state 4 male: 5724.75 person-years; eligible True
+        state 5 female: 6020.833333 person-years; eligible True
+        state 5 male: 5942.833333 person-years; eligible True
+      qual-0 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 2356.75
+        state 0 female: 12144.333333 person-years; eligible True
+        state 0 male: 12685.333333 person-years; eligible True
+        state 1 female: 9727.5 person-years; eligible True
+        state 1 male: 9029.833333 person-years; eligible True
+        state 2 female: 8920.666667 person-years; eligible True
+        state 2 male: 8992.416667 person-years; eligible True
+        state 3 female: 2512.083333 person-years; eligible True
+        state 3 male: 2356.75 person-years; eligible True
+        state 4 female: 7461.833333 person-years; eligible True
+        state 4 male: 7779.083333 person-years; eligible True
+        state 5 female: 7629.666667 person-years; eligible True
+        state 5 male: 7793.25 person-years; eligible True
+      qual-0 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 1873.5
+        state 0 female: 9338.75 person-years; eligible True
+        state 0 male: 10069.0 person-years; eligible True
+        state 1 female: 9608.5 person-years; eligible True
+        state 1 male: 9676.0 person-years; eligible True
+        state 2 female: 7919.166667 person-years; eligible True
+        state 2 male: 7965.75 person-years; eligible True
+        state 3 female: 1906.25 person-years; eligible True
+        state 3 male: 1873.5 person-years; eligible True
+        state 4 female: 6453.75 person-years; eligible True
+        state 4 male: 6534.0 person-years; eligible True
+        state 5 female: 7026.166667 person-years; eligible True
+        state 5 male: 7514.25 person-years; eligible True
+      qual-0 65-74: 11 of 12 at floor 500.0; report-only; minimum exposure 433.75
+        state 0 female: 2552.583333 person-years; eligible True
+        state 0 male: 2589.333333 person-years; eligible True
+        state 1 female: 2580.166667 person-years; eligible True
+        state 1 male: 2463.75 person-years; eligible True
+        state 2 female: 2083.25 person-years; eligible True
+        state 2 male: 2209.75 person-years; eligible True
+        state 3 female: 508.75 person-years; eligible True
+        state 3 male: 433.75 person-years; eligible False
+        state 4 female: 1568.833333 person-years; eligible True
+        state 4 male: 1586.166667 person-years; eligible True
+        state 5 female: 1832.5 person-years; eligible True
+        state 5 male: 1786.833333 person-years; eligible True
+      qual-0 75-84: 6 of 12 at floor 500.0; report-only; minimum exposure 109.916667
+        state 0 female: 668.166667 person-years; eligible True
+        state 0 male: 670.333333 person-years; eligible True
+        state 1 female: 695.416667 person-years; eligible True
+        state 1 male: 602.25 person-years; eligible True
+        state 2 female: 547.75 person-years; eligible True
+        state 2 male: 581.833333 person-years; eligible True
+        state 3 female: 109.916667 person-years; eligible False
+        state 3 male: 115.25 person-years; eligible False
+        state 4 female: 395.583333 person-years; eligible False
+        state 4 male: 389.0 person-years; eligible False
+        state 5 female: 370.916667 person-years; eligible False
+        state 5 male: 455.833333 person-years; eligible False
+      qual-0 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 0.083333
+        state 0 female: 52.916667 person-years; eligible False
+        state 0 male: 36.166667 person-years; eligible False
+        state 1 female: 19.75 person-years; eligible False
+        state 1 male: 26.666667 person-years; eligible False
+        state 2 female: 10.666667 person-years; eligible False
+        state 2 male: 16.916667 person-years; eligible False
+        state 3 female: 2.25 person-years; eligible False
+        state 3 male: 0.083333 person-years; eligible False
+        state 4 female: 19.25 person-years; eligible False
+        state 4 male: 14.0 person-years; eligible False
+        state 5 female: 10.333333 person-years; eligible False
+        state 5 male: 17.25 person-years; eligible False
+      qual-0 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 4230.25
+        state 0 female: 21483.083333 person-years; eligible True
+        state 0 male: 22754.333333 person-years; eligible True
+        state 1 female: 19336.0 person-years; eligible True
+        state 1 male: 18705.833333 person-years; eligible True
+        state 2 female: 16839.833333 person-years; eligible True
+        state 2 male: 16958.166667 person-years; eligible True
+        state 3 female: 4418.333333 person-years; eligible True
+        state 3 male: 4230.25 person-years; eligible True
+        state 4 female: 13915.583333 person-years; eligible True
+        state 4 male: 14313.083333 person-years; eligible True
+        state 5 female: 14655.833333 person-years; eligible True
+        state 5 male: 15307.5 person-years; eligible True
+      qual-0 65+: 12 of 12 at floor 500.0; scored; minimum exposure 549.083333
+        state 0 female: 3273.666667 person-years; eligible True
+        state 0 male: 3295.833333 person-years; eligible True
+        state 1 female: 3295.333333 person-years; eligible True
+        state 1 male: 3092.666667 person-years; eligible True
+        state 2 female: 2641.666667 person-years; eligible True
+        state 2 male: 2808.5 person-years; eligible True
+        state 3 female: 620.916667 person-years; eligible True
+        state 3 male: 549.083333 person-years; eligible True
+        state 4 female: 1983.666667 person-years; eligible True
+        state 4 male: 1989.166667 person-years; eligible True
+        state 5 female: 2213.75 person-years; eligible True
+        state 5 male: 2259.916667 person-years; eligible True
+      qual-1 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 3501.166667
+        state 0 female: 10249.25 person-years; eligible True
+        state 0 male: 10635.0 person-years; eligible True
+        state 1 female: 3501.166667 person-years; eligible True
+        state 1 male: 3792.75 person-years; eligible True
+        state 2 female: 5338.666667 person-years; eligible True
+        state 2 male: 5152.166667 person-years; eligible True
+        state 3 female: 3507.166667 person-years; eligible True
+        state 3 male: 3582.916667 person-years; eligible True
+        state 4 female: 18309.333333 person-years; eligible True
+        state 4 male: 18609.833333 person-years; eligible True
+        state 5 female: 10423.416667 person-years; eligible True
+        state 5 male: 9547.833333 person-years; eligible True
+      qual-1 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 3334.416667
+        state 0 female: 9538.666667 person-years; eligible True
+        state 0 male: 9611.916667 person-years; eligible True
+        state 1 female: 3408.25 person-years; eligible True
+        state 1 male: 3402.833333 person-years; eligible True
+        state 2 female: 5013.416667 person-years; eligible True
+        state 2 male: 4668.5 person-years; eligible True
+        state 3 female: 3334.416667 person-years; eligible True
+        state 3 male: 3462.916667 person-years; eligible True
+        state 4 female: 17290.583333 person-years; eligible True
+        state 4 male: 17542.916667 person-years; eligible True
+        state 5 female: 9513.416667 person-years; eligible True
+        state 5 male: 9595.5 person-years; eligible True
+      qual-1 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 3129.416667
+        state 0 female: 8895.083333 person-years; eligible True
+        state 0 male: 8564.583333 person-years; eligible True
+        state 1 female: 3343.25 person-years; eligible True
+        state 1 male: 3129.416667 person-years; eligible True
+        state 2 female: 4425.0 person-years; eligible True
+        state 2 male: 4253.833333 person-years; eligible True
+        state 3 female: 3818.083333 person-years; eligible True
+        state 3 male: 3398.833333 person-years; eligible True
+        state 4 female: 16844.583333 person-years; eligible True
+        state 4 male: 16687.666667 person-years; eligible True
+        state 5 female: 8529.916667 person-years; eligible True
+        state 5 male: 8803.916667 person-years; eligible True
+      qual-1 65-74: 12 of 12 at floor 500.0; report-only; minimum exposure 900.25
+        state 0 female: 2413.5 person-years; eligible True
+        state 0 male: 2260.083333 person-years; eligible True
+        state 1 female: 960.0 person-years; eligible True
+        state 1 male: 900.25 person-years; eligible True
+        state 2 female: 1305.75 person-years; eligible True
+        state 2 male: 1278.833333 person-years; eligible True
+        state 3 female: 1284.25 person-years; eligible True
+        state 3 male: 1234.083333 person-years; eligible True
+        state 4 female: 5144.0 person-years; eligible True
+        state 4 male: 4817.916667 person-years; eligible True
+        state 5 female: 2665.75 person-years; eligible True
+        state 5 male: 2778.916667 person-years; eligible True
+      qual-1 75-84: 8 of 12 at floor 500.0; report-only; minimum exposure 332.083333
+        state 0 female: 849.166667 person-years; eligible True
+        state 0 male: 912.583333 person-years; eligible True
+        state 1 female: 332.083333 person-years; eligible False
+        state 1 male: 363.666667 person-years; eligible False
+        state 2 female: 352.833333 person-years; eligible False
+        state 2 male: 343.0 person-years; eligible False
+        state 3 female: 504.416667 person-years; eligible True
+        state 3 male: 520.333333 person-years; eligible True
+        state 4 female: 1851.833333 person-years; eligible True
+        state 4 male: 2066.0 person-years; eligible True
+        state 5 female: 1105.166667 person-years; eligible True
+        state 5 male: 992.25 person-years; eligible True
+      qual-1 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 18.583333
+        state 0 female: 115.416667 person-years; eligible False
+        state 0 male: 107.75 person-years; eligible False
+        state 1 female: 47.083333 person-years; eligible False
+        state 1 male: 25.416667 person-years; eligible False
+        state 2 female: 18.583333 person-years; eligible False
+        state 2 male: 39.666667 person-years; eligible False
+        state 3 female: 61.666667 person-years; eligible False
+        state 3 male: 73.333333 person-years; eligible False
+        state 4 female: 239.333333 person-years; eligible False
+        state 4 male: 255.416667 person-years; eligible False
+        state 5 female: 122.083333 person-years; eligible False
+        state 5 male: 178.25 person-years; eligible False
+      qual-1 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 6532.25
+        state 0 female: 18433.75 person-years; eligible True
+        state 0 male: 18176.5 person-years; eligible True
+        state 1 female: 6751.5 person-years; eligible True
+        state 1 male: 6532.25 person-years; eligible True
+        state 2 female: 9438.416667 person-years; eligible True
+        state 2 male: 8922.333333 person-years; eligible True
+        state 3 female: 7152.5 person-years; eligible True
+        state 3 male: 6861.75 person-years; eligible True
+        state 4 female: 34135.166667 person-years; eligible True
+        state 4 male: 34230.583333 person-years; eligible True
+        state 5 female: 18043.333333 person-years; eligible True
+        state 5 male: 18399.416667 person-years; eligible True
+      qual-1 65+: 12 of 12 at floor 500.0; scored; minimum exposure 1289.333333
+        state 0 female: 3378.083333 person-years; eligible True
+        state 0 male: 3280.416667 person-years; eligible True
+        state 1 female: 1339.166667 person-years; eligible True
+        state 1 male: 1289.333333 person-years; eligible True
+        state 2 female: 1677.166667 person-years; eligible True
+        state 2 male: 1661.5 person-years; eligible True
+        state 3 female: 1850.333333 person-years; eligible True
+        state 3 male: 1827.75 person-years; eligible True
+        state 4 female: 7235.166667 person-years; eligible True
+        state 4 male: 7139.333333 person-years; eligible True
+        state 5 female: 3893.0 person-years; eligible True
+        state 5 male: 3949.416667 person-years; eligible True
+      qual-2 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 895.0
+        state 0 female: 9790.333333 person-years; eligible True
+        state 0 male: 9628.5 person-years; eligible True
+        state 1 female: 8564.75 person-years; eligible True
+        state 1 male: 8612.833333 person-years; eligible True
+        state 2 female: 6991.833333 person-years; eligible True
+        state 2 male: 6880.416667 person-years; eligible True
+        state 3 female: 4411.583333 person-years; eligible True
+        state 3 male: 4505.833333 person-years; eligible True
+        state 4 female: 3968.666667 person-years; eligible True
+        state 4 male: 3834.75 person-years; eligible True
+        state 5 female: 899.333333 person-years; eligible True
+        state 5 male: 895.0 person-years; eligible True
+      qual-2 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 1275.083333
+        state 0 female: 13135.583333 person-years; eligible True
+        state 0 male: 13516.166667 person-years; eligible True
+        state 1 female: 11773.166667 person-years; eligible True
+        state 1 male: 12376.25 person-years; eligible True
+        state 2 female: 9607.25 person-years; eligible True
+        state 2 male: 9342.666667 person-years; eligible True
+        state 3 female: 5761.666667 person-years; eligible True
+        state 3 male: 5638.083333 person-years; eligible True
+        state 4 female: 5515.583333 person-years; eligible True
+        state 4 male: 5725.916667 person-years; eligible True
+        state 5 female: 1294.75 person-years; eligible True
+        state 5 male: 1275.083333 person-years; eligible True
+      qual-2 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 1611.833333
+        state 0 female: 12183.333333 person-years; eligible True
+        state 0 male: 11613.166667 person-years; eligible True
+        state 1 female: 9964.25 person-years; eligible True
+        state 1 male: 10294.583333 person-years; eligible True
+        state 2 female: 8598.166667 person-years; eligible True
+        state 2 male: 8560.5 person-years; eligible True
+        state 3 female: 5461.75 person-years; eligible True
+        state 3 male: 5276.916667 person-years; eligible True
+        state 4 female: 5233.5 person-years; eligible True
+        state 4 male: 5256.833333 person-years; eligible True
+        state 5 female: 1611.833333 person-years; eligible True
+        state 5 male: 1805.333333 person-years; eligible True
+      qual-2 65-74: 11 of 12 at floor 500.0; report-only; minimum exposure 440.166667
+        state 0 female: 2922.166667 person-years; eligible True
+        state 0 male: 2988.25 person-years; eligible True
+        state 1 female: 2597.75 person-years; eligible True
+        state 1 male: 2535.083333 person-years; eligible True
+        state 2 female: 2215.416667 person-years; eligible True
+        state 2 male: 2292.083333 person-years; eligible True
+        state 3 female: 1391.75 person-years; eligible True
+        state 3 male: 1366.416667 person-years; eligible True
+        state 4 female: 1523.416667 person-years; eligible True
+        state 4 male: 1519.25 person-years; eligible True
+        state 5 female: 538.083333 person-years; eligible True
+        state 5 male: 440.166667 person-years; eligible False
+      qual-2 75-84: 6 of 12 at floor 500.0; report-only; minimum exposure 178.416667
+        state 0 female: 927.666667 person-years; eligible True
+        state 0 male: 1005.0 person-years; eligible True
+        state 1 female: 752.416667 person-years; eligible True
+        state 1 male: 702.333333 person-years; eligible True
+        state 2 female: 877.583333 person-years; eligible True
+        state 2 male: 716.416667 person-years; eligible True
+        state 3 female: 320.083333 person-years; eligible False
+        state 3 male: 373.75 person-years; eligible False
+        state 4 female: 477.0 person-years; eligible False
+        state 4 male: 479.833333 person-years; eligible False
+        state 5 female: 178.416667 person-years; eligible False
+        state 5 male: 194.75 person-years; eligible False
+      qual-2 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 5.666667
+        state 0 female: 99.75 person-years; eligible False
+        state 0 male: 90.416667 person-years; eligible False
+        state 1 female: 44.416667 person-years; eligible False
+        state 1 male: 64.0 person-years; eligible False
+        state 2 female: 60.666667 person-years; eligible False
+        state 2 male: 60.75 person-years; eligible False
+        state 3 female: 32.916667 person-years; eligible False
+        state 3 male: 17.083333 person-years; eligible False
+        state 4 female: 47.5 person-years; eligible False
+        state 4 male: 33.083333 person-years; eligible False
+        state 5 female: 5.666667 person-years; eligible False
+        state 5 male: 10.416667 person-years; eligible False
+      qual-2 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 2906.583333
+        state 0 female: 25318.916667 person-years; eligible True
+        state 0 male: 25129.333333 person-years; eligible True
+        state 1 female: 21737.416667 person-years; eligible True
+        state 1 male: 22670.833333 person-years; eligible True
+        state 2 female: 18205.416667 person-years; eligible True
+        state 2 male: 17903.166667 person-years; eligible True
+        state 3 female: 11223.416667 person-years; eligible True
+        state 3 male: 10915.0 person-years; eligible True
+        state 4 female: 10749.083333 person-years; eligible True
+        state 4 male: 10982.75 person-years; eligible True
+        state 5 female: 2906.583333 person-years; eligible True
+        state 5 male: 3080.416667 person-years; eligible True
+      qual-2 65+: 12 of 12 at floor 500.0; scored; minimum exposure 645.333333
+        state 0 female: 3949.583333 person-years; eligible True
+        state 0 male: 4083.666667 person-years; eligible True
+        state 1 female: 3394.583333 person-years; eligible True
+        state 1 male: 3301.416667 person-years; eligible True
+        state 2 female: 3153.666667 person-years; eligible True
+        state 2 male: 3069.25 person-years; eligible True
+        state 3 female: 1744.75 person-years; eligible True
+        state 3 male: 1757.25 person-years; eligible True
+        state 4 female: 2047.916667 person-years; eligible True
+        state 4 male: 2032.166667 person-years; eligible True
+        state 5 female: 722.166667 person-years; eligible True
+        state 5 male: 645.333333 person-years; eligible True
+      qual-3 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 2074.833333
+        state 0 female: 9840.916667 person-years; eligible True
+        state 0 male: 9703.833333 person-years; eligible True
+        state 1 female: 7944.0 person-years; eligible True
+        state 1 male: 7864.5 person-years; eligible True
+        state 2 female: 2601.0 person-years; eligible True
+        state 2 male: 2504.25 person-years; eligible True
+        state 3 female: 4413.666667 person-years; eligible True
+        state 3 male: 4195.166667 person-years; eligible True
+        state 4 female: 2090.5 person-years; eligible True
+        state 4 male: 2074.833333 person-years; eligible True
+        state 5 female: 18187.0 person-years; eligible True
+        state 5 male: 18102.083333 person-years; eligible True
+      qual-3 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 2157.916667
+        state 0 female: 9788.833333 person-years; eligible True
+        state 0 male: 9932.083333 person-years; eligible True
+        state 1 female: 8790.416667 person-years; eligible True
+        state 1 male: 9073.75 person-years; eligible True
+        state 2 female: 2800.333333 person-years; eligible True
+        state 2 male: 2917.416667 person-years; eligible True
+        state 3 female: 4917.666667 person-years; eligible True
+        state 3 male: 4666.5 person-years; eligible True
+        state 4 female: 2157.916667 person-years; eligible True
+        state 4 male: 2324.083333 person-years; eligible True
+        state 5 female: 19226.166667 person-years; eligible True
+        state 5 male: 19672.0 person-years; eligible True
+      qual-3 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 2236.833333
+        state 0 female: 9498.583333 person-years; eligible True
+        state 0 male: 9740.916667 person-years; eligible True
+        state 1 female: 7717.5 person-years; eligible True
+        state 1 male: 7709.083333 person-years; eligible True
+        state 2 female: 2424.333333 person-years; eligible True
+        state 2 male: 2478.083333 person-years; eligible True
+        state 3 female: 4256.75 person-years; eligible True
+        state 3 male: 4287.416667 person-years; eligible True
+        state 4 female: 2286.166667 person-years; eligible True
+        state 4 male: 2236.833333 person-years; eligible True
+        state 5 female: 17227.75 person-years; eligible True
+        state 5 male: 16879.25 person-years; eligible True
+      qual-3 65-74: 12 of 12 at floor 500.0; report-only; minimum exposure 551.5
+        state 0 female: 2769.75 person-years; eligible True
+        state 0 male: 2704.416667 person-years; eligible True
+        state 1 female: 2042.333333 person-years; eligible True
+        state 1 male: 1943.833333 person-years; eligible True
+        state 2 female: 692.833333 person-years; eligible True
+        state 2 male: 573.833333 person-years; eligible True
+        state 3 female: 1255.333333 person-years; eligible True
+        state 3 male: 1172.833333 person-years; eligible True
+        state 4 female: 551.5 person-years; eligible True
+        state 4 male: 656.166667 person-years; eligible True
+        state 5 female: 4534.166667 person-years; eligible True
+        state 5 male: 4214.583333 person-years; eligible True
+      qual-3 75-84: 6 of 12 at floor 500.0; report-only; minimum exposure 150.0
+        state 0 female: 938.0 person-years; eligible True
+        state 0 male: 897.916667 person-years; eligible True
+        state 1 female: 590.416667 person-years; eligible True
+        state 1 male: 529.333333 person-years; eligible True
+        state 2 female: 162.583333 person-years; eligible False
+        state 2 male: 237.5 person-years; eligible False
+        state 3 female: 372.083333 person-years; eligible False
+        state 3 male: 372.416667 person-years; eligible False
+        state 4 female: 156.666667 person-years; eligible False
+        state 4 male: 150.0 person-years; eligible False
+        state 5 female: 1343.416667 person-years; eligible True
+        state 5 male: 1197.916667 person-years; eligible True
+      qual-3 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 8.416667
+        state 0 female: 116.75 person-years; eligible False
+        state 0 male: 108.0 person-years; eligible False
+        state 1 female: 63.916667 person-years; eligible False
+        state 1 male: 64.0 person-years; eligible False
+        state 2 female: 17.583333 person-years; eligible False
+        state 2 male: 15.416667 person-years; eligible False
+        state 3 female: 24.0 person-years; eligible False
+        state 3 male: 48.666667 person-years; eligible False
+        state 4 female: 8.416667 person-years; eligible False
+        state 4 male: 19.5 person-years; eligible False
+        state 5 female: 135.166667 person-years; eligible False
+        state 5 male: 93.0 person-years; eligible False
+      qual-3 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 4444.083333
+        state 0 female: 19287.416667 person-years; eligible True
+        state 0 male: 19673.0 person-years; eligible True
+        state 1 female: 16507.916667 person-years; eligible True
+        state 1 male: 16782.833333 person-years; eligible True
+        state 2 female: 5224.666667 person-years; eligible True
+        state 2 male: 5395.5 person-years; eligible True
+        state 3 female: 9174.416667 person-years; eligible True
+        state 3 male: 8953.916667 person-years; eligible True
+        state 4 female: 4444.083333 person-years; eligible True
+        state 4 male: 4560.916667 person-years; eligible True
+        state 5 female: 36453.916667 person-years; eligible True
+        state 5 male: 36551.25 person-years; eligible True
+      qual-3 65+: 12 of 12 at floor 500.0; scored; minimum exposure 716.583333
+        state 0 female: 3824.5 person-years; eligible True
+        state 0 male: 3710.333333 person-years; eligible True
+        state 1 female: 2696.666667 person-years; eligible True
+        state 1 male: 2537.166667 person-years; eligible True
+        state 2 female: 873.0 person-years; eligible True
+        state 2 male: 826.75 person-years; eligible True
+        state 3 female: 1651.416667 person-years; eligible True
+        state 3 male: 1593.916667 person-years; eligible True
+        state 4 female: 716.583333 person-years; eligible True
+        state 4 male: 825.666667 person-years; eligible True
+        state 5 female: 6012.75 person-years; eligible True
+        state 5 male: 5505.5 person-years; eligible True
+      qual-4 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 3195.083333
+        state 0 female: 5110.583333 person-years; eligible True
+        state 0 male: 5630.416667 person-years; eligible True
+        state 1 female: 11972.916667 person-years; eligible True
+        state 1 male: 11724.666667 person-years; eligible True
+        state 2 female: 9811.25 person-years; eligible True
+        state 2 male: 10230.25 person-years; eligible True
+        state 3 female: 3204.083333 person-years; eligible True
+        state 3 male: 3195.083333 person-years; eligible True
+        state 4 female: 7112.416667 person-years; eligible True
+        state 4 male: 7297.25 person-years; eligible True
+        state 5 female: 6061.583333 person-years; eligible True
+        state 5 male: 6282.166667 person-years; eligible True
+      qual-4 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 3452.583333
+        state 0 female: 5851.25 person-years; eligible True
+        state 0 male: 5966.333333 person-years; eligible True
+        state 1 female: 13204.083333 person-years; eligible True
+        state 1 male: 12892.166667 person-years; eligible True
+        state 2 female: 10846.833333 person-years; eligible True
+        state 2 male: 10762.75 person-years; eligible True
+        state 3 female: 3452.583333 person-years; eligible True
+        state 3 male: 3637.166667 person-years; eligible True
+        state 4 female: 7825.5 person-years; eligible True
+        state 4 male: 8216.416667 person-years; eligible True
+        state 5 female: 7196.25 person-years; eligible True
+        state 5 male: 6765.166667 person-years; eligible True
+      qual-4 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 3716.833333
+        state 0 female: 4874.75 person-years; eligible True
+        state 0 male: 4880.0 person-years; eligible True
+        state 1 female: 10810.416667 person-years; eligible True
+        state 1 male: 10893.583333 person-years; eligible True
+        state 2 female: 10545.5 person-years; eligible True
+        state 2 male: 10502.583333 person-years; eligible True
+        state 3 female: 3716.833333 person-years; eligible True
+        state 3 male: 3782.833333 person-years; eligible True
+        state 4 female: 7290.083333 person-years; eligible True
+        state 4 male: 7138.166667 person-years; eligible True
+        state 5 female: 5924.416667 person-years; eligible True
+        state 5 male: 6130.333333 person-years; eligible True
+      qual-4 65-74: 12 of 12 at floor 500.0; report-only; minimum exposure 973.916667
+        state 0 female: 1198.833333 person-years; eligible True
+        state 0 male: 1192.166667 person-years; eligible True
+        state 1 female: 2788.0 person-years; eligible True
+        state 1 male: 2741.166667 person-years; eligible True
+        state 2 female: 2931.916667 person-years; eligible True
+        state 2 male: 2875.333333 person-years; eligible True
+        state 3 female: 973.916667 person-years; eligible True
+        state 3 male: 1116.333333 person-years; eligible True
+        state 4 female: 1808.25 person-years; eligible True
+        state 4 male: 1860.5 person-years; eligible True
+        state 5 female: 1684.5 person-years; eligible True
+        state 5 male: 1601.166667 person-years; eligible True
+      qual-4 75-84: 6 of 12 at floor 500.0; report-only; minimum exposure 252.583333
+        state 0 female: 293.416667 person-years; eligible False
+        state 0 male: 360.083333 person-years; eligible False
+        state 1 female: 842.666667 person-years; eligible True
+        state 1 male: 890.166667 person-years; eligible True
+        state 2 female: 916.75 person-years; eligible True
+        state 2 male: 895.333333 person-years; eligible True
+        state 3 female: 252.583333 person-years; eligible False
+        state 3 male: 269.0 person-years; eligible False
+        state 4 female: 435.166667 person-years; eligible False
+        state 4 male: 386.833333 person-years; eligible False
+        state 5 female: 585.083333 person-years; eligible True
+        state 5 male: 609.083333 person-years; eligible True
+      qual-4 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 11.583333
+        state 0 female: 11.583333 person-years; eligible False
+        state 0 male: 13.416667 person-years; eligible False
+        state 1 female: 91.333333 person-years; eligible False
+        state 1 male: 92.583333 person-years; eligible False
+        state 2 female: 93.75 person-years; eligible False
+        state 2 male: 107.083333 person-years; eligible False
+        state 3 female: 22.75 person-years; eligible False
+        state 3 male: 29.0 person-years; eligible False
+        state 4 female: 25.583333 person-years; eligible False
+        state 4 male: 31.666667 person-years; eligible False
+        state 5 female: 62.416667 person-years; eligible False
+        state 5 male: 52.333333 person-years; eligible False
+      qual-4 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 7169.416667
+        state 0 female: 10726.0 person-years; eligible True
+        state 0 male: 10846.333333 person-years; eligible True
+        state 1 female: 24014.5 person-years; eligible True
+        state 1 male: 23785.75 person-years; eligible True
+        state 2 female: 21392.333333 person-years; eligible True
+        state 2 male: 21265.333333 person-years; eligible True
+        state 3 female: 7169.416667 person-years; eligible True
+        state 3 male: 7420.0 person-years; eligible True
+        state 4 female: 15115.583333 person-years; eligible True
+        state 4 male: 15354.583333 person-years; eligible True
+        state 5 female: 13120.666667 person-years; eligible True
+        state 5 male: 12895.5 person-years; eligible True
+      qual-4 65+: 12 of 12 at floor 500.0; scored; minimum exposure 1249.25
+        state 0 female: 1503.833333 person-years; eligible True
+        state 0 male: 1565.666667 person-years; eligible True
+        state 1 female: 3722.0 person-years; eligible True
+        state 1 male: 3723.916667 person-years; eligible True
+        state 2 female: 3942.416667 person-years; eligible True
+        state 2 male: 3877.75 person-years; eligible True
+        state 3 female: 1249.25 person-years; eligible True
+        state 3 male: 1414.333333 person-years; eligible True
+        state 4 female: 2269.0 person-years; eligible True
+        state 4 male: 2279.0 person-years; eligible True
+        state 5 female: 2332.0 person-years; eligible True
+        state 5 male: 2262.583333 person-years; eligible True
+      qual-5 0-17: 12 of 12 at floor 600.0; scored; minimum exposure 4139.0
+        state 0 female: 17364.333333 person-years; eligible True
+        state 0 male: 17658.25 person-years; eligible True
+        state 1 female: 4139.0 person-years; eligible True
+        state 1 male: 4217.583333 person-years; eligible True
+        state 2 female: 5752.833333 person-years; eligible True
+        state 2 male: 5463.083333 person-years; eligible True
+        state 3 female: 4690.333333 person-years; eligible True
+        state 3 male: 4862.666667 person-years; eligible True
+        state 4 female: 4337.083333 person-years; eligible True
+        state 4 male: 4198.5 person-years; eligible True
+        state 5 female: 7636.916667 person-years; eligible True
+        state 5 male: 7486.0 person-years; eligible True
+      qual-5 18-44: 12 of 12 at floor 600.0; report-only; minimum exposure 4279.583333
+        state 0 female: 19965.416667 person-years; eligible True
+        state 0 male: 20162.583333 person-years; eligible True
+        state 1 female: 4279.583333 person-years; eligible True
+        state 1 male: 4421.0 person-years; eligible True
+        state 2 female: 6300.0 person-years; eligible True
+        state 2 male: 5977.416667 person-years; eligible True
+        state 3 female: 5183.0 person-years; eligible True
+        state 3 male: 4907.416667 person-years; eligible True
+        state 4 female: 4753.166667 person-years; eligible True
+        state 4 male: 4486.416667 person-years; eligible True
+        state 5 female: 8184.666667 person-years; eligible True
+        state 5 male: 7911.333333 person-years; eligible True
+      qual-5 45-64: 12 of 12 at floor 600.0; report-only; minimum exposure 4291.916667
+        state 0 female: 17438.583333 person-years; eligible True
+        state 0 male: 16977.666667 person-years; eligible True
+        state 1 female: 4416.0 person-years; eligible True
+        state 1 male: 4358.166667 person-years; eligible True
+        state 2 female: 5693.5 person-years; eligible True
+        state 2 male: 5506.666667 person-years; eligible True
+        state 3 female: 5330.666667 person-years; eligible True
+        state 3 male: 5521.5 person-years; eligible True
+        state 4 female: 4291.916667 person-years; eligible True
+        state 4 male: 4615.333333 person-years; eligible True
+        state 5 female: 8565.75 person-years; eligible True
+        state 5 male: 8137.083333 person-years; eligible True
+      qual-5 65-74: 12 of 12 at floor 500.0; report-only; minimum exposure 1212.916667
+        state 0 female: 4798.083333 person-years; eligible True
+        state 0 male: 4834.25 person-years; eligible True
+        state 1 female: 1212.916667 person-years; eligible True
+        state 1 male: 1278.833333 person-years; eligible True
+        state 2 female: 1580.25 person-years; eligible True
+        state 2 male: 1524.416667 person-years; eligible True
+        state 3 female: 1654.166667 person-years; eligible True
+        state 3 male: 1752.0 person-years; eligible True
+        state 4 female: 1464.75 person-years; eligible True
+        state 4 male: 1371.416667 person-years; eligible True
+        state 5 female: 2708.583333 person-years; eligible True
+        state 5 male: 2727.25 person-years; eligible True
+      qual-5 75-84: 8 of 12 at floor 500.0; report-only; minimum exposure 399.5
+        state 0 female: 1745.416667 person-years; eligible True
+        state 0 male: 1751.75 person-years; eligible True
+        state 1 female: 455.583333 person-years; eligible False
+        state 1 male: 399.5 person-years; eligible False
+        state 2 female: 568.5 person-years; eligible True
+        state 2 male: 569.75 person-years; eligible True
+        state 3 female: 590.666667 person-years; eligible True
+        state 3 male: 586.083333 person-years; eligible True
+        state 4 female: 486.166667 person-years; eligible False
+        state 4 male: 474.166667 person-years; eligible False
+        state 5 female: 921.666667 person-years; eligible True
+        state 5 male: 976.333333 person-years; eligible True
+      qual-5 85+: 0 of 12 at floor 500.0; report-only; minimum exposure 56.416667
+        state 0 female: 203.583333 person-years; eligible False
+        state 0 male: 166.666667 person-years; eligible False
+        state 1 female: 65.416667 person-years; eligible False
+        state 1 male: 65.416667 person-years; eligible False
+        state 2 female: 68.5 person-years; eligible False
+        state 2 male: 65.25 person-years; eligible False
+        state 3 female: 66.416667 person-years; eligible False
+        state 3 male: 74.666667 person-years; eligible False
+        state 4 female: 56.416667 person-years; eligible False
+        state 4 male: 62.416667 person-years; eligible False
+        state 5 female: 86.583333 person-years; eligible False
+        state 5 male: 87.416667 person-years; eligible False
+      qual-5 18-64: 12 of 12 at floor 600.0; scored; minimum exposure 8695.583333
+        state 0 female: 37404.0 person-years; eligible True
+        state 0 male: 37140.25 person-years; eligible True
+        state 1 female: 8695.583333 person-years; eligible True
+        state 1 male: 8779.166667 person-years; eligible True
+        state 2 female: 11993.5 person-years; eligible True
+        state 2 male: 11484.083333 person-years; eligible True
+        state 3 female: 10513.666667 person-years; eligible True
+        state 3 male: 10428.916667 person-years; eligible True
+        state 4 female: 9045.083333 person-years; eligible True
+        state 4 male: 9101.75 person-years; eligible True
+        state 5 female: 16750.416667 person-years; eligible True
+        state 5 male: 16048.416667 person-years; eligible True
+      qual-5 65+: 12 of 12 at floor 500.0; scored; minimum exposure 1733.916667
+        state 0 female: 6747.083333 person-years; eligible True
+        state 0 male: 6752.666667 person-years; eligible True
+        state 1 female: 1733.916667 person-years; eligible True
+        state 1 male: 1743.75 person-years; eligible True
+        state 2 female: 2217.25 person-years; eligible True
+        state 2 male: 2159.416667 person-years; eligible True
+        state 3 female: 2311.25 person-years; eligible True
+        state 3 male: 2412.75 person-years; eligible True
+        state 4 female: 2007.333333 person-years; eligible True
+        state 4 male: 1908.0 person-years; eligible True
+        state 5 female: 3716.833333 person-years; eligible True
+        state 5 male: 3791.0 person-years; eligible True
+  reference results at per-line union false-fail rates A 0.980392%, B 0.980392%, C 0.000000%:
+    - A/qual-0: pass; evidence `d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27`
+    - A/qual-1: pass; evidence `6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c`
+    - A/qual-2: pass; evidence `e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a`
+    - A/qual-3: pass; evidence `74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191`
+    - A/qual-4: pass; evidence `9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86`
+    - A/qual-5: pass; evidence `275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621`
+    - B/qual-0: pass; evidence `5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88`
+    - B/qual-1: pass; evidence `bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750`
+    - B/qual-2: pass; evidence `55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89`
+    - B/qual-3: pass; evidence `70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9`
+    - B/qual-4: pass; evidence `a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a`
+    - B/qual-5: pass; evidence `c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01`
+    - C/qual-0: pass; evidence `ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54`
+    - C/qual-1: pass; evidence `24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a`
+    - C/qual-2: pass; evidence `23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1`
+    - C/qual-3: pass; evidence `c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38`
+    - C/qual-4: pass; evidence `7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343`
+    - C/qual-5: pass; evidence `896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5`
+- release_accuracy (decides on p95_relative_error)
+  per-reference-line union false-fail rates: A 0.980392%, B 0.980392%, C 0.980392%
+  each component is calibrated on its own values; rank 101 of 102 per line
+  supporting controls: none
+  - p95_relative_error
+    value: 1.31491888298
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 1
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 1.19634280704, B 1.31491888298, C 1.19634280704
+    calibrating line: B
+    component false-fail rates by line: A 0.980392%, B 0.980392%, C 0.980392%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  reference results at per-line union false-fail rates A 0.980392%, B 0.980392%, C 0.980392%:
+    - A/qual-0: pass; evidence `d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27`
+    - A/qual-1: pass; evidence `6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c`
+    - A/qual-2: pass; evidence `e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a`
+    - A/qual-3: pass; evidence `74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191`
+    - A/qual-4: pass; evidence `9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86`
+    - A/qual-5: pass; evidence `275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621`
+    - B/qual-0: pass; evidence `5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88`
+    - B/qual-1: pass; evidence `bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750`
+    - B/qual-2: pass; evidence `55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89`
+    - B/qual-3: pass; evidence `70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9`
+    - B/qual-4: pass; evidence `a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a`
+    - B/qual-5: pass; evidence `c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01`
+    - C/qual-0: pass; evidence `ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54`
+    - C/qual-1: pass; evidence `24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a`
+    - C/qual-2: pass; evidence `23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1`
+    - C/qual-3: pass; evidence `c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38`
+    - C/qual-4: pass; evidence `7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343`
+    - C/qual-5: pass; evidence `896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5`
+- interval_quality (decides on coverage_deviation, mean_interval_score)
+  per-reference-line union false-fail rates: A 0.000000%, B 0.980392%, C 0.000000%
+  each component is calibrated on its own values; rank 101 of 102 per line
+  supporting controls: none
+  - coverage_deviation
+    value: 0.9
+    attainable range: [0.0,1.0]
+    registered normalizer, which no longer scales the bar: 0.52
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 0.733333333333, B 0.9, C 0.733333333333
+    calibrating line: B
+    component false-fail rates by line: A 0.000000%, B 0.000000%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  - mean_interval_score
+    value: 10.2503819386
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 1.4523
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 8.72498536374, B 10.2503819386, C 2.59206813207
+    calibrating line: B
+    component false-fail rates by line: A 0.000000%, B 0.980392%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  reference results at per-line union false-fail rates A 0.000000%, B 0.980392%, C 0.000000%:
+    - A/qual-0: pass; evidence `d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27`
+    - A/qual-1: pass; evidence `6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c`
+    - A/qual-2: pass; evidence `e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a`
+    - A/qual-3: pass; evidence `74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191`
+    - A/qual-4: pass; evidence `9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86`
+    - A/qual-5: pass; evidence `275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621`
+    - B/qual-0: pass; evidence `5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88`
+    - B/qual-1: pass; evidence `bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750`
+    - B/qual-2: pass; evidence `55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89`
+    - B/qual-3: pass; evidence `70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9`
+    - B/qual-4: pass; evidence `a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a`
+    - B/qual-5: pass; evidence `c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01`
+    - C/qual-0: pass; evidence `ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54`
+    - C/qual-1: pass; evidence `24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a`
+    - C/qual-2: pass; evidence `23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1`
+    - C/qual-3: pass; evidence `c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38`
+    - C/qual-4: pass; evidence `7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343`
+    - C/qual-5: pass; evidence `896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5`
+- tail_calibration (reported, decides nothing)
+  per-reference-line union false-fail rates: A 0.980392%, B 1.960784%, C 0.980392%
+  each component is calibrated on its own values; rank 101 of 102 per line
+  supporting controls: mean_only_tail, predictive_tails
+  - pooled_exceedance_deviation
+    value: 0.192106119792
+    attainable range: [0.0,0.95]
+    registered normalizer, which no longer scales the bar: 0.05
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 0.192106119792, B 0.05, C 0.192041015625
+    calibrating line: A
+    component false-fail rates by line: A 0.980392%, B 0.000000%, C 0.980392%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  - q95_width_relative_error
+    value: 18.1006092781
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 3.7149
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 8.74937582194, B 18.1006092781, C 9.0096763084
+    calibrating line: B
+    component false-fail rates by line: A 0.000000%, B 0.980392%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  - es95_width_relative_error
+    value: 20.680354805
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 4.3735
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 9.61649574338, B 20.680354805, C 9.87923480006
+    calibrating line: B
+    component false-fail rates by line: A 0.000000%, B 0.980392%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  reference results at per-line union false-fail rates A 0.980392%, B 1.960784%, C 0.980392%:
+    - A/qual-0: pass; evidence `d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27`
+    - A/qual-1: pass; evidence `6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c`
+    - A/qual-2: pass; evidence `e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a`
+    - A/qual-3: pass; evidence `74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191`
+    - A/qual-4: pass; evidence `9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86`
+    - A/qual-5: pass; evidence `275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621`
+    - B/qual-0: pass; evidence `5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88`
+    - B/qual-1: pass; evidence `bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750`
+    - B/qual-2: pass; evidence `55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89`
+    - B/qual-3: pass; evidence `70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9`
+    - B/qual-4: pass; evidence `a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a`
+    - B/qual-5: pass; evidence `c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01`
+    - C/qual-0: pass; evidence `ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54`
+    - C/qual-1: pass; evidence `24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a`
+    - C/qual-2: pass; evidence `23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1`
+    - C/qual-3: pass; evidence `c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38`
+    - C/qual-4: pass; evidence `7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343`
+    - C/qual-5: pass; evidence `896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5`
+- reserve_skill (reported, decides nothing)
+  per-reference-line union false-fail rates: A 0.980392%, B 0.980392%, C 0.980392%
+  each component is calibrated on its own values; rank 101 of 102 per line
+  supporting controls: none
+  - skill_loss
+    value: 6.00792591064
+    attainable range: [0.0,null]
+    registered normalizer, which no longer scales the bar: 1.2507
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 5.35709388066, B 5.75992354339, C 6.00792591064
+    calibrating line: C
+    component false-fail rates by line: A 0.980392%, B 0.980392%, C 0.980392%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  - worst_regional_shortfall_probability
+    value: no bar published
+    calibrated value: 1
+    reason: the calibrated bar 1 reaches its attainable ceiling 1, so the component cannot fail
+    attainable range: [0.0,1.0]
+    registered normalizer, which no longer scales the bar: 1
+    worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+    witnesses: A, B, C
+    component p99 by line: A 1, B 1, C 1
+    calibrating line: A, B, C
+    component false-fail rates by line: A 0.000000%, B 0.000000%, C 0.000000%
+    replicate evidence digest: `205948d4b7f8b520da4c971ce6be83ce180ab00ec967283fef91d56009280d93`
+  reference results at per-line union false-fail rates A 0.980392%, B 0.980392%, C 0.980392%:
+    - A/qual-0: pass; evidence `d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27`
+    - A/qual-1: pass; evidence `6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c`
+    - A/qual-2: pass; evidence `e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a`
+    - A/qual-3: pass; evidence `74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191`
+    - A/qual-4: pass; evidence `9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86`
+    - A/qual-5: pass; evidence `275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621`
+    - B/qual-0: pass; evidence `5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88`
+    - B/qual-1: pass; evidence `bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750`
+    - B/qual-2: pass; evidence `55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89`
+    - B/qual-3: pass; evidence `70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9`
+    - B/qual-4: pass; evidence `a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a`
+    - B/qual-5: pass; evidence `c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01`
+    - C/qual-0: pass; evidence `ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54`
+    - C/qual-1: pass; evidence `24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a`
+    - C/qual-2: pass; evidence `23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1`
+    - C/qual-3: pass; evidence `c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38`
+    - C/qual-4: pass; evidence `7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343`
+    - C/qual-5: pass; evidence `896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5`
+
+## Gate profile
+
+- profile: lite
+- gates that decide: exposures_and_rates (p95_relative_error), release_accuracy (p95_relative_error), interval_quality (coverage_deviation, mean_interval_score)
+- measured and reported, deciding nothing: tail_calibration, reserve_skill
+- reported-only components: tail_calibration/pooled_exceedance_deviation, tail_calibration/q95_width_relative_error, tail_calibration/es95_width_relative_error, reserve_skill/skill_loss, reserve_skill/worst_regional_shortfall_probability
+- reference results above a reported bar:
+  - none
+- components published with no bar: reserve_skill/worst_regional_shortfall_probability
+  - reserve_skill/worst_regional_shortfall_probability: the calibrated bar 1 reaches its attainable ceiling 1, so the component cannot fail
+- separating controls, by deciding block:
+  - exposures_and_rates (unseparated): none
+  - release_accuracy (unseparated): none
+  - interval_quality (unseparated): none
+- blocks that decide as validity gates, where the reference passes and no registered control fails on every qualification world: none
+- blocks that decide and carry discriminating science: none
+- lite profile deletion candidates, controls that fail no gate this profile decides on, on every qualification world: benchmark_only, deterministic_linkage, development_average_regime, exact_key_union, experience_history_only, ignore_health_selection, inflated_intervals, informative_selection, mean_only_tail, no_dedup, normal_tail, padded_tail, predictive_tails, proportional_reserve, reconstruction_uncertainty, regime_recombination, register_only, reserve_allocation, static_projection, survey_only, uniform_allocation, version_three_recipe
+
+## Control separation
+
+A registered control separates its own gate when it is a hard-valid submission
+and fails that gate on every qualification world. A deciding gate needs one
+such control unless the profile registers it as a validity gate. Every other
+registered control is a deletion candidate: its per-world readings are kept and
+it leaves the required battery for this profile. Every control is reported
+against every gate. The primary marker identifies the registered deletion test;
+the component values and frozen ceilings are the deletion-test numbers.
+
+- requirement: every deciding composite gate the profile does not register as a validity gate has at least one registered control that hard-passes structure and fails that gate on every qualification world
+- exposures_and_rates: unseparated; separating controls none; deletion candidates deterministic_linkage, ignore_health_selection, informative_selection, version_three_recipe
+- release_accuracy: unseparated; separating controls none; deletion candidates register_only, survey_only, no_dedup, static_projection, benchmark_only, exact_key_union, experience_history_only
+- interval_quality: unseparated; separating controls none; deletion candidates inflated_intervals, reconstruction_uncertainty
+- tail_calibration: reported; separating controls mean_only_tail, predictive_tails; deletion candidates development_average_regime, normal_tail, padded_tail, regime_recombination
+- reserve_skill: reported; separating controls none; deletion candidates uniform_allocation, reserve_allocation, proportional_reserve
+
+- exposures_and_rates
+  - benchmark_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - deterministic_linkage [primary]: failed worlds qual-5; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=15.606735058926681 vs 15.667516268767569
+      q95 sum 245426389.72007304; reserve total 215532000.0; q95 diagnostic margin -29894389.720073044; feasible false
+    - qual-1: pass; p95_relative_error=13.718006747565124 vs 15.667516268767569
+      q95 sum 240577157.45853218; reserve total 237900000.0; q95 diagnostic margin -2677157.4585321844; feasible false
+    - qual-2: pass; p95_relative_error=12.704774530928352 vs 15.667516268767569
+      q95 sum 295281571.86826724; reserve total 211084000.0; q95 diagnostic margin -84197571.86826724; feasible false
+    - qual-3: pass; p95_relative_error=4.154348470423847 vs 15.667516268767569
+      q95 sum 227705392.24953297; reserve total 222969000.0; q95 diagnostic margin -4736392.249532968; feasible false
+    - qual-4: pass; p95_relative_error=9.929104105092637 vs 15.667516268767569
+      q95 sum 276621673.17079264; reserve total 220306000.0; q95 diagnostic margin -56315673.17079264; feasible false
+    - qual-5: fail; p95_relative_error=18.894208975894763 vs 15.667516268767569
+      q95 sum 302510527.4474469; reserve total 229439000.0; q95 diagnostic margin -73071527.44744688; feasible false
+  - development_average_regime: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.3017215362019998 vs 15.667516268767569
+      q95 sum 256908526.46053362; reserve total 215532000.0; q95 diagnostic margin -41376526.46053362; feasible false
+    - qual-1: pass; p95_relative_error=1.6449235896594105 vs 15.667516268767569
+      q95 sum 316565247.5684674; reserve total 237900000.0; q95 diagnostic margin -78665247.56846738; feasible false
+    - qual-2: pass; p95_relative_error=0.8873800995114433 vs 15.667516268767569
+      q95 sum 290346855.33726203; reserve total 211084000.0; q95 diagnostic margin -79262855.33726203; feasible false
+    - qual-3: pass; p95_relative_error=0.4099536931842721 vs 15.667516268767569
+      q95 sum 291143145.6092127; reserve total 222969000.0; q95 diagnostic margin -68174145.6092127; feasible false
+    - qual-4: pass; p95_relative_error=9.111168336995421 vs 15.667516268767569
+      q95 sum 298638361.543509; reserve total 220306000.0; q95 diagnostic margin -78332361.543509; feasible false
+    - qual-5: pass; p95_relative_error=7.919987901048152 vs 15.667516268767569
+      q95 sum 319643616.1606078; reserve total 229439000.0; q95 diagnostic margin -90204616.16060781; feasible false
+  - exact_key_union: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - experience_history_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.6561824282435101 vs 15.667516268767569
+      q95 sum 162496730.03560126; reserve total 215532000.0; q95 diagnostic margin 53035269.96439874; feasible true
+    - qual-1: pass; p95_relative_error=0.5661099760565395 vs 15.667516268767569
+      q95 sum 176571928.90216458; reserve total 237900000.0; q95 diagnostic margin 61328071.09783542; feasible true
+    - qual-2: pass; p95_relative_error=0.6257693406580476 vs 15.667516268767569
+      q95 sum 170691266.08215672; reserve total 211084000.0; q95 diagnostic margin 40392733.91784328; feasible true
+    - qual-3: pass; p95_relative_error=1.090399547006836 vs 15.667516268767569
+      q95 sum 173976582.42737043; reserve total 222969000.0; q95 diagnostic margin 48992417.57262957; feasible true
+    - qual-4: pass; p95_relative_error=0.593245844755164 vs 15.667516268767569
+      q95 sum 168912645.88451555; reserve total 220306000.0; q95 diagnostic margin 51393354.11548445; feasible true
+    - qual-5: pass; p95_relative_error=0.5642172135264816 vs 15.667516268767569
+      q95 sum 176737784.4410495; reserve total 229439000.0; q95 diagnostic margin 52701215.55895051; feasible true
+  - ignore_health_selection [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.295304932516 vs 15.667516268767569
+      q95 sum 270379881.0636599; reserve total 215532000.0; q95 diagnostic margin -54847881.06365991; feasible false
+    - qual-1: pass; p95_relative_error=1.5366523936180274 vs 15.667516268767569
+      q95 sum 347622876.63384223; reserve total 237900000.0; q95 diagnostic margin -109722876.63384223; feasible false
+    - qual-2: pass; p95_relative_error=0.9750861651310497 vs 15.667516268767569
+      q95 sum 291084877.2184113; reserve total 211084000.0; q95 diagnostic margin -80000877.21841133; feasible false
+    - qual-3: pass; p95_relative_error=0.3595963026710992 vs 15.667516268767569
+      q95 sum 345222462.13283974; reserve total 222969000.0; q95 diagnostic margin -122253462.13283974; feasible false
+    - qual-4: pass; p95_relative_error=8.299805501936738 vs 15.667516268767569
+      q95 sum 309811677.24939245; reserve total 220306000.0; q95 diagnostic margin -89505677.24939245; feasible false
+    - qual-5: pass; p95_relative_error=7.036585326444459 vs 15.667516268767569
+      q95 sum 330010104.2314374; reserve total 229439000.0; q95 diagnostic margin -100571104.23143739; feasible false
+  - inflated_intervals: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - informative_selection [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2755599244257998 vs 15.667516268767569
+      q95 sum 270599340.8237418; reserve total 215532000.0; q95 diagnostic margin -55067340.82374179; feasible false
+    - qual-1: pass; p95_relative_error=1.5160423105861678 vs 15.667516268767569
+      q95 sum 348105491.09159374; reserve total 237900000.0; q95 diagnostic margin -110205491.09159374; feasible false
+    - qual-2: pass; p95_relative_error=0.9545583159074346 vs 15.667516268767569
+      q95 sum 288005882.03765625; reserve total 211084000.0; q95 diagnostic margin -76921882.03765625; feasible false
+    - qual-3: pass; p95_relative_error=0.3684517354308637 vs 15.667516268767569
+      q95 sum 346226723.95303106; reserve total 222969000.0; q95 diagnostic margin -123257723.95303106; feasible false
+    - qual-4: pass; p95_relative_error=8.224117702673189 vs 15.667516268767569
+      q95 sum 307700404.0584867; reserve total 220306000.0; q95 diagnostic margin -87394404.0584867; feasible false
+    - qual-5: pass; p95_relative_error=7.083264102921888 vs 15.667516268767569
+      q95 sum 330854184.4062361; reserve total 229439000.0; q95 diagnostic margin -101415184.40623611; feasible false
+  - mean_only_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 206146208.31365985; reserve total 215532000.0; q95 diagnostic margin 9385791.686340153; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 235721675.61416084; reserve total 237900000.0; q95 diagnostic margin 2178324.3858391643; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 226891865.1928209; reserve total 211084000.0; q95 diagnostic margin -15807865.192820907; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 228144047.47948116; reserve total 222969000.0; q95 diagnostic margin -5175047.479481161; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 233703134.4356029; reserve total 220306000.0; q95 diagnostic margin -13397134.435602903; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 241472178.3490299; reserve total 229439000.0; q95 diagnostic margin -12033178.349029899; feasible false
+  - no_dedup: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - normal_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 248508630.99446034; reserve total 215532000.0; q95 diagnostic margin -32976630.994460344; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 306777773.3904835; reserve total 237900000.0; q95 diagnostic margin -68877773.3904835; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 286320226.83847326; reserve total 211084000.0; q95 diagnostic margin -75236226.83847326; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 286316717.0442383; reserve total 222969000.0; q95 diagnostic margin -63347717.04423833; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 289923831.87440115; reserve total 220306000.0; q95 diagnostic margin -69617831.87440115; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 313172156.7134914; reserve total 229439000.0; q95 diagnostic margin -83733156.71349138; feasible false
+  - padded_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 377964905.655368; reserve total 215532000.0; q95 diagnostic margin -162432905.65536797; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 455624524.16062164; reserve total 237900000.0; q95 diagnostic margin -217724524.16062164; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 427176230.9986017; reserve total 211084000.0; q95 diagnostic margin -216092230.99860168; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 429698087.16083205; reserve total 222969000.0; q95 diagnostic margin -206729087.16083205; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 436183728.735461; reserve total 220306000.0; q95 diagnostic margin -215877728.735461; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 465317723.35371315; reserve total 229439000.0; q95 diagnostic margin -235878723.35371315; feasible false
+  - predictive_tails: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2573881487621998 vs 15.667516268767569
+      q95 sum 205963810.20568585; reserve total 215532000.0; q95 diagnostic margin 9568189.794314146; feasible false
+    - qual-1: pass; p95_relative_error=1.4981529516848073 vs 15.667516268767569
+      q95 sum 235752013.9305427; reserve total 237900000.0; q95 diagnostic margin 2147986.0694572926; feasible false
+    - qual-2: pass; p95_relative_error=0.9314413293438046 vs 15.667516268767569
+      q95 sum 226773820.30448222; reserve total 211084000.0; q95 diagnostic margin -15689820.304482222; feasible false
+    - qual-3: pass; p95_relative_error=0.4131640967990482 vs 15.667516268767569
+      q95 sum 227572808.16542274; reserve total 222969000.0; q95 diagnostic margin -4603808.165422738; feasible false
+    - qual-4: pass; p95_relative_error=8.285235416787692 vs 15.667516268767569
+      q95 sum 233673002.880858; reserve total 220306000.0; q95 diagnostic margin -13367002.880858004; feasible false
+    - qual-5: pass; p95_relative_error=7.126394479624076 vs 15.667516268767569
+      q95 sum 242445369.29946834; reserve total 229439000.0; q95 diagnostic margin -13006369.299468338; feasible false
+  - proportional_reserve: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reconstruction_uncertainty: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2698708810686 vs 15.667516268767569
+      q95 sum 250243428.4903712; reserve total 215532000.0; q95 diagnostic margin -34711428.4903712; feasible false
+    - qual-1: pass; p95_relative_error=1.523373735068254 vs 15.667516268767569
+      q95 sum 312596245.6262599; reserve total 237900000.0; q95 diagnostic margin -74696245.62625992; feasible false
+    - qual-2: pass; p95_relative_error=0.9784060875085278 vs 15.667516268767569
+      q95 sum 287894465.7794166; reserve total 211084000.0; q95 diagnostic margin -76810465.77941662; feasible false
+    - qual-3: pass; p95_relative_error=0.40421462219340676 vs 15.667516268767569
+      q95 sum 289194192.535566; reserve total 222969000.0; q95 diagnostic margin -66225192.53556597; feasible false
+    - qual-4: pass; p95_relative_error=8.342256626087789 vs 15.667516268767569
+      q95 sum 293073615.3678564; reserve total 220306000.0; q95 diagnostic margin -72767615.36785638; feasible false
+    - qual-5: pass; p95_relative_error=7.185959641045417 vs 15.667516268767569
+      q95 sum 318129126.72295445; reserve total 229439000.0; q95 diagnostic margin -88690126.72295445; feasible false
+  - regime_recombination: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2647456928834 vs 15.667516268767569
+      q95 sum 255952658.69826174; reserve total 215532000.0; q95 diagnostic margin -40420658.69826174; feasible false
+    - qual-1: pass; p95_relative_error=1.6471101098937644 vs 15.667516268767569
+      q95 sum 317006540.91621786; reserve total 237900000.0; q95 diagnostic margin -79106540.91621786; feasible false
+    - qual-2: pass; p95_relative_error=0.8681928294564141 vs 15.667516268767569
+      q95 sum 288910018.9743231; reserve total 211084000.0; q95 diagnostic margin -77826018.9743231; feasible false
+    - qual-3: pass; p95_relative_error=0.4133533207159735 vs 15.667516268767569
+      q95 sum 292459707.48046; reserve total 222969000.0; q95 diagnostic margin -69490707.48045999; feasible false
+    - qual-4: pass; p95_relative_error=9.100199807041413 vs 15.667516268767569
+      q95 sum 300427410.9938194; reserve total 220306000.0; q95 diagnostic margin -80121410.99381942; feasible false
+    - qual-5: pass; p95_relative_error=7.8964144263872775 vs 15.667516268767569
+      q95 sum 322574305.45393395; reserve total 229439000.0; q95 diagnostic margin -93135305.45393395; feasible false
+  - register_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reserve_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2573881487621998 vs 15.667516268767569
+      q95 sum 252458493.53651696; reserve total 215532000.0; q95 diagnostic margin -36926493.536516964; feasible false
+    - qual-1: pass; p95_relative_error=1.4981529516848073 vs 15.667516268767569
+      q95 sum 317020808.04728895; reserve total 237900000.0; q95 diagnostic margin -79120808.04728895; feasible false
+    - qual-2: pass; p95_relative_error=0.9314413293438046 vs 15.667516268767569
+      q95 sum 291010063.0333309; reserve total 211084000.0; q95 diagnostic margin -79926063.03333092; feasible false
+    - qual-3: pass; p95_relative_error=0.4131640967990482 vs 15.667516268767569
+      q95 sum 291480267.5199142; reserve total 222969000.0; q95 diagnostic margin -68511267.51991421; feasible false
+    - qual-4: pass; p95_relative_error=8.285235416787692 vs 15.667516268767569
+      q95 sum 297906545.45447224; reserve total 220306000.0; q95 diagnostic margin -77600545.45447224; feasible false
+    - qual-5: pass; p95_relative_error=7.126394479624076 vs 15.667516268767569
+      q95 sum 323632452.89445984; reserve total 229439000.0; q95 diagnostic margin -94193452.89445984; feasible false
+  - static_projection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - survey_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - uniform_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2783077480151999 vs 15.667516268767569
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=1.5234187828969388 vs 15.667516268767569
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.9733128339084549 vs 15.667516268767569
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.40960957793090164 vs 15.667516268767569
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=8.295712626716032 vs 15.667516268767569
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=7.152749663761285 vs 15.667516268767569
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - version_three_recipe [primary]: failed worlds qual-5; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=14.332949558738655 vs 15.667516268767569
+      q95 sum 180831650.4328617; reserve total 215532000.0; q95 diagnostic margin 34700349.567138314; feasible false
+    - qual-1: pass; p95_relative_error=12.613390140144297 vs 15.667516268767569
+      q95 sum 170573508.75600517; reserve total 237900000.0; q95 diagnostic margin 67326491.24399483; feasible true
+    - qual-2: pass; p95_relative_error=11.550365713109766 vs 15.667516268767569
+      q95 sum 203910445.0972639; reserve total 211084000.0; q95 diagnostic margin 7173554.902736098; feasible false
+    - qual-3: pass; p95_relative_error=3.7095099885003435 vs 15.667516268767569
+      q95 sum 141724379.02931836; reserve total 222969000.0; q95 diagnostic margin 81244620.97068164; feasible true
+    - qual-4: pass; p95_relative_error=9.16439811607587 vs 15.667516268767569
+      q95 sum 193161034.52765414; reserve total 220306000.0; q95 diagnostic margin 27144965.47234586; feasible true
+    - qual-5: fail; p95_relative_error=17.336169765372585 vs 15.667516268767569
+      q95 sum 206294352.79630786; reserve total 229439000.0; q95 diagnostic margin 23144647.20369214; feasible true
+- release_accuracy
+  - benchmark_only [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.9148098801889933 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.5263339146968719 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.49048299127387845 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.376677185741217 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.48845260046037225 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4172134193314391 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - deterministic_linkage: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 245426389.72007304; reserve total 215532000.0; q95 diagnostic margin -29894389.720073044; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 240577157.45853218; reserve total 237900000.0; q95 diagnostic margin -2677157.4585321844; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 295281571.86826724; reserve total 211084000.0; q95 diagnostic margin -84197571.86826724; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 227705392.24953297; reserve total 222969000.0; q95 diagnostic margin -4736392.249532968; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 276621673.17079264; reserve total 220306000.0; q95 diagnostic margin -56315673.17079264; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 302510527.4474469; reserve total 229439000.0; q95 diagnostic margin -73071527.44744688; feasible false
+  - development_average_regime: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 256908526.46053362; reserve total 215532000.0; q95 diagnostic margin -41376526.46053362; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 316565247.5684674; reserve total 237900000.0; q95 diagnostic margin -78665247.56846738; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 290346855.33726203; reserve total 211084000.0; q95 diagnostic margin -79262855.33726203; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 291143145.6092127; reserve total 222969000.0; q95 diagnostic margin -68174145.6092127; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 298638361.543509; reserve total 220306000.0; q95 diagnostic margin -78332361.543509; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 319643616.1606078; reserve total 229439000.0; q95 diagnostic margin -90204616.16060781; feasible false
+  - exact_key_union [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - experience_history_only [primary]: failed worlds qual-3; passed worlds qual-0, qual-1, qual-2, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=1.2730257261719942 vs 1.3149188829783047
+      q95 sum 162496730.03560126; reserve total 215532000.0; q95 diagnostic margin 53035269.96439874; feasible true
+    - qual-1: pass; p95_relative_error=1.0 vs 1.3149188829783047
+      q95 sum 176571928.90216458; reserve total 237900000.0; q95 diagnostic margin 61328071.09783542; feasible true
+    - qual-2: pass; p95_relative_error=1.0 vs 1.3149188829783047
+      q95 sum 170691266.08215672; reserve total 211084000.0; q95 diagnostic margin 40392733.91784328; feasible true
+    - qual-3: fail; p95_relative_error=1.8586311174142878 vs 1.3149188829783047
+      q95 sum 173976582.42737043; reserve total 222969000.0; q95 diagnostic margin 48992417.57262957; feasible true
+    - qual-4: pass; p95_relative_error=1.0 vs 1.3149188829783047
+      q95 sum 168912645.88451555; reserve total 220306000.0; q95 diagnostic margin 51393354.11548445; feasible true
+    - qual-5: pass; p95_relative_error=1.0 vs 1.3149188829783047
+      q95 sum 176737784.4410495; reserve total 229439000.0; q95 diagnostic margin 52701215.55895051; feasible true
+  - ignore_health_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 270379881.0636599; reserve total 215532000.0; q95 diagnostic margin -54847881.06365991; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 347622876.63384223; reserve total 237900000.0; q95 diagnostic margin -109722876.63384223; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 291084877.2184113; reserve total 211084000.0; q95 diagnostic margin -80000877.21841133; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 345222462.13283974; reserve total 222969000.0; q95 diagnostic margin -122253462.13283974; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 309811677.24939245; reserve total 220306000.0; q95 diagnostic margin -89505677.24939245; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 330010104.2314374; reserve total 229439000.0; q95 diagnostic margin -100571104.23143739; feasible false
+  - inflated_intervals: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - informative_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 270599340.8237418; reserve total 215532000.0; q95 diagnostic margin -55067340.82374179; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 348105491.09159374; reserve total 237900000.0; q95 diagnostic margin -110205491.09159374; feasible false
+    - qual-2: pass; p95_relative_error=0.6341396418136129 vs 1.3149188829783047
+      q95 sum 288005882.03765625; reserve total 211084000.0; q95 diagnostic margin -76921882.03765625; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 346226723.95303106; reserve total 222969000.0; q95 diagnostic margin -123257723.95303106; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 307700404.0584867; reserve total 220306000.0; q95 diagnostic margin -87394404.0584867; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 330854184.4062361; reserve total 229439000.0; q95 diagnostic margin -101415184.40623611; feasible false
+  - mean_only_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 206146208.31365985; reserve total 215532000.0; q95 diagnostic margin 9385791.686340153; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 235721675.61416084; reserve total 237900000.0; q95 diagnostic margin 2178324.3858391643; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 226891865.1928209; reserve total 211084000.0; q95 diagnostic margin -15807865.192820907; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 228144047.47948116; reserve total 222969000.0; q95 diagnostic margin -5175047.479481161; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 233703134.4356029; reserve total 220306000.0; q95 diagnostic margin -13397134.435602903; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 241472178.3490299; reserve total 229439000.0; q95 diagnostic margin -12033178.349029899; feasible false
+  - no_dedup [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.9148098801889933 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.5263339146968719 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.49048299127387845 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.376677185741217 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.48845260046037225 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4172134193314391 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - normal_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 248508630.99446034; reserve total 215532000.0; q95 diagnostic margin -32976630.994460344; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 306777773.3904835; reserve total 237900000.0; q95 diagnostic margin -68877773.3904835; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 286320226.83847326; reserve total 211084000.0; q95 diagnostic margin -75236226.83847326; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 286316717.0442383; reserve total 222969000.0; q95 diagnostic margin -63347717.04423833; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 289923831.87440115; reserve total 220306000.0; q95 diagnostic margin -69617831.87440115; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 313172156.7134914; reserve total 229439000.0; q95 diagnostic margin -83733156.71349138; feasible false
+  - padded_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 377964905.655368; reserve total 215532000.0; q95 diagnostic margin -162432905.65536797; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 455624524.16062164; reserve total 237900000.0; q95 diagnostic margin -217724524.16062164; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 427176230.9986017; reserve total 211084000.0; q95 diagnostic margin -216092230.99860168; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 429698087.16083205; reserve total 222969000.0; q95 diagnostic margin -206729087.16083205; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 436183728.735461; reserve total 220306000.0; q95 diagnostic margin -215877728.735461; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 465317723.35371315; reserve total 229439000.0; q95 diagnostic margin -235878723.35371315; feasible false
+  - predictive_tails: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 205963810.20568585; reserve total 215532000.0; q95 diagnostic margin 9568189.794314146; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 235752013.9305427; reserve total 237900000.0; q95 diagnostic margin 2147986.0694572926; feasible false
+    - qual-2: pass; p95_relative_error=0.6341396418136129 vs 1.3149188829783047
+      q95 sum 226773820.30448222; reserve total 211084000.0; q95 diagnostic margin -15689820.304482222; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 227572808.16542274; reserve total 222969000.0; q95 diagnostic margin -4603808.165422738; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 233673002.880858; reserve total 220306000.0; q95 diagnostic margin -13367002.880858004; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 242445369.29946834; reserve total 229439000.0; q95 diagnostic margin -13006369.299468338; feasible false
+  - proportional_reserve: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reconstruction_uncertainty: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 250243428.4903712; reserve total 215532000.0; q95 diagnostic margin -34711428.4903712; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 312596245.6262599; reserve total 237900000.0; q95 diagnostic margin -74696245.62625992; feasible false
+    - qual-2: pass; p95_relative_error=0.6341396418136129 vs 1.3149188829783047
+      q95 sum 287894465.7794166; reserve total 211084000.0; q95 diagnostic margin -76810465.77941662; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 289194192.535566; reserve total 222969000.0; q95 diagnostic margin -66225192.53556597; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 293073615.3678564; reserve total 220306000.0; q95 diagnostic margin -72767615.36785638; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 318129126.72295445; reserve total 229439000.0; q95 diagnostic margin -88690126.72295445; feasible false
+  - regime_recombination: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 255952658.69826174; reserve total 215532000.0; q95 diagnostic margin -40420658.69826174; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 317006540.91621786; reserve total 237900000.0; q95 diagnostic margin -79106540.91621786; feasible false
+    - qual-2: pass; p95_relative_error=0.6341396418136129 vs 1.3149188829783047
+      q95 sum 288910018.9743231; reserve total 211084000.0; q95 diagnostic margin -77826018.9743231; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292459707.48046; reserve total 222969000.0; q95 diagnostic margin -69490707.48045999; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 300427410.9938194; reserve total 220306000.0; q95 diagnostic margin -80121410.99381942; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 322574305.45393395; reserve total 229439000.0; q95 diagnostic margin -93135305.45393395; feasible false
+  - register_only [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.9148098801889933 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.5263339146968719 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.49048299127387845 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.38485139640332455 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.48845260046037225 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4172134193314391 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reserve_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 252458493.53651696; reserve total 215532000.0; q95 diagnostic margin -36926493.536516964; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 317020808.04728895; reserve total 237900000.0; q95 diagnostic margin -79120808.04728895; feasible false
+    - qual-2: pass; p95_relative_error=0.6341396418136129 vs 1.3149188829783047
+      q95 sum 291010063.0333309; reserve total 211084000.0; q95 diagnostic margin -79926063.03333092; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 291480267.5199142; reserve total 222969000.0; q95 diagnostic margin -68511267.51991421; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 297906545.45447224; reserve total 220306000.0; q95 diagnostic margin -77600545.45447224; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 323632452.89445984; reserve total 229439000.0; q95 diagnostic margin -94193452.89445984; feasible false
+  - static_projection [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.5695093329117603 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - survey_only [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.9148098801889933 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.7823555676855898 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.6826615446808509 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.6875489955555556 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=1.0 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.7474204444444444 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - uniform_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.826618891630854 vs 1.3149188829783047
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; p95_relative_error=0.4022123509205066 vs 1.3149188829783047
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; p95_relative_error=0.6337984094244689 vs 1.3149188829783047
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; p95_relative_error=0.7239602842949374 vs 1.3149188829783047
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; p95_relative_error=0.5267468580098426 vs 1.3149188829783047
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; p95_relative_error=0.4708224914843473 vs 1.3149188829783047
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - version_three_recipe: failed worlds qual-2, qual-4, qual-5; passed worlds qual-0, qual-1, qual-3; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; p95_relative_error=0.4164781679354301 vs 1.3149188829783047
+      q95 sum 180831650.4328617; reserve total 215532000.0; q95 diagnostic margin 34700349.567138314; feasible false
+    - qual-1: pass; p95_relative_error=0.6823581723018287 vs 1.3149188829783047
+      q95 sum 170573508.75600517; reserve total 237900000.0; q95 diagnostic margin 67326491.24399483; feasible true
+    - qual-2: fail; p95_relative_error=1.580731917428967 vs 1.3149188829783047
+      q95 sum 203910445.0972639; reserve total 211084000.0; q95 diagnostic margin 7173554.902736098; feasible false
+    - qual-3: pass; p95_relative_error=1.0776021965877525 vs 1.3149188829783047
+      q95 sum 141724379.02931836; reserve total 222969000.0; q95 diagnostic margin 81244620.97068164; feasible true
+    - qual-4: fail; p95_relative_error=2.1499187731198477 vs 1.3149188829783047
+      q95 sum 193161034.52765414; reserve total 220306000.0; q95 diagnostic margin 27144965.47234586; feasible true
+    - qual-5: fail; p95_relative_error=1.7688238013665551 vs 1.3149188829783047
+      q95 sum 206294352.79630786; reserve total 229439000.0; q95 diagnostic margin 23144647.20369214; feasible true
+- interval_quality
+  - benchmark_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.179064696395567 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.324371396896993 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.4156414572216067 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=1.8729674506562481 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=4.506026662264566 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=6.69388201309407 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - deterministic_linkage: failed worlds qual-2, qual-5; passed worlds qual-0, qual-1, qual-3, qual-4; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=7.920594162849139 vs 10.25038193855901
+      q95 sum 245426389.72007304; reserve total 215532000.0; q95 diagnostic margin -29894389.720073044; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=9.956280009508772 vs 10.25038193855901
+      q95 sum 240577157.45853218; reserve total 237900000.0; q95 diagnostic margin -2677157.4585321844; feasible false
+    - qual-2: fail; coverage_deviation=0.65 vs 0.9; mean_interval_score=12.188025952881834 vs 10.25038193855901
+      q95 sum 295281571.86826724; reserve total 211084000.0; q95 diagnostic margin -84197571.86826724; feasible false
+    - qual-3: pass; coverage_deviation=0.5289308176100629 vs 0.9; mean_interval_score=3.0047207614479423 vs 10.25038193855901
+      q95 sum 227705392.24953297; reserve total 222969000.0; q95 diagnostic margin -4736392.249532968; feasible false
+    - qual-4: pass; coverage_deviation=0.3327485380116959 vs 0.9; mean_interval_score=8.296510276630803 vs 10.25038193855901
+      q95 sum 276621673.17079264; reserve total 220306000.0; q95 diagnostic margin -56315673.17079264; feasible false
+    - qual-5: fail; coverage_deviation=0.54 vs 0.9; mean_interval_score=16.381166637377966 vs 10.25038193855901
+      q95 sum 302510527.4474469; reserve total 229439000.0; q95 diagnostic margin -73071527.44744688; feasible false
+  - development_average_regime: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.4308782783760203 vs 10.25038193855901
+      q95 sum 256908526.46053362; reserve total 215532000.0; q95 diagnostic margin -41376526.46053362; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4489405378971454 vs 10.25038193855901
+      q95 sum 316565247.5684674; reserve total 237900000.0; q95 diagnostic margin -78665247.56846738; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.7276959722666156 vs 10.25038193855901
+      q95 sum 290346855.33726203; reserve total 211084000.0; q95 diagnostic margin -79262855.33726203; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.891650163721982 vs 10.25038193855901
+      q95 sum 291143145.6092127; reserve total 222969000.0; q95 diagnostic margin -68174145.6092127; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=4.222765687704987 vs 10.25038193855901
+      q95 sum 298638361.543509; reserve total 220306000.0; q95 diagnostic margin -78332361.543509; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=6.519698044484627 vs 10.25038193855901
+      q95 sum 319643616.1606078; reserve total 229439000.0; q95 diagnostic margin -90204616.16060781; feasible false
+  - exact_key_union: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3958427166946619 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4254687175603495 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8288683112182467 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.9283804315847393 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9013811212519522 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.900317371600202 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - experience_history_only: failed worlds qual-3; passed worlds qual-0, qual-1, qual-2, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=9.369761135780223 vs 10.25038193855901
+      q95 sum 162496730.03560126; reserve total 215532000.0; q95 diagnostic margin 53035269.96439874; feasible true
+    - qual-1: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=8.673721115919257 vs 10.25038193855901
+      q95 sum 176571928.90216458; reserve total 237900000.0; q95 diagnostic margin 61328071.09783542; feasible true
+    - qual-2: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=9.004985237494147 vs 10.25038193855901
+      q95 sum 170691266.08215672; reserve total 211084000.0; q95 diagnostic margin 40392733.91784328; feasible true
+    - qual-3: fail; coverage_deviation=0.9 vs 0.9; mean_interval_score=10.543384166279187 vs 10.25038193855901
+      q95 sum 173976582.42737043; reserve total 222969000.0; q95 diagnostic margin 48992417.57262957; feasible true
+    - qual-4: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=8.452842558957801 vs 10.25038193855901
+      q95 sum 168912645.88451555; reserve total 220306000.0; q95 diagnostic margin 51393354.11548445; feasible true
+    - qual-5: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=8.852789034018445 vs 10.25038193855901
+      q95 sum 176737784.4410495; reserve total 229439000.0; q95 diagnostic margin 52701215.55895051; feasible true
+  - ignore_health_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.4128409382378277 vs 10.25038193855901
+      q95 sum 270379881.0636599; reserve total 215532000.0; q95 diagnostic margin -54847881.06365991; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.395569851803701 vs 10.25038193855901
+      q95 sum 347622876.63384223; reserve total 237900000.0; q95 diagnostic margin -109722876.63384223; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8071236764354115 vs 10.25038193855901
+      q95 sum 291084877.2184113; reserve total 211084000.0; q95 diagnostic margin -80000877.21841133; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.9065849293623414 vs 10.25038193855901
+      q95 sum 345222462.13283974; reserve total 222969000.0; q95 diagnostic margin -122253462.13283974; feasible false
+    - qual-4: pass; coverage_deviation=0.1456140350877193 vs 0.9; mean_interval_score=3.927710960419853 vs 10.25038193855901
+      q95 sum 309811677.24939245; reserve total 220306000.0; q95 diagnostic margin -89505677.24939245; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.864760038642259 vs 10.25038193855901
+      q95 sum 330010104.2314374; reserve total 229439000.0; q95 diagnostic margin -100571104.23143739; feasible false
+  - inflated_intervals [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.4710432149267108 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.502293155521987 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.913026073438068 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.9491741164083564 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9784193866462703 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.948811054816934 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - informative_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3977633783519434 vs 10.25038193855901
+      q95 sum 270599340.8237418; reserve total 215532000.0; q95 diagnostic margin -55067340.82374179; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4130481229260743 vs 10.25038193855901
+      q95 sum 348105491.09159374; reserve total 237900000.0; q95 diagnostic margin -110205491.09159374; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.7877559829111687 vs 10.25038193855901
+      q95 sum 288005882.03765625; reserve total 211084000.0; q95 diagnostic margin -76921882.03765625; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.9082909723401961 vs 10.25038193855901
+      q95 sum 346226723.95303106; reserve total 222969000.0; q95 diagnostic margin -123257723.95303106; feasible false
+    - qual-4: pass; coverage_deviation=0.1456140350877193 vs 0.9; mean_interval_score=3.892164300102719 vs 10.25038193855901
+      q95 sum 307700404.0584867; reserve total 220306000.0; q95 diagnostic margin -87394404.0584867; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.9101572853315005 vs 10.25038193855901
+      q95 sum 330854184.4062361; reserve total 229439000.0; q95 diagnostic margin -101415184.40623611; feasible false
+  - mean_only_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3898266476237293 vs 10.25038193855901
+      q95 sum 206146208.31365985; reserve total 215532000.0; q95 diagnostic margin 9385791.686340153; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4037894199862733 vs 10.25038193855901
+      q95 sum 235721675.61416084; reserve total 237900000.0; q95 diagnostic margin 2178324.3858391643; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8232262104828945 vs 10.25038193855901
+      q95 sum 226891865.1928209; reserve total 211084000.0; q95 diagnostic margin -15807865.192820907; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8893999204659638 vs 10.25038193855901
+      q95 sum 228144047.47948116; reserve total 222969000.0; q95 diagnostic margin -5175047.479481161; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9014465738287596 vs 10.25038193855901
+      q95 sum 233703134.4356029; reserve total 220306000.0; q95 diagnostic margin -13397134.435602903; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.873583095363219 vs 10.25038193855901
+      q95 sum 241472178.3490299; reserve total 229439000.0; q95 diagnostic margin -12033178.349029899; feasible false
+  - no_dedup: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.3813968011345734 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.544150577614933 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.40592620846436 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.0054174986911177 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=4.416973847113689 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=6.655726405114849 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - normal_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3898266476237293 vs 10.25038193855901
+      q95 sum 248508630.99446034; reserve total 215532000.0; q95 diagnostic margin -32976630.994460344; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4037894199862733 vs 10.25038193855901
+      q95 sum 306777773.3904835; reserve total 237900000.0; q95 diagnostic margin -68877773.3904835; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8232262104828945 vs 10.25038193855901
+      q95 sum 286320226.83847326; reserve total 211084000.0; q95 diagnostic margin -75236226.83847326; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8893999204659638 vs 10.25038193855901
+      q95 sum 286316717.0442383; reserve total 222969000.0; q95 diagnostic margin -63347717.04423833; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9014465738287596 vs 10.25038193855901
+      q95 sum 289923831.87440115; reserve total 220306000.0; q95 diagnostic margin -69617831.87440115; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.873583095363219 vs 10.25038193855901
+      q95 sum 313172156.7134914; reserve total 229439000.0; q95 diagnostic margin -83733156.71349138; feasible false
+  - padded_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3898266476237293 vs 10.25038193855901
+      q95 sum 377964905.655368; reserve total 215532000.0; q95 diagnostic margin -162432905.65536797; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4037894199862733 vs 10.25038193855901
+      q95 sum 455624524.16062164; reserve total 237900000.0; q95 diagnostic margin -217724524.16062164; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8232262104828945 vs 10.25038193855901
+      q95 sum 427176230.9986017; reserve total 211084000.0; q95 diagnostic margin -216092230.99860168; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8893999204659638 vs 10.25038193855901
+      q95 sum 429698087.16083205; reserve total 222969000.0; q95 diagnostic margin -206729087.16083205; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9014465738287596 vs 10.25038193855901
+      q95 sum 436183728.735461; reserve total 220306000.0; q95 diagnostic margin -215877728.735461; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.873583095363219 vs 10.25038193855901
+      q95 sum 465317723.35371315; reserve total 229439000.0; q95 diagnostic margin -235878723.35371315; feasible false
+  - predictive_tails: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3899785018249085 vs 10.25038193855901
+      q95 sum 205963810.20568585; reserve total 215532000.0; q95 diagnostic margin 9568189.794314146; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4029076047875244 vs 10.25038193855901
+      q95 sum 235752013.9305427; reserve total 237900000.0; q95 diagnostic margin 2147986.0694572926; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8222036232890106 vs 10.25038193855901
+      q95 sum 226773820.30448222; reserve total 211084000.0; q95 diagnostic margin -15689820.304482222; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8940160002593621 vs 10.25038193855901
+      q95 sum 227572808.16542274; reserve total 222969000.0; q95 diagnostic margin -4603808.165422738; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9065346200697615 vs 10.25038193855901
+      q95 sum 233673002.880858; reserve total 220306000.0; q95 diagnostic margin -13367002.880858004; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.865274956685806 vs 10.25038193855901
+      q95 sum 242445369.29946834; reserve total 229439000.0; q95 diagnostic margin -13006369.299468338; feasible false
+  - proportional_reserve: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3898266476237293 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4037894199862733 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8232262104828945 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8893999204659638 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9014465738287596 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.873583095363219 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reconstruction_uncertainty [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.4474013839212223 vs 10.25038193855901
+      q95 sum 250243428.4903712; reserve total 215532000.0; q95 diagnostic margin -34711428.4903712; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4728598235098822 vs 10.25038193855901
+      q95 sum 312596245.6262599; reserve total 237900000.0; q95 diagnostic margin -74696245.62625992; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.9327481249071041 vs 10.25038193855901
+      q95 sum 287894465.7794166; reserve total 211084000.0; q95 diagnostic margin -76810465.77941662; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.9556306787720058 vs 10.25038193855901
+      q95 sum 289194192.535566; reserve total 222969000.0; q95 diagnostic margin -66225192.53556597; feasible false
+    - qual-4: pass; coverage_deviation=0.3327485380116959 vs 0.9; mean_interval_score=3.9943432594713437 vs 10.25038193855901
+      q95 sum 293073615.3678564; reserve total 220306000.0; q95 diagnostic margin -72767615.36785638; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.950059276929376 vs 10.25038193855901
+      q95 sum 318129126.72295445; reserve total 229439000.0; q95 diagnostic margin -88690126.72295445; feasible false
+  - regime_recombination: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3972155894300886 vs 10.25038193855901
+      q95 sum 255952658.69826174; reserve total 215532000.0; q95 diagnostic margin -40420658.69826174; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4519898586165483 vs 10.25038193855901
+      q95 sum 317006540.91621786; reserve total 237900000.0; q95 diagnostic margin -79106540.91621786; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.7549822418778611 vs 10.25038193855901
+      q95 sum 288910018.9743231; reserve total 211084000.0; q95 diagnostic margin -77826018.9743231; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8969160579621873 vs 10.25038193855901
+      q95 sum 292459707.48046; reserve total 222969000.0; q95 diagnostic margin -69490707.48045999; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=4.25035141781696 vs 10.25038193855901
+      q95 sum 300427410.9938194; reserve total 220306000.0; q95 diagnostic margin -80121410.99381942; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=6.60041585915049 vs 10.25038193855901
+      q95 sum 322574305.45393395; reserve total 229439000.0; q95 diagnostic margin -93135305.45393395; feasible false
+  - register_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.5131560040462615 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.6300326184602043 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.537011288417593 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.125737719297219 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=4.537152224399832 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=6.794814070980831 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reserve_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3899785018249085 vs 10.25038193855901
+      q95 sum 252458493.53651696; reserve total 215532000.0; q95 diagnostic margin -36926493.536516964; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4029076047875244 vs 10.25038193855901
+      q95 sum 317020808.04728895; reserve total 237900000.0; q95 diagnostic margin -79120808.04728895; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8222036232890106 vs 10.25038193855901
+      q95 sum 291010063.0333309; reserve total 211084000.0; q95 diagnostic margin -79926063.03333092; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8940160002593621 vs 10.25038193855901
+      q95 sum 291480267.5199142; reserve total 222969000.0; q95 diagnostic margin -68511267.51991421; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9065346200697615 vs 10.25038193855901
+      q95 sum 297906545.45447224; reserve total 220306000.0; q95 diagnostic margin -77600545.45447224; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.865274956685806 vs 10.25038193855901
+      q95 sum 323632452.89445984; reserve total 229439000.0; q95 diagnostic margin -94193452.89445984; feasible false
+  - static_projection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.8166666666666667 vs 0.9; mean_interval_score=1.3077598798875654 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.8200000000000001 vs 0.9; mean_interval_score=1.4032443670559906 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.809754480911327 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.8166666666666667 vs 0.9; mean_interval_score=0.8730931457110902 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.5800000000000001 vs 0.9; mean_interval_score=3.93053611235316 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.78 vs 0.9; mean_interval_score=5.888649309378711 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - survey_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=3.081977118096817 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.736298912598954 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=3.3113662553073113 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=2.9003973432983425 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=5.137839187688166 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=7.871727218799584 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - uniform_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.7333333333333334 vs 0.9; mean_interval_score=1.3898266476237293 vs 10.25038193855901
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; coverage_deviation=0.5 vs 0.9; mean_interval_score=1.4037894199862733 vs 10.25038193855901
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; coverage_deviation=0.65 vs 0.9; mean_interval_score=1.8232262104828945 vs 10.25038193855901
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; coverage_deviation=0.4 vs 0.9; mean_interval_score=0.8893999204659638 vs 10.25038193855901
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; coverage_deviation=0.16315789473684217 vs 0.9; mean_interval_score=3.9014465738287596 vs 10.25038193855901
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; coverage_deviation=0.54 vs 0.9; mean_interval_score=5.873583095363219 vs 10.25038193855901
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - version_three_recipe: failed worlds qual-1, qual-2, qual-4, qual-5; passed worlds qual-0, qual-3; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=10.233345937690094 vs 10.25038193855901
+      q95 sum 180831650.4328617; reserve total 215532000.0; q95 diagnostic margin 34700349.567138314; feasible false
+    - qual-1: fail; coverage_deviation=0.9 vs 0.9; mean_interval_score=12.888730705822478 vs 10.25038193855901
+      q95 sum 170573508.75600517; reserve total 237900000.0; q95 diagnostic margin 67326491.24399483; feasible true
+    - qual-2: fail; coverage_deviation=0.9 vs 0.9; mean_interval_score=17.874807978312912 vs 10.25038193855901
+      q95 sum 203910445.0972639; reserve total 211084000.0; q95 diagnostic margin 7173554.902736098; feasible false
+    - qual-3: pass; coverage_deviation=0.9 vs 0.9; mean_interval_score=5.183279811531516 vs 10.25038193855901
+      q95 sum 141724379.02931836; reserve total 222969000.0; q95 diagnostic margin 81244620.97068164; feasible true
+    - qual-4: fail; coverage_deviation=0.9 vs 0.9; mean_interval_score=14.201711686324932 vs 10.25038193855901
+      q95 sum 193161034.52765414; reserve total 220306000.0; q95 diagnostic margin 27144965.47234586; feasible true
+    - qual-5: fail; coverage_deviation=0.9 vs 0.9; mean_interval_score=22.49293859604859 vs 10.25038193855901
+      q95 sum 206294352.79630786; reserve total 229439000.0; q95 diagnostic margin 23144647.20369214; feasible true
+- tail_calibration
+  - benchmark_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - deterministic_linkage: failed worlds qual-0, qual-1, qual-3; passed worlds qual-2, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: fail; pooled_exceedance_deviation=0.204833984375 vs 0.1921061197916667; q95_width_relative_error=1.1008027667589502 vs 18.100609278075925; es95_width_relative_error=1.8299177303609266 vs 20.68035480501801
+      q95 sum 245426389.72007304; reserve total 215532000.0; q95 diagnostic margin -29894389.720073044; feasible false
+    - qual-1: fail; pooled_exceedance_deviation=0.37792968749999983 vs 0.1921061197916667; q95_width_relative_error=2.6209758357255772 vs 18.100609278075925; es95_width_relative_error=2.8150506333807255 vs 20.68035480501801
+      q95 sum 240577157.45853218; reserve total 237900000.0; q95 diagnostic margin -2677157.4585321844; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.046582031250000044 vs 0.1921061197916667; q95_width_relative_error=1.5572301808258882 vs 18.100609278075925; es95_width_relative_error=1.65828088638932 vs 20.68035480501801
+      q95 sum 295281571.86826724; reserve total 211084000.0; q95 diagnostic margin -84197571.86826724; feasible false
+    - qual-3: fail; pooled_exceedance_deviation=0.4727701822916666 vs 0.1921061197916667; q95_width_relative_error=1.5266502165909566 vs 18.100609278075925; es95_width_relative_error=1.2597423155212233 vs 20.68035480501801
+      q95 sum 227705392.24953297; reserve total 222969000.0; q95 diagnostic margin -4736392.249532968; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.0631998697916667 vs 0.1921061197916667; q95_width_relative_error=1.0356555113058077 vs 18.100609278075925; es95_width_relative_error=1.2158628778551528 vs 20.68035480501801
+      q95 sum 276621673.17079264; reserve total 220306000.0; q95 diagnostic margin -56315673.17079264; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=3.815332912445641 vs 18.100609278075925; es95_width_relative_error=4.871646519301797 vs 20.68035480501801
+      q95 sum 302510527.4474469; reserve total 229439000.0; q95 diagnostic margin -73071527.44744688; feasible false
+  - development_average_regime [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.039013671875000044 vs 0.1921061197916667; q95_width_relative_error=1.5230766827682969 vs 18.100609278075925; es95_width_relative_error=2.2566766531694014 vs 20.68035480501801
+      q95 sum 256908526.46053362; reserve total 215532000.0; q95 diagnostic margin -41376526.46053362; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.801953540030998 vs 18.100609278075925; es95_width_relative_error=8.435013464136714 vs 20.68035480501801
+      q95 sum 316565247.5684674; reserve total 237900000.0; q95 diagnostic margin -78665247.56846738; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.03917643229166671 vs 0.1921061197916667; q95_width_relative_error=1.1215521947108227 vs 18.100609278075925; es95_width_relative_error=1.113870088210333 vs 20.68035480501801
+      q95 sum 290346855.33726203; reserve total 211084000.0; q95 diagnostic margin -79262855.33726203; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.07841796875000002 vs 0.1921061197916667; q95_width_relative_error=2.7495445637330342 vs 18.100609278075925; es95_width_relative_error=2.546513639970534 vs 20.68035480501801
+      q95 sum 291143145.6092127; reserve total 222969000.0; q95 diagnostic margin -68174145.6092127; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.045361328125000044 vs 0.1921061197916667; q95_width_relative_error=1.6372115749308922 vs 18.100609278075925; es95_width_relative_error=1.6410010646207542 vs 20.68035480501801
+      q95 sum 298638361.543509; reserve total 220306000.0; q95 diagnostic margin -78332361.543509; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.085132023499174 vs 18.100609278075925; es95_width_relative_error=5.330353713345052 vs 20.68035480501801
+      q95 sum 319643616.1606078; reserve total 229439000.0; q95 diagnostic margin -90204616.16060781; feasible false
+  - exact_key_union: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - experience_history_only: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; passed worlds none; hard-invalid worlds none; missing worlds none
+    - qual-0: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=6.283427497034457 vs 18.100609278075925; es95_width_relative_error=4.503821963000411 vs 20.68035480501801
+      q95 sum 162496730.03560126; reserve total 215532000.0; q95 diagnostic margin 53035269.96439874; feasible true
+    - qual-1: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=5.096546040623591 vs 18.100609278075925; es95_width_relative_error=3.61484866481603 vs 20.68035480501801
+      q95 sum 176571928.90216458; reserve total 237900000.0; q95 diagnostic margin 61328071.09783542; feasible true
+    - qual-2: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=3.5677953665315143 vs 18.100609278075925; es95_width_relative_error=2.652659901946518 vs 20.68035480501801
+      q95 sum 170691266.08215672; reserve total 211084000.0; q95 diagnostic margin 40392733.91784328; feasible true
+    - qual-3: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=3.921733409935952 vs 18.100609278075925; es95_width_relative_error=2.880407905096845 vs 20.68035480501801
+      q95 sum 173976582.42737043; reserve total 222969000.0; q95 diagnostic margin 48992417.57262957; feasible true
+    - qual-4: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=3.542549014789207 vs 18.100609278075925; es95_width_relative_error=2.5905227573006515 vs 20.68035480501801
+      q95 sum 168912645.88451555; reserve total 220306000.0; q95 diagnostic margin 51393354.11548445; feasible true
+    - qual-5: fail; pooled_exceedance_deviation=0.9461751302083333 vs 0.1921061197916667; q95_width_relative_error=3.980139990514991 vs 18.100609278075925; es95_width_relative_error=2.8589915481620523 vs 20.68035480501801
+      q95 sum 176737784.4410495; reserve total 229439000.0; q95 diagnostic margin 52701215.55895051; feasible true
+  - ignore_health_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.045361328125000044 vs 0.1921061197916667; q95_width_relative_error=3.5960762232270014 vs 18.100609278075925; es95_width_relative_error=4.547443246445274 vs 20.68035480501801
+      q95 sum 270379881.0636599; reserve total 215532000.0; q95 diagnostic margin -54847881.06365991; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=10.298747450737942 vs 18.100609278075925; es95_width_relative_error=11.622582672492912 vs 20.68035480501801
+      q95 sum 347622876.63384223; reserve total 237900000.0; q95 diagnostic margin -109722876.63384223; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04275716145833338 vs 0.1921061197916667; q95_width_relative_error=1.578982615091154 vs 18.100609278075925; es95_width_relative_error=1.5195048714487769 vs 20.68035480501801
+      q95 sum 291084877.2184113; reserve total 211084000.0; q95 diagnostic margin -80000877.21841133; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.04959309895833338 vs 0.1921061197916667; q95_width_relative_error=4.465020345003855 vs 18.100609278075925; es95_width_relative_error=4.802692583266707 vs 20.68035480501801
+      q95 sum 345222462.13283974; reserve total 222969000.0; q95 diagnostic margin -122253462.13283974; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04967447916666671 vs 0.1921061197916667; q95_width_relative_error=2.089942247499384 vs 18.100609278075925; es95_width_relative_error=2.2020180913023 vs 20.68035480501801
+      q95 sum 309811677.24939245; reserve total 220306000.0; q95 diagnostic margin -89505677.24939245; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.978204630329259 vs 18.100609278075925; es95_width_relative_error=6.4993728513541855 vs 20.68035480501801
+      q95 sum 330010104.2314374; reserve total 229439000.0; q95 diagnostic margin -100571104.23143739; feasible false
+  - inflated_intervals: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - informative_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.04641927083333338 vs 0.1921061197916667; q95_width_relative_error=3.462949435469511 vs 18.100609278075925; es95_width_relative_error=4.269254101001207 vs 20.68035480501801
+      q95 sum 270599340.8237418; reserve total 215532000.0; q95 diagnostic margin -55067340.82374179; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=10.37934872023159 vs 18.100609278075925; es95_width_relative_error=11.616057527983102 vs 20.68035480501801
+      q95 sum 348105491.09159374; reserve total 237900000.0; q95 diagnostic margin -110205491.09159374; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.041455078125000044 vs 0.1921061197916667; q95_width_relative_error=1.466837310423607 vs 18.100609278075925; es95_width_relative_error=1.5074140395421238 vs 20.68035480501801
+      q95 sum 288005882.03765625; reserve total 211084000.0; q95 diagnostic margin -76921882.03765625; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.04959309895833338 vs 0.1921061197916667; q95_width_relative_error=4.492156476852448 vs 18.100609278075925; es95_width_relative_error=4.891452780743326 vs 20.68035480501801
+      q95 sum 346226723.95303106; reserve total 222969000.0; q95 diagnostic margin -123257723.95303106; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04943033854166671 vs 0.1921061197916667; q95_width_relative_error=1.9806711353144923 vs 18.100609278075925; es95_width_relative_error=2.0396183496433147 vs 20.68035480501801
+      q95 sum 307700404.0584867; reserve total 220306000.0; q95 diagnostic margin -87394404.0584867; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.99995808053658 vs 18.100609278075925; es95_width_relative_error=6.42769860308482 vs 20.68035480501801
+      q95 sum 330854184.4062361; reserve total 229439000.0; q95 diagnostic margin -101415184.40623611; feasible false
+  - mean_only_tail [primary]: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; passed worlds none; hard-invalid worlds none; missing worlds none
+    - qual-0: fail; pooled_exceedance_deviation=0.7145670572916667 vs 0.1921061197916667; q95_width_relative_error=2.816520316300642 vs 18.100609278075925; es95_width_relative_error=2.465014827299294 vs 20.68035480501801
+      q95 sum 206146208.31365985; reserve total 215532000.0; q95 diagnostic margin 9385791.686340153; feasible false
+    - qual-1: fail; pooled_exceedance_deviation=0.31617838541666665 vs 0.1921061197916667; q95_width_relative_error=1.9436414729136982 vs 18.100609278075925; es95_width_relative_error=1.671660653152344 vs 20.68035480501801
+      q95 sum 235721675.61416084; reserve total 237900000.0; q95 diagnostic margin 2178324.3858391643; feasible false
+    - qual-2: fail; pooled_exceedance_deviation=0.42249348958333327 vs 0.1921061197916667; q95_width_relative_error=1.2965965005932332 vs 18.100609278075925; es95_width_relative_error=1.2156407252518633 vs 20.68035480501801
+      q95 sum 226891865.1928209; reserve total 211084000.0; q95 diagnostic margin -15807865.192820907; feasible false
+    - qual-3: fail; pooled_exceedance_deviation=0.4317545572916666 vs 0.1921061197916667; q95_width_relative_error=1.6087107761012833 vs 18.100609278075925; es95_width_relative_error=1.3510061950620988 vs 20.68035480501801
+      q95 sum 228144047.47948116; reserve total 222969000.0; q95 diagnostic margin -5175047.479481161; feasible false
+    - qual-4: fail; pooled_exceedance_deviation=0.4261393229166666 vs 0.1921061197916667; q95_width_relative_error=1.2293419213087573 vs 18.100609278075925; es95_width_relative_error=1.0752422518206572 vs 20.68035480501801
+      q95 sum 233703134.4356029; reserve total 220306000.0; q95 diagnostic margin -13397134.435602903; feasible false
+    - qual-5: fail; pooled_exceedance_deviation=0.228125 vs 0.1921061197916667; q95_width_relative_error=1.3814573913706338 vs 18.100609278075925; es95_width_relative_error=1.1551062423948248 vs 20.68035480501801
+      q95 sum 241472178.3490299; reserve total 229439000.0; q95 diagnostic margin -12033178.349029899; feasible false
+  - no_dedup: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - normal_tail [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.05776367187500001 vs 0.1921061197916667; q95_width_relative_error=1.1565894500647331 vs 18.100609278075925; es95_width_relative_error=1.2969196163502146 vs 20.68035480501801
+      q95 sum 248508630.99446034; reserve total 215532000.0; q95 diagnostic margin -32976630.994460344; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.04991861979166671 vs 0.1921061197916667; q95_width_relative_error=6.9151389547148625 vs 18.100609278075925; es95_width_relative_error=6.731347277553418 vs 20.68035480501801
+      q95 sum 306777773.3904835; reserve total 237900000.0; q95 diagnostic margin -68877773.3904835; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.03819986979166671 vs 0.1921061197916667; q95_width_relative_error=0.9861257090395895 vs 18.100609278075925; es95_width_relative_error=0.8358386300827071 vs 20.68035480501801
+      q95 sum 286320226.83847326; reserve total 211084000.0; q95 diagnostic margin -75236226.83847326; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.12415364583333337 vs 0.1921061197916667; q95_width_relative_error=2.5763261181497517 vs 18.100609278075925; es95_width_relative_error=2.1976022662350716 vs 20.68035480501801
+      q95 sum 286316717.0442383; reserve total 222969000.0; q95 diagnostic margin -63347717.04423833; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.03990885416666671 vs 0.1921061197916667; q95_width_relative_error=1.2821094090978173 vs 18.100609278075925; es95_width_relative_error=1.0579290817032982 vs 20.68035480501801
+      q95 sum 289923831.87440115; reserve total 220306000.0; q95 diagnostic margin -69617831.87440115; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=4.6541578521911315 vs 18.100609278075925; es95_width_relative_error=4.283808180496478 vs 20.68035480501801
+      q95 sum 313172156.7134914; reserve total 229439000.0; q95 diagnostic margin -83733156.71349138; feasible false
+  - padded_tail [primary]: failed worlds qual-1; passed worlds qual-0, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=11.619239172926045 vs 18.100609278075925; es95_width_relative_error=10.21937954819495 vs 20.68035480501801
+      q95 sum 377964905.655368; reserve total 215532000.0; q95 diagnostic margin -162432905.65536797; feasible false
+    - qual-1: fail; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=20.403147294636174 vs 18.100609278075925; es95_width_relative_error=18.422271979343652 vs 20.68035480501801
+      q95 sum 455624524.16062164; reserve total 237900000.0; q95 diagnostic margin -217724524.16062164; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=6.661911154580239 vs 18.100609278075925; es95_width_relative_error=5.192657243418231 vs 20.68035480501801
+      q95 sum 427176230.9986017; reserve total 211084000.0; q95 diagnostic margin -216092230.99860168; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.04991861979166671 vs 0.1921061197916667; q95_width_relative_error=9.012410260790704 vs 18.100609278075925; es95_width_relative_error=7.164843135741429 vs 20.68035480501801
+      q95 sum 429698087.16083205; reserve total 222969000.0; q95 diagnostic margin -206729087.16083205; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.18431235271142 vs 18.100609278075925; es95_width_relative_error=5.593263598526271 vs 20.68035480501801
+      q95 sum 436183728.735461; reserve total 220306000.0; q95 diagnostic margin -215877728.735461; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=14.187955986694101 vs 18.100609278075925; es95_width_relative_error=12.393200885713021 vs 20.68035480501801
+      q95 sum 465317723.35371315; reserve total 229439000.0; q95 diagnostic margin -235878723.35371315; feasible false
+  - predictive_tails [primary]: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; passed worlds none; hard-invalid worlds none; missing worlds none
+    - qual-0: fail; pooled_exceedance_deviation=0.7196940104166667 vs 0.1921061197916667; q95_width_relative_error=2.841255419797578 vs 18.100609278075925; es95_width_relative_error=2.484633131972345 vs 20.68035480501801
+      q95 sum 205963810.20568585; reserve total 215532000.0; q95 diagnostic margin 9568189.794314146; feasible false
+    - qual-1: fail; pooled_exceedance_deviation=0.31365559895833334 vs 0.1921061197916667; q95_width_relative_error=1.9231351755145338 vs 18.100609278075925; es95_width_relative_error=1.6546630579002837 vs 20.68035480501801
+      q95 sum 235752013.9305427; reserve total 237900000.0; q95 diagnostic margin 2147986.0694572926; feasible false
+    - qual-2: fail; pooled_exceedance_deviation=0.42306315104166664 vs 0.1921061197916667; q95_width_relative_error=1.2961174736348495 vs 18.100609278075925; es95_width_relative_error=1.2152722353549552 vs 20.68035480501801
+      q95 sum 226773820.30448222; reserve total 211084000.0; q95 diagnostic margin -15689820.304482222; feasible false
+    - qual-3: fail; pooled_exceedance_deviation=0.4495768229166666 vs 0.1921061197916667; q95_width_relative_error=1.61552341990776 vs 18.100609278075925; es95_width_relative_error=1.3551486480627046 vs 20.68035480501801
+      q95 sum 227572808.16542274; reserve total 222969000.0; q95 diagnostic margin -4603808.165422738; feasible false
+    - qual-4: fail; pooled_exceedance_deviation=0.42744140625 vs 0.1921061197916667; q95_width_relative_error=1.2274912572982304 vs 18.100609278075925; es95_width_relative_error=1.073993821294698 vs 20.68035480501801
+      q95 sum 233673002.880858; reserve total 220306000.0; q95 diagnostic margin -13367002.880858004; feasible false
+    - qual-5: fail; pooled_exceedance_deviation=0.219091796875 vs 0.1921061197916667; q95_width_relative_error=1.3754683516642132 vs 18.100609278075925; es95_width_relative_error=1.149627587564981 vs 20.68035480501801
+      q95 sum 242445369.29946834; reserve total 229439000.0; q95 diagnostic margin -13006369.299468338; feasible false
+  - proportional_reserve: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reconstruction_uncertainty: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.06948242187500002 vs 0.1921061197916667; q95_width_relative_error=1.197078217856146 vs 18.100609278075925; es95_width_relative_error=1.6428484065646705 vs 20.68035480501801
+      q95 sum 250243428.4903712; reserve total 215532000.0; q95 diagnostic margin -34711428.4903712; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.4104317869543195 vs 18.100609278075925; es95_width_relative_error=8.070515608307707 vs 20.68035480501801
+      q95 sum 312596245.6262599; reserve total 237900000.0; q95 diagnostic margin -74696245.62625992; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.039762369791666696 vs 0.1921061197916667; q95_width_relative_error=1.0244834004774235 vs 18.100609278075925; es95_width_relative_error=1.066296610966979 vs 20.68035480501801
+      q95 sum 287894465.7794166; reserve total 211084000.0; q95 diagnostic margin -76810465.77941662; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.07768554687500002 vs 0.1921061197916667; q95_width_relative_error=2.6298472705956093 vs 18.100609278075925; es95_width_relative_error=2.4282693841890413 vs 20.68035480501801
+      q95 sum 289194192.535566; reserve total 222969000.0; q95 diagnostic margin -66225192.53556597; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.039990234375000044 vs 0.1921061197916667; q95_width_relative_error=1.4022842052471176 vs 18.100609278075925; es95_width_relative_error=1.4467549867984928 vs 20.68035480501801
+      q95 sum 293073615.3678564; reserve total 220306000.0; q95 diagnostic margin -72767615.36785638; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=4.883376499851092 vs 18.100609278075925; es95_width_relative_error=5.096783853200581 vs 20.68035480501801
+      q95 sum 318129126.72295445; reserve total 229439000.0; q95 diagnostic margin -88690126.72295445; feasible false
+  - regime_recombination [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.04204101562500003 vs 0.1921061197916667; q95_width_relative_error=1.49160258607265 vs 18.100609278075925; es95_width_relative_error=2.1957998437891826 vs 20.68035480501801
+      q95 sum 255952658.69826174; reserve total 215532000.0; q95 diagnostic margin -40420658.69826174; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.809073538565528 vs 18.100609278075925; es95_width_relative_error=8.454458528652856 vs 20.68035480501801
+      q95 sum 317006540.91621786; reserve total 237900000.0; q95 diagnostic margin -79106540.91621786; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04088541666666671 vs 0.1921061197916667; q95_width_relative_error=1.062727368756849 vs 18.100609278075925; es95_width_relative_error=1.0860533360302165 vs 20.68035480501801
+      q95 sum 288910018.9743231; reserve total 211084000.0; q95 diagnostic margin -77826018.9743231; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.07825520833333337 vs 0.1921061197916667; q95_width_relative_error=2.7476662307840987 vs 18.100609278075925; es95_width_relative_error=2.5300553669176726 vs 20.68035480501801
+      q95 sum 292459707.48046; reserve total 222969000.0; q95 diagnostic margin -69490707.48045999; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.045117187500000044 vs 0.1921061197916667; q95_width_relative_error=1.6668252239445553 vs 18.100609278075925; es95_width_relative_error=1.6302802362021274 vs 20.68035480501801
+      q95 sum 300427410.9938194; reserve total 220306000.0; q95 diagnostic margin -80121410.99381942; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.26602907977577 vs 18.100609278075925; es95_width_relative_error=5.449794234469585 vs 20.68035480501801
+      q95 sum 322574305.45393395; reserve total 229439000.0; q95 diagnostic margin -93135305.45393395; feasible false
+  - register_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reserve_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.03870442708333336 vs 0.1921061197916667; q95_width_relative_error=1.2131984173744337 vs 18.100609278075925; es95_width_relative_error=1.9017042084208227 vs 20.68035480501801
+      q95 sum 252458493.53651696; reserve total 215532000.0; q95 diagnostic margin -36926493.536516964; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.813684104146884 vs 18.100609278075925; es95_width_relative_error=8.38069055283157 vs 20.68035480501801
+      q95 sum 317020808.04728895; reserve total 237900000.0; q95 diagnostic margin -79120808.04728895; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04251302083333338 vs 0.1921061197916667; q95_width_relative_error=1.1580017575340624 vs 18.100609278075925; es95_width_relative_error=1.175682905932654 vs 20.68035480501801
+      q95 sum 291010063.0333309; reserve total 211084000.0; q95 diagnostic margin -79926063.03333092; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.08647460937500002 vs 0.1921061197916667; q95_width_relative_error=2.792283019617541 vs 18.100609278075925; es95_width_relative_error=2.5397364018569495 vs 20.68035480501801
+      q95 sum 291480267.5199142; reserve total 222969000.0; q95 diagnostic margin -68511267.51991421; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04430338541666671 vs 0.1921061197916667; q95_width_relative_error=1.5759612891733343 vs 18.100609278075925; es95_width_relative_error=1.5535446265863495 vs 20.68035480501801
+      q95 sum 297906545.45447224; reserve total 220306000.0; q95 diagnostic margin -77600545.45447224; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.2860674918582395 vs 18.100609278075925; es95_width_relative_error=5.3961459632809 vs 20.68035480501801
+      q95 sum 323632452.89445984; reserve total 229439000.0; q95 diagnostic margin -94193452.89445984; feasible false
+  - static_projection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - survey_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - uniform_allocation: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; pooled_exceedance_deviation=0.041813151041666684 vs 0.1921061197916667; q95_width_relative_error=1.3985421461285696 vs 18.100609278075925; es95_width_relative_error=2.095868425142869 vs 20.68035480501801
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=7.593519350766624 vs 18.100609278075925; es95_width_relative_error=8.143616018298218 vs 20.68035480501801
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; pooled_exceedance_deviation=0.04153645833333338 vs 0.1921061197916667; q95_width_relative_error=1.1432312602346058 vs 18.100609278075925; es95_width_relative_error=1.2345243551846317 vs 20.68035480501801
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; pooled_exceedance_deviation=0.0795572916666667 vs 0.1921061197916667; q95_width_relative_error=2.81679373985105 vs 18.100609278075925; es95_width_relative_error=2.60773566111795 vs 20.68035480501801
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; pooled_exceedance_deviation=0.04397786458333338 vs 0.1921061197916667; q95_width_relative_error=1.52834856408266 vs 18.100609278075925; es95_width_relative_error=1.5155014009285332 vs 20.68035480501801
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; pooled_exceedance_deviation=0.050000000000000044 vs 0.1921061197916667; q95_width_relative_error=5.117207941696262 vs 18.100609278075925; es95_width_relative_error=5.290862413424384 vs 20.68035480501801
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - version_three_recipe: failed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; passed worlds none; hard-invalid worlds none; missing worlds none
+    - qual-0: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=4.843921957102924 vs 18.100609278075925; es95_width_relative_error=4.034470260693134 vs 20.68035480501801
+      q95 sum 180831650.4328617; reserve total 215532000.0; q95 diagnostic margin 34700349.567138314; feasible false
+    - qual-1: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=5.546608833308113 vs 18.100609278075925; es95_width_relative_error=4.646793041923118 vs 20.68035480501801
+      q95 sum 170573508.75600517; reserve total 237900000.0; q95 diagnostic margin 67326491.24399483; feasible true
+    - qual-2: fail; pooled_exceedance_deviation=0.8152343750000001 vs 0.1921061197916667; q95_width_relative_error=1.6718874155015786 vs 18.100609278075925; es95_width_relative_error=1.48101454402006 vs 20.68035480501801
+      q95 sum 203910445.0972639; reserve total 211084000.0; q95 diagnostic margin 7173554.902736098; feasible false
+    - qual-3: fail; pooled_exceedance_deviation=0.95 vs 0.1921061197916667; q95_width_relative_error=4.970522871005279 vs 18.100609278075925; es95_width_relative_error=3.8796322273518444 vs 20.68035480501801
+      q95 sum 141724379.02931836; reserve total 222969000.0; q95 diagnostic margin 81244620.97068164; feasible true
+    - qual-4: fail; pooled_exceedance_deviation=0.9499186197916667 vs 0.1921061197916667; q95_width_relative_error=2.4732041836083933 vs 18.100609278075925; es95_width_relative_error=2.059351048590742 vs 20.68035480501801
+      q95 sum 193161034.52765414; reserve total 220306000.0; q95 diagnostic margin 27144965.47234586; feasible true
+    - qual-5: fail; pooled_exceedance_deviation=0.8000976562500001 vs 0.1921061197916667; q95_width_relative_error=2.0092470788493473 vs 18.100609278075925; es95_width_relative_error=1.7583696211019444 vs 20.68035480501801
+      q95 sum 206294352.79630786; reserve total 229439000.0; q95 diagnostic margin 23144647.20369214; feasible true
+- reserve_skill
+  - benchmark_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - deterministic_linkage: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.40536966097104554 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 245426389.72007304; reserve total 215532000.0; q95 diagnostic margin -29894389.720073044; feasible false
+    - qual-1: pass; skill_loss=0.8315705475635246 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 240577157.45853218; reserve total 237900000.0; q95 diagnostic margin -2677157.4585321844; feasible false
+    - qual-2: pass; skill_loss=0.7411028833410525 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295281571.86826724; reserve total 211084000.0; q95 diagnostic margin -84197571.86826724; feasible false
+    - qual-3: pass; skill_loss=3.881887638067634 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 227705392.24953297; reserve total 222969000.0; q95 diagnostic margin -4736392.249532968; feasible false
+    - qual-4: pass; skill_loss=0.5841856849792182 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 276621673.17079264; reserve total 220306000.0; q95 diagnostic margin -56315673.17079264; feasible false
+    - qual-5: pass; skill_loss=1.5038993616421188 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 302510527.4474469; reserve total 229439000.0; q95 diagnostic margin -73071527.44744688; feasible false
+  - development_average_regime: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4321555898139716 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 256908526.46053362; reserve total 215532000.0; q95 diagnostic margin -41376526.46053362; feasible false
+    - qual-1: pass; skill_loss=0.902165640016334 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 316565247.5684674; reserve total 237900000.0; q95 diagnostic margin -78665247.56846738; feasible false
+    - qual-2: pass; skill_loss=1.7452816168760377 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 290346855.33726203; reserve total 211084000.0; q95 diagnostic margin -79262855.33726203; feasible false
+    - qual-3: pass; skill_loss=4.351247600471324 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291143145.6092127; reserve total 222969000.0; q95 diagnostic margin -68174145.6092127; feasible false
+    - qual-4: pass; skill_loss=0.2669040107192372 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 298638361.543509; reserve total 220306000.0; q95 diagnostic margin -78332361.543509; feasible false
+    - qual-5: pass; skill_loss=2.1803686653548127 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 319643616.1606078; reserve total 229439000.0; q95 diagnostic margin -90204616.16060781; feasible false
+  - exact_key_union: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - experience_history_only: failed worlds qual-2; passed worlds qual-0, qual-1, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.6117561517458062 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 162496730.03560126; reserve total 215532000.0; q95 diagnostic margin 53035269.96439874; feasible true
+    - qual-1: pass; skill_loss=0.6174315526124375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 176571928.90216458; reserve total 237900000.0; q95 diagnostic margin 61328071.09783542; feasible true
+    - qual-2: fail; skill_loss=7.1932449622501515 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 170691266.08215672; reserve total 211084000.0; q95 diagnostic margin 40392733.91784328; feasible true
+    - qual-3: pass; skill_loss=3.6881520073846583 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 173976582.42737043; reserve total 222969000.0; q95 diagnostic margin 48992417.57262957; feasible true
+    - qual-4: pass; skill_loss=1.9181186477114591 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 168912645.88451555; reserve total 220306000.0; q95 diagnostic margin 51393354.11548445; feasible true
+    - qual-5: pass; skill_loss=0.4902019991539224 vs 6.007925910636435; worst_regional_shortfall_probability=0.99658203125 vs None
+      q95 sum 176737784.4410495; reserve total 229439000.0; q95 diagnostic margin 52701215.55895051; feasible true
+  - ignore_health_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.13058324167977609 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 270379881.0636599; reserve total 215532000.0; q95 diagnostic margin -54847881.06365991; feasible false
+    - qual-1: pass; skill_loss=0.6862520812941403 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 347622876.63384223; reserve total 237900000.0; q95 diagnostic margin -109722876.63384223; feasible false
+    - qual-2: pass; skill_loss=0.889931874772963 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291084877.2184113; reserve total 211084000.0; q95 diagnostic margin -80000877.21841133; feasible false
+    - qual-3: pass; skill_loss=2.028312750829164 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 345222462.13283974; reserve total 222969000.0; q95 diagnostic margin -122253462.13283974; feasible false
+    - qual-4: pass; skill_loss=0.36703117309374345 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 309811677.24939245; reserve total 220306000.0; q95 diagnostic margin -89505677.24939245; feasible false
+    - qual-5: pass; skill_loss=2.6076543196066564 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 330010104.2314374; reserve total 229439000.0; q95 diagnostic margin -100571104.23143739; feasible false
+  - inflated_intervals: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - informative_selection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.16009812309523186 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 270599340.8237418; reserve total 215532000.0; q95 diagnostic margin -55067340.82374179; feasible false
+    - qual-1: pass; skill_loss=0.6987991836141076 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 348105491.09159374; reserve total 237900000.0; q95 diagnostic margin -110205491.09159374; feasible false
+    - qual-2: pass; skill_loss=0.891302607802771 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 288005882.03765625; reserve total 211084000.0; q95 diagnostic margin -76921882.03765625; feasible false
+    - qual-3: pass; skill_loss=2.0613423399154853 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 346226723.95303106; reserve total 222969000.0; q95 diagnostic margin -123257723.95303106; feasible false
+    - qual-4: pass; skill_loss=0.38178617864064446 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 307700404.0584867; reserve total 220306000.0; q95 diagnostic margin -87394404.0584867; feasible false
+    - qual-5: pass; skill_loss=2.633779027000265 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 330854184.4062361; reserve total 229439000.0; q95 diagnostic margin -101415184.40623611; feasible false
+  - mean_only_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 206146208.31365985; reserve total 215532000.0; q95 diagnostic margin 9385791.686340153; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 235721675.61416084; reserve total 237900000.0; q95 diagnostic margin 2178324.3858391643; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 226891865.1928209; reserve total 211084000.0; q95 diagnostic margin -15807865.192820907; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 228144047.47948116; reserve total 222969000.0; q95 diagnostic margin -5175047.479481161; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 233703134.4356029; reserve total 220306000.0; q95 diagnostic margin -13397134.435602903; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 241472178.3490299; reserve total 229439000.0; q95 diagnostic margin -12033178.349029899; feasible false
+  - no_dedup: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - normal_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 248508630.99446034; reserve total 215532000.0; q95 diagnostic margin -32976630.994460344; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 306777773.3904835; reserve total 237900000.0; q95 diagnostic margin -68877773.3904835; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 286320226.83847326; reserve total 211084000.0; q95 diagnostic margin -75236226.83847326; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 286316717.0442383; reserve total 222969000.0; q95 diagnostic margin -63347717.04423833; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 289923831.87440115; reserve total 220306000.0; q95 diagnostic margin -69617831.87440115; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 313172156.7134914; reserve total 229439000.0; q95 diagnostic margin -83733156.71349138; feasible false
+  - padded_tail: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 377964905.655368; reserve total 215532000.0; q95 diagnostic margin -162432905.65536797; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 455624524.16062164; reserve total 237900000.0; q95 diagnostic margin -217724524.16062164; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 427176230.9986017; reserve total 211084000.0; q95 diagnostic margin -216092230.99860168; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 429698087.16083205; reserve total 222969000.0; q95 diagnostic margin -206729087.16083205; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 436183728.735461; reserve total 220306000.0; q95 diagnostic margin -215877728.735461; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 465317723.35371315; reserve total 229439000.0; q95 diagnostic margin -235878723.35371315; feasible false
+  - predictive_tails: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4436468132144199 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 205963810.20568585; reserve total 215532000.0; q95 diagnostic margin 9568189.794314146; feasible false
+    - qual-1: pass; skill_loss=0.8755700755394735 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 235752013.9305427; reserve total 237900000.0; q95 diagnostic margin 2147986.0694572926; feasible false
+    - qual-2: pass; skill_loss=1.6542626665870666 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 226773820.30448222; reserve total 211084000.0; q95 diagnostic margin -15689820.304482222; feasible false
+    - qual-3: pass; skill_loss=4.341476454772375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 227572808.16542274; reserve total 222969000.0; q95 diagnostic margin -4603808.165422738; feasible false
+    - qual-4: pass; skill_loss=0.2693507280495666 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 233673002.880858; reserve total 220306000.0; q95 diagnostic margin -13367002.880858004; feasible false
+    - qual-5: pass; skill_loss=2.2040322846124507 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 242445369.29946834; reserve total 229439000.0; q95 diagnostic margin -13006369.299468338; feasible false
+  - proportional_reserve [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reconstruction_uncertainty: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.38505844653640153 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 250243428.4903712; reserve total 215532000.0; q95 diagnostic margin -34711428.4903712; feasible false
+    - qual-1: pass; skill_loss=0.8700879202703452 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 312596245.6262599; reserve total 237900000.0; q95 diagnostic margin -74696245.62625992; feasible false
+    - qual-2: pass; skill_loss=1.7030284771795463 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 287894465.7794166; reserve total 211084000.0; q95 diagnostic margin -76810465.77941662; feasible false
+    - qual-3: pass; skill_loss=4.603143197627865 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 289194192.535566; reserve total 222969000.0; q95 diagnostic margin -66225192.53556597; feasible false
+    - qual-4: pass; skill_loss=0.2341053433593735 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 293073615.3678564; reserve total 220306000.0; q95 diagnostic margin -72767615.36785638; feasible false
+    - qual-5: pass; skill_loss=2.1353658672756675 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 318129126.72295445; reserve total 229439000.0; q95 diagnostic margin -88690126.72295445; feasible false
+  - regime_recombination: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.44105826915441115 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 255952658.69826174; reserve total 215532000.0; q95 diagnostic margin -40420658.69826174; feasible false
+    - qual-1: pass; skill_loss=0.89863968637844 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 317006540.91621786; reserve total 237900000.0; q95 diagnostic margin -79106540.91621786; feasible false
+    - qual-2: pass; skill_loss=1.7366049215970252 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 288910018.9743231; reserve total 211084000.0; q95 diagnostic margin -77826018.9743231; feasible false
+    - qual-3: pass; skill_loss=4.373043399812202 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292459707.48046; reserve total 222969000.0; q95 diagnostic margin -69490707.48045999; feasible false
+    - qual-4: pass; skill_loss=0.27411997247021525 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 300427410.9938194; reserve total 220306000.0; q95 diagnostic margin -80121410.99381942; feasible false
+    - qual-5: pass; skill_loss=2.1174540716773924 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 322574305.45393395; reserve total 229439000.0; q95 diagnostic margin -93135305.45393395; feasible false
+  - register_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - reserve_allocation [primary]: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 252458493.53651696; reserve total 215532000.0; q95 diagnostic margin -36926493.536516964; feasible false
+    - qual-1: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 317020808.04728895; reserve total 237900000.0; q95 diagnostic margin -79120808.04728895; feasible false
+    - qual-2: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291010063.0333309; reserve total 211084000.0; q95 diagnostic margin -79926063.03333092; feasible false
+    - qual-3: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291480267.5199142; reserve total 222969000.0; q95 diagnostic margin -68511267.51991421; feasible false
+    - qual-4: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 297906545.45447224; reserve total 220306000.0; q95 diagnostic margin -77600545.45447224; feasible false
+    - qual-5: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 323632452.89445984; reserve total 229439000.0; q95 diagnostic margin -94193452.89445984; feasible false
+  - static_projection: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - survey_only: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=0.4277207886758375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: pass; skill_loss=0.8946535732697176 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: pass; skill_loss=1.6904556046038897 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: pass; skill_loss=4.286395920118196 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: pass; skill_loss=0.2586257423228312 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: pass; skill_loss=2.1165502612292695 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - uniform_allocation [primary]: failed worlds qual-1, qual-2, qual-3, qual-4, qual-5; passed worlds qual-0; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=4.112875945368898 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 254277180.66717204; reserve total 215532000.0; q95 diagnostic margin -38745180.667172045; feasible false
+    - qual-1: fail; skill_loss=9.441124930536375 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 314191518.79212517; reserve total 237900000.0; q95 diagnostic margin -76291518.79212517; feasible false
+    - qual-2: fail; skill_loss=13.26318992749688 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 291041111.8829091; reserve total 211084000.0; q95 diagnostic margin -79957111.88290912; feasible false
+    - qual-3: fail; skill_loss=25.707805069440393 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 292811658.6731433; reserve total 222969000.0; q95 diagnostic margin -69842658.67314333; feasible false
+    - qual-4: fail; skill_loss=7.044578521342343 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 295961848.0740992; reserve total 220306000.0; q95 diagnostic margin -75655848.07409918; feasible false
+    - qual-5: fail; skill_loss=13.909038746893714 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 320434416.34429526; reserve total 229439000.0; q95 diagnostic margin -90995416.34429526; feasible false
+  - version_three_recipe: failed worlds none; passed worlds qual-0, qual-1, qual-2, qual-3, qual-4, qual-5; hard-invalid worlds none; missing worlds none
+    - qual-0: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 180831650.4328617; reserve total 215532000.0; q95 diagnostic margin 34700349.567138314; feasible false
+    - qual-1: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 170573508.75600517; reserve total 237900000.0; q95 diagnostic margin 67326491.24399483; feasible true
+    - qual-2: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 203910445.0972639; reserve total 211084000.0; q95 diagnostic margin 7173554.902736098; feasible false
+    - qual-3: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 141724379.02931836; reserve total 222969000.0; q95 diagnostic margin 81244620.97068164; feasible true
+    - qual-4: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 193161034.52765414; reserve total 220306000.0; q95 diagnostic margin 27144965.47234586; feasible true
+    - qual-5: pass; skill_loss=1.0 vs 6.007925910636435; worst_regional_shortfall_probability=1.0 vs None
+      q95 sum 206294352.79630786; reserve total 229439000.0; q95 diagnostic margin 23144647.20369214; feasible true
+
+Deletion candidates:
+- exposures_and_rates: deterministic_linkage, ignore_health_selection, informative_selection, version_three_recipe
+- release_accuracy: register_only, survey_only, no_dedup, static_projection, benchmark_only, exact_key_union, experience_history_only
+- interval_quality: inflated_intervals, reconstruction_uncertainty
+- tail_calibration: development_average_regime, normal_tail, padded_tail, regime_recombination
+- reserve_skill: uniform_allocation, reserve_allocation, proportional_reserve
+
+## Authenticated evidence design
+
+- measurement contract digest: `e184c2fda418eb70f700ac8693740da79cfccdd4199907eea9671d09e877a704`
+- common runner digest: `b7030a39a02912b7afb02cf0147662adff58609821c61c9c766d25019ec6f576`
+- final reference reports: 18
+- paired replicate reports: 306; 17 resamples per world
+- qualification control reports: 132
+- development diagnostic reports: 24; these do not count as qualification controls
+- unique run receipts: 480
+- development diagnostic digest: `5854fa467a58ffc699517f9ce92529004f40ac2e05e8dec19cb8d7870aa48948`
+
+
+## Empirical tail definition
+
+q95 is order statistic ceil(0.95 * M) of the M continuations.
+ES95 is the mean of all continuations tied at or above q95.
+
+## Mortality identification evidence for the tail gate
+
+- mortality improvement is active throughout the public experience window: true
+- mortality improvement starts only after publication: false
+- the observed publication lags [12] month(s) have trend effects from -7.243247582505696% to 1.596666081896525%
+- the public shock process has annual probability 0.2
+- every continuation redraws the public shock process independently: true
+- measurement source: meridia/methods/phase_three.py::mortality_gap_decomposition (`4244135e74963ad40d884504be8466e2461156c1b52436af0ebbaf91b9d492c9`)
+- audit digest: `29310a3ac534e511edac40c4492ea579a07b1ab0228560cf1b2edbd4c601f7d3`
+- qual-0: horizon/history 1.0351394720231937, trend-only 0.9351441470892038, residual 1.1069303863423008, lag factor 0.9888864512844869, designated horizon mortality shock years [14]
+- qual-1: horizon/history 0.7164616622644654, trend-only 0.7521760395720534, residual 0.9525185921530982, lag factor 0.9536446627069629, designated horizon mortality shock years []
+- qual-2: horizon/history 0.883276736866767, trend-only 1.0997063688707749, residual 0.8031932540081158, lag factor 1.0159666608189653, designated horizon mortality shock years []
+- qual-3: horizon/history 0.6877823361714912, trend-only 0.7921523870208506, residual 0.8682449834660257, lag factor 0.9619107741612066, designated horizon mortality shock years [13]
+- qual-4: horizon/history 0.5954917001888792, trend-only 0.6369028741906381, residual 0.9349803939032568, lag factor 0.927567524174943, designated horizon mortality shock years []
+- qual-5: horizon/history 0.7160340912295735, trend-only 0.7658936950343789, residual 0.9349000988935321, lag factor 0.9565215282531611, designated horizon mortality shock years []
+
+## Elder cohort-component qualification
+
+- before line: A
+- after line: C
+- method source digest: `ebae953ce20b715f82379e30be821be3820f4a786e716daefdba9afa68458567`
+- method commit: `5f4d821b0c2cbb525d4cc9f7d226f99cb9e091c6`
+- shock redraw: annual probability 0.2, independent per member true
+- shock magnitude source: participant/contract.json:shock_family
+- qual-0: absolute 65+ exposure error 1.334312939999286% before, 1.6534722051883026% after; pooled exceedance deviation 0.03870442708333333 before, 0.08168945312499999 after
+  - region 0 liability mean: 44973041.13739361 before, 45283286.03903577 after, 45698752.11447505 sealed
+  - region 1 liability mean: 48094915.371823795 before, 48782656.86387258 after, 54099000.52134499 sealed
+  - region 2 liability mean: 34005799.40996555 before, 33614668.960259885 after, 40633704.85307723 sealed
+  - region 3 liability mean: 10382707.011324344 before, 10495664.424561938 after, 11994459.235314814 sealed
+  - region 4 liability mean: 38238188.134505734 before, 37982259.015233085 after, 38525923.252710626 sealed
+  - region 5 liability mean: 30269159.14067281 before, 30588573.40177499 after, 31474735.85347411 sealed
+- qual-1: absolute 65+ exposure error 2.4530762012765344% before, 2.089478765259472% after; pooled exceedance deviation 0.049999999999999996 before, 0.049999999999999996 after
+  - region 0 liability mean: 34699168.84864834 before, 33944515.9381708 after, 35270641.38094273 sealed
+  - region 1 liability mean: 16714855.79057688 before, 16338003.888844226 after, 16083468.118204784 sealed
+  - region 2 liability mean: 19786162.3133597 before, 20276868.157104727 after, 22098035.81291218 sealed
+  - region 3 liability mean: 21221316.703605898 before, 20997563.72433195 after, 18844155.8326033 sealed
+  - region 4 liability mean: 85597218.34252653 before, 84961017.38841136 after, 83568869.00739293 sealed
+  - region 5 liability mean: 57733291.93182538 before, 57462204.7142675 after, 45694079.84556931 sealed
+- qual-2: absolute 65+ exposure error 2.0246904620564066% before, 4.531685383483188% after; pooled exceedance deviation 0.04251302083333333 before, 0.038867187500000004 after
+  - region 0 liability mean: 59510911.05688916 before, 58698263.90770573 after, 57069508.179803945 sealed
+  - region 1 liability mean: 50226589.42227925 before, 49428066.35025727 after, 52250273.43952722 sealed
+  - region 2 liability mean: 41937294.529995605 before, 40508213.934520975 after, 47792346.16918407 sealed
+  - region 3 liability mean: 38013904.56538775 before, 36366669.2176799 after, 33139613.933412723 sealed
+  - region 4 liability mean: 27687959.941032484 before, 27031631.780203365 after, 27875779.84501426 sealed
+  - region 5 liability mean: 9397160.78889794 before, 9285348.54231052 after, 9764419.81052164 sealed
+- qual-3: absolute 65+ exposure error 2.4280748383455473% before, 6.139038089009381% after; pooled exceedance deviation 0.086474609375 before, 0.07874348958333333 after
+  - region 0 liability mean: 42675258.3883278 before, 42387833.81288981 after, 56330292.869403936 sealed
+  - region 1 liability mean: 49531229.6402917 before, 49278191.51145129 after, 42780470.08806566 sealed
+  - region 2 liability mean: 12819062.146224044 before, 13614214.75007575 after, 13231242.642148225 sealed
+  - region 3 liability mean: 24749882.074075177 before, 24348816.865219507 after, 25837458.933329698 sealed
+  - region 4 liability mean: 13417060.943406446 before, 13364626.187605469 after, 13775500.740154883 sealed
+  - region 5 liability mean: 84380314.97309755 before, 83663081.29854634 after, 81894986.75302728 sealed
+- qual-4: absolute 65+ exposure error 1.7000586596992353% before, 2.458244778599633% after; pooled exceedance deviation 0.04430338541666667 before, 0.03756510416666667 after
+  - region 0 liability mean: 31080106.857284 before, 30343780.149758022 after, 24591036.464289125 sealed
+  - region 1 liability mean: 67218329.78441608 before, 63815621.8469692 after, 66452512.39150064 sealed
+  - region 2 liability mean: 53923065.998240314 before, 52055628.619038776 after, 54604929.02471871 sealed
+  - region 3 liability mean: 15948583.280034527 before, 15581228.14221928 after, 16811255.90740906 sealed
+  - region 4 liability mean: 31321409.08304295 before, 30480782.263699237 after, 35538032.46514538 sealed
+  - region 5 liability mean: 34181507.87784015 before, 33122090.389992625 after, 33665100.480475076 sealed
+- qual-5: absolute 65+ exposure error 2.976187532357503% before, 2.9556611461019% after; pooled exceedance deviation 0.049999999999999996 before, 0.049999999999999996 after
+  - region 0 liability mean: 87840782.95135505 before, 86828537.51250821 after, 87043373.14064579 sealed
+  - region 1 liability mean: 27332100.840716984 before, 26206517.21120652 after, 21574182.154761177 sealed
+  - region 2 liability mean: 32506049.195913687 before, 32186319.93107071 after, 27449665.183010932 sealed
+  - region 3 liability mean: 22295102.401878953 before, 20712329.227099877 after, 23789912.160529062 sealed
+  - region 4 liability mean: 22248800.11305395 before, 21029290.39565217 after, 21488600.461477462 sealed
+  - region 5 liability mean: 50222533.79654971 before, 48984223.76947984 after, 46425493.681568764 sealed
+
+### Median elder exposure error, reported and deciding nothing
+
+- median absolute 65+ exposure error, line A: 2.2263826502009767%
+- median absolute 65+ exposure error, line C: 2.7069529623507664%
+- line C reads the elder level better than line A: false
+- this comparison is a diagnostic on the third reference line and no gate, bar or verdict reads it
+- qual-0: 1.334312939999286% before, 1.6534722051883026% after, worse
+- qual-1: 2.4530762012765344% before, 2.089478765259472% after, better
+- qual-2: 2.0246904620564066% before, 4.531685383483188% after, worse
+- qual-3: 2.4280748383455473% before, 6.139038089009381% after, worse
+- qual-4: 1.7000586596992353% before, 2.458244778599633% after, worse
+- qual-5: 2.976187532357503% before, 2.9556611461019% after, better
+
+- audit digest: `e860395b2fc3516e8b0eb6dea3c06e5394fb326a33eefdae4322995ec9e39dd0`
+
+## Regime-axis identifiability
+
+- participant-anchor threshold: signed rank correlation greater than 0.4 pooled over the eighteen worlds, which is the reading that decides
+- binding axis on the pooled rule: missingness_target_dependence at 0.40144478844169246
+- anchored axes below the threshold within the six hidden worlds: migration_age_pattern +0.257, mortality_improvement -0.086
+- those readings are reported and do not decide. A rank correlation over six worlds moves by more than the margin the threshold asks for when a single world changes rank, so an anchor is judged on the pooled eighteen-world reading and the hidden block is carried here for a reader to weigh.
+- axes eligible to leave the development band: mortality_improvement, migration_age_pattern, age_reporting_error, linkage_urban_gradient
+- axes held inside the development band: administrative_completeness, missingness_target_dependence
+- measurement rows digest: `dad659c5635fe7afc41ff7b49e5987d939e7d001a6ecd5c7d53b6900473f263b`
+- generator source digest: `848e37d2e639ebd3674a8f8d39ca0427834d00216564c54dbcfbe55ebb10dd18`
+- mortality_improvement: signed rank correlation 0.4406604747162023; hidden regime -0.08571428571428574, qualified False; disposition participant_anchor; development range [-0.01, 0.048]; hidden generation range [-0.03, 0.075]; raw axis observed {'development': [-0.009117909323253732, 0.047229631502573144], 'hidden': [-0.01596666081896535, 0.07243247582505691], 'pooled': [-0.01596666081896535, 0.07243247582505691]}; realized mechanism observed {'development': [-0.009117909323253732, 0.047229631502573144], 'hidden': [-0.01596666081896535, 0.07243247582505691], 'pooled': [-0.01596666081896535, 0.07243247582505691]}
+- migration_age_pattern: signed rank correlation 0.47368421052631576; hidden regime 0.2571428571428572, qualified False; disposition participant_anchor; development range [0.25, 1.55]; hidden generation range [0.0, 2.4]; raw axis observed {'development': [0.3164551730425727, 1.2388310882935791], 'hidden': [0.2183210248644836, 2.3906733077604634], 'pooled': [0.2183210248644836, 2.3906733077604634]}; realized mechanism observed {'development': [0.3164551730425727, 1.2388310882935791], 'hidden': [0.2183210248644836, 2.3906733077604634], 'pooled': [0.2183210248644836, 2.3906733077604634]}
+- age_reporting_error: signed rank correlation 0.6119711042311662; hidden regime 0.8857142857142857, qualified True; disposition participant_anchor; development range [0.7, 2.05]; hidden generation range [0.35, 3.4]; raw axis observed {'development': [0.7090680968769321, 2.049722552339771], 'hidden': [0.47098774507429336, 2.13991371651621], 'pooled': [0.47098774507429336, 2.13991371651621]}; realized mechanism observed {'development': [0.7275732573793846, 2.1421580636227784], 'hidden': [0.4806740781096969, 2.395994812469536], 'pooled': [0.4806740781096969, 2.395994812469536]}
+- linkage_urban_gradient: signed rank correlation 0.7977296181630549; hidden regime 0.7714285714285715, qualified True; disposition participant_anchor; development range [0.3, 1.55]; hidden generation range [0.0, 2.6]; raw axis observed {'development': [0.3387920345620766, 1.5091775446449356], 'hidden': [0.14385743508167653, 2.1180959006903635], 'pooled': [0.14385743508167653, 2.1180959006903635]}; realized mechanism observed {'development': [0.2676424506456787, 1.501904340946642], 'hidden': [0.13081755436927436, 2.646877489008811], 'pooled': [0.13081755436927436, 2.646877489008811]}
+- administrative_completeness: signed rank correlation 0.6759545923632612; hidden regime 0.9428571428571431, qualified True; disposition constrained_to_development_range; development range [0.3, 1.7]; hidden generation range [0.3, 1.7]; raw axis observed {'development': [0.3985121315965262, 1.5562780439268993], 'hidden': [0.462453636570173, 1.6297593720047523], 'pooled': [0.3985121315965262, 1.6297593720047523]}; realized mechanism observed {'development': [0.3985121315965262, 1.5562780439268993], 'hidden': [0.462453636570173, 1.6297593720047523], 'pooled': [0.3985121315965262, 1.6297593720047523]}
+- missingness_target_dependence: signed rank correlation 0.40144478844169246; hidden regime 0.7714285714285716, qualified True; disposition constrained_to_development_range; development range [0.2, 1.3]; hidden generation range [0.2, 1.3]; raw axis observed {'development': [0.35015693905400325, 1.105334150416074], 'hidden': [0.3447755478985413, 1.1168657345967479], 'pooled': [0.3447755478985413, 1.1168657345967479]}; realized mechanism observed {'development': [0.26271495818101115, 1.3322169380099145], 'hidden': [0.3860525976922166, 1.1947035667145562], 'pooled': [0.26271495818101115, 1.3322169380099145]}
+- audit digest: `fdb499263430e7c8ff7e7739a42b72bfc227c39fdbd8b4ff1e1249a6fd3c3f7c`
+
+## False-fail accounting
+
+- the rates below cover all 9 calibrated components of all 5 gates; 3 of those gates decide under the lite profile
+- target marginal product over nine components and three graded worlds: 0.762343
+- conservative achieved conditional marginal-rate product: 0.837494
+- A achieved conditional marginal-rate product: 0.888494
+- B achieved conditional marginal-rate product: 0.837494
+- C achieved conditional marginal-rate product: 0.915147
+- the one-percent target is per component and line; the union over a gate's components is reported below and is not bounded by it
+- A union false-fail rate by gate: exposures_and_rates 0.980392%, release_accuracy 0.980392%, interval_quality 0.000000%, tail_calibration 0.980392%, reserve_skill 0.980392%
+- B union false-fail rate by gate: exposures_and_rates 0.980392%, release_accuracy 0.980392%, interval_quality 0.980392%, tail_calibration 1.960784%, reserve_skill 0.980392%
+- C union false-fail rate by gate: exposures_and_rates 0.000000%, release_accuracy 0.980392%, interval_quality 0.000000%, tail_calibration 0.980392%, reserve_skill 0.980392%
+- conservative achieved union marginal-rate product over five gates and three graded worlds: 0.837248
+
+The marginal products assume independent gate and world failures. They are arithmetic summaries, not empirical pass probabilities; failures can be correlated.
+
+Only six qualification worlds support this freeze. Replicate false-fail rates are conditional on those worlds and do not establish a one-percent rate on new worlds.

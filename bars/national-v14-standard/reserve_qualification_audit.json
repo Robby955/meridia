@@ -1,0 +1,288 @@
+{
+  "calibration_audit_digest_sha256": "5ad804271f620fcd007653a7ae8c2dcdf6611d1643d1b0ad4aea3468389d807d",
+  "digest_sha256": "bc1de2a9efc45d384e54118ce7fdec0ff8049b7fd46c41b87edfabf806739852",
+  "measurement_contract_digest_sha256": "e184c2fda418eb70f700ac8693740da79cfccdd4199907eea9671d09e877a704",
+  "proportional_reserve_results": [
+    {
+      "allocation_sum": 215532000.0,
+      "control": "proportional_reserve",
+      "evidence_id": "8f8e978cc1791dfa3fd5ca7bb3ac6ad3fadf02489ff7b00142eee3f49a88bc84",
+      "q95_feasible": false,
+      "q95_sum": 254277180.66717204,
+      "reserve_skill_pass": true,
+      "reserve_total": 215532000.0,
+      "total_minus_q95_sum": -38745180.667172045,
+      "world": "qual-0"
+    },
+    {
+      "allocation_sum": 237900000.0,
+      "control": "proportional_reserve",
+      "evidence_id": "fe3f9a162f783a8db7e26203aebc527a41eb8eea00ea5dba5b68032675ae00c5",
+      "q95_feasible": false,
+      "q95_sum": 314191518.79212517,
+      "reserve_skill_pass": true,
+      "reserve_total": 237900000.0,
+      "total_minus_q95_sum": -76291518.79212517,
+      "world": "qual-1"
+    },
+    {
+      "allocation_sum": 211084000.0,
+      "control": "proportional_reserve",
+      "evidence_id": "1b7939510411ce88deddff2def19cb590b10374f407d32b0795b55fc636ca200",
+      "q95_feasible": false,
+      "q95_sum": 291041111.8829091,
+      "reserve_skill_pass": true,
+      "reserve_total": 211084000.0,
+      "total_minus_q95_sum": -79957111.88290912,
+      "world": "qual-2"
+    },
+    {
+      "allocation_sum": 222969000.00000003,
+      "control": "proportional_reserve",
+      "evidence_id": "ffad587e005ed34afe198f447f84b4be40dd92a4a33ab7869b9cad88f266bac7",
+      "q95_feasible": false,
+      "q95_sum": 292811658.6731433,
+      "reserve_skill_pass": true,
+      "reserve_total": 222969000.0,
+      "total_minus_q95_sum": -69842658.67314333,
+      "world": "qual-3"
+    },
+    {
+      "allocation_sum": 220305999.99999997,
+      "control": "proportional_reserve",
+      "evidence_id": "29ba6115880298a04223bd61f2e77c9e2e7308810262aceaa90a82440d3354e5",
+      "q95_feasible": false,
+      "q95_sum": 295961848.0740992,
+      "reserve_skill_pass": true,
+      "reserve_total": 220306000.0,
+      "total_minus_q95_sum": -75655848.07409918,
+      "world": "qual-4"
+    },
+    {
+      "allocation_sum": 229439000.0,
+      "control": "proportional_reserve",
+      "evidence_id": "4950bf96543a2ce010b1fc977349ca4dcf02c3b5c3c8dd02a0b66622a57ab598",
+      "q95_feasible": false,
+      "q95_sum": 320434416.34429526,
+      "reserve_skill_pass": true,
+      "reserve_total": 229439000.0,
+      "total_minus_q95_sum": -90995416.34429526,
+      "world": "qual-5"
+    }
+  ],
+  "qualification_worlds": [
+    "qual-0",
+    "qual-1",
+    "qual-2",
+    "qual-3",
+    "qual-4",
+    "qual-5"
+  ],
+  "red_team_audit_digest_sha256": "7685f3927ac7eb9b0b3cbe22c4028933dac0069bcb3d482faa6f53e51701bd31",
+  "reference_lines": [
+    "A",
+    "B",
+    "C"
+  ],
+  "reference_results": [
+    {
+      "allocation_sum": 215531999.99999964,
+      "evidence_id": "d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27",
+      "q95_feasible": false,
+      "q95_sum": 252458493.53651696,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 215532000.0,
+      "total_minus_q95_sum": -36926493.536516964,
+      "world": "qual-0"
+    },
+    {
+      "allocation_sum": 237900000.00000066,
+      "evidence_id": "6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c",
+      "q95_feasible": false,
+      "q95_sum": 317020808.04728895,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 237900000.0,
+      "total_minus_q95_sum": -79120808.04728895,
+      "world": "qual-1"
+    },
+    {
+      "allocation_sum": 211084000.00000054,
+      "evidence_id": "e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a",
+      "q95_feasible": false,
+      "q95_sum": 291010063.0333309,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 211084000.0,
+      "total_minus_q95_sum": -79926063.03333092,
+      "world": "qual-2"
+    },
+    {
+      "allocation_sum": 222969000.0,
+      "evidence_id": "74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191",
+      "q95_feasible": false,
+      "q95_sum": 291480267.5199142,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 222969000.0,
+      "total_minus_q95_sum": -68511267.51991421,
+      "world": "qual-3"
+    },
+    {
+      "allocation_sum": 220305999.99999988,
+      "evidence_id": "9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86",
+      "q95_feasible": false,
+      "q95_sum": 297906545.45447224,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 220306000.0,
+      "total_minus_q95_sum": -77600545.45447224,
+      "world": "qual-4"
+    },
+    {
+      "allocation_sum": 229438999.99999893,
+      "evidence_id": "275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621",
+      "q95_feasible": false,
+      "q95_sum": 323632452.89445984,
+      "reference_line": "A",
+      "reserve_skill_pass": true,
+      "reserve_total": 229439000.0,
+      "total_minus_q95_sum": -94193452.89445984,
+      "world": "qual-5"
+    },
+    {
+      "allocation_sum": 215532000.0000001,
+      "evidence_id": "5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88",
+      "q95_feasible": false,
+      "q95_sum": 308503940.1422543,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 215532000.0,
+      "total_minus_q95_sum": -92971940.1422543,
+      "world": "qual-0"
+    },
+    {
+      "allocation_sum": 237899999.99999985,
+      "evidence_id": "bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750",
+      "q95_feasible": false,
+      "q95_sum": 358311004.30716443,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 237900000.0,
+      "total_minus_q95_sum": -120411004.30716443,
+      "world": "qual-1"
+    },
+    {
+      "allocation_sum": 211083999.99999985,
+      "evidence_id": "55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89",
+      "q95_feasible": false,
+      "q95_sum": 339331275.2419619,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 211084000.0,
+      "total_minus_q95_sum": -128247275.2419619,
+      "world": "qual-2"
+    },
+    {
+      "allocation_sum": 222969000.0000004,
+      "evidence_id": "70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9",
+      "q95_feasible": false,
+      "q95_sum": 346100644.78590906,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 222969000.0,
+      "total_minus_q95_sum": -123131644.78590906,
+      "world": "qual-3"
+    },
+    {
+      "allocation_sum": 220306000.0000002,
+      "evidence_id": "a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a",
+      "q95_feasible": false,
+      "q95_sum": 352668167.35303116,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 220306000.0,
+      "total_minus_q95_sum": -132362167.35303116,
+      "world": "qual-4"
+    },
+    {
+      "allocation_sum": 229438999.9999994,
+      "evidence_id": "c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01",
+      "q95_feasible": false,
+      "q95_sum": 362090125.3919103,
+      "reference_line": "B",
+      "reserve_skill_pass": true,
+      "reserve_total": 229439000.0,
+      "total_minus_q95_sum": -132651125.39191031,
+      "world": "qual-5"
+    },
+    {
+      "allocation_sum": 215532000.00000057,
+      "evidence_id": "ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54",
+      "q95_feasible": false,
+      "q95_sum": 252958694.63462985,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 215532000.0,
+      "total_minus_q95_sum": -37426694.634629846,
+      "world": "qual-0"
+    },
+    {
+      "allocation_sum": 237900000.0,
+      "evidence_id": "24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a",
+      "q95_feasible": false,
+      "q95_sum": 312908585.4425829,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 237900000.0,
+      "total_minus_q95_sum": -75008585.4425829,
+      "world": "qual-1"
+    },
+    {
+      "allocation_sum": 211084000.00000075,
+      "evidence_id": "23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1",
+      "q95_feasible": false,
+      "q95_sum": 283646758.88953674,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 211084000.0,
+      "total_minus_q95_sum": -72562758.88953674,
+      "world": "qual-2"
+    },
+    {
+      "allocation_sum": 222968999.99999976,
+      "evidence_id": "c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38",
+      "q95_feasible": false,
+      "q95_sum": 292652043.4113799,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 222969000.0,
+      "total_minus_q95_sum": -69683043.41137987,
+      "world": "qual-3"
+    },
+    {
+      "allocation_sum": 220306000.0000001,
+      "evidence_id": "7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343",
+      "q95_feasible": false,
+      "q95_sum": 287002473.7998659,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 220306000.0,
+      "total_minus_q95_sum": -66696473.7998659,
+      "world": "qual-4"
+    },
+    {
+      "allocation_sum": 229438999.99999946,
+      "evidence_id": "896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5",
+      "q95_feasible": false,
+      "q95_sum": 313469286.63239104,
+      "reference_line": "C",
+      "reserve_skill_pass": true,
+      "reserve_total": 229439000.0,
+      "total_minus_q95_sum": -84030286.63239104,
+      "world": "qual-5"
+    }
+  ],
+  "schema": "meridia.v4.reserve-qualification-audit.v1"
+}

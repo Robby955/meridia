@@ -1,0 +1,832 @@
+{
+  "acceptance_evidence": {
+    "proportional_reserve_evidence_ids": [
+      "1b7939510411ce88deddff2def19cb590b10374f407d32b0795b55fc636ca200",
+      "29ba6115880298a04223bd61f2e77c9e2e7308810262aceaa90a82440d3354e5",
+      "4950bf96543a2ce010b1fc977349ca4dcf02c3b5c3c8dd02a0b66622a57ab598",
+      "8f8e978cc1791dfa3fd5ca7bb3ac6ad3fadf02489ff7b00142eee3f49a88bc84",
+      "fe3f9a162f783a8db7e26203aebc527a41eb8eea00ea5dba5b68032675ae00c5",
+      "ffad587e005ed34afe198f447f84b4be40dd92a4a33ab7869b9cad88f266bac7"
+    ],
+    "rate_rule": {
+      "binding_reference_evidence_id": "bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750",
+      "identification_margin_share": 0.01,
+      "identification_rule": "largest candidate rate whose baseline-minus-oracle expected uncovered obligation is at least identification_margin_share of the sealed mean total liability on every qualification world",
+      "target_rule": "sum(submitted regional liability_mean) / public exposure"
+    },
+    "red_team_audit_digest_sha256": "7685f3927ac7eb9b0b3cbe22c4028933dac0069bcb3d482faa6f53e51701bd31",
+    "reference_evidence_ids": [
+      "23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1",
+      "24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a",
+      "275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621",
+      "55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89",
+      "5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88",
+      "6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c",
+      "70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9",
+      "74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191",
+      "7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343",
+      "896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5",
+      "9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86",
+      "a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a",
+      "ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54",
+      "bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750",
+      "c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01",
+      "c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38",
+      "d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27",
+      "e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a"
+    ],
+    "reserve_skill_component_ceilings": {
+      "skill_loss": null,
+      "worst_regional_shortfall_probability": null
+    }
+  },
+  "accepted": true,
+  "binding_reference": "bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750",
+  "blockers": [],
+  "candidate": true,
+  "candidate_source_digest_sha256": "815daa40aa73088c1714650b19522add13790382ab0a7df4384015f5b52834f1",
+  "digest_sha256": "5ad804271f620fcd007653a7ae8c2dcdf6611d1643d1b0ad4aea3468389d807d",
+  "evidence": [
+    {
+      "candidate_margin": 9568189.794314146,
+      "candidate_rate": 3602.0,
+      "candidate_reserve_total": 215532000.0,
+      "evidence_id": "d143af233435dfd70e7963039853e3a850a9b8d9669974e665cf25aa996f0d27",
+      "experience_sha256": "5a80bac4c8ecd15cbc9ba40449732b9dc2c6d07453758e37f57310d9eae117bd",
+      "exposure_person_years": 57185.333331,
+      "reference_line": "A",
+      "required_rate": 3601.689422942184,
+      "reserve_submission_sha256": "1f9564d5d58e42a29d26c971603836e62d07c6c80bb4b06eedf48204478f6753",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 270922106.0417609,
+      "submitted_liability_mean_sum": 205963810.20568585,
+      "submitted_q95_sum": 252458493.53651696,
+      "target_reserve_before_rounding": 205963810.20568585,
+      "world": "qual-0"
+    },
+    {
+      "candidate_margin": 2147986.0694572926,
+      "candidate_rate": 3735.0,
+      "candidate_reserve_total": 237900000.0,
+      "evidence_id": "6baa7d7007cc829bb8b6eb93476124461eed7da052f4c71fc42ca929f14a6f5c",
+      "experience_sha256": "071b2cdf05f396d8df9baf648c75505f5a5588e3f6c1641a25bd42ed8b714489",
+      "exposure_person_years": 63120.166667,
+      "reference_line": "A",
+      "required_rate": 3734.971347181134,
+      "reserve_submission_sha256": "503636c00fbb9b286ca7c4319ae81237cb8c12918d7a56af8bb23149d8b4bc81",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 348037123.79023975,
+      "submitted_liability_mean_sum": 235752013.9305427,
+      "submitted_q95_sum": 317020808.04728895,
+      "target_reserve_before_rounding": 235752013.9305427,
+      "world": "qual-1"
+    },
+    {
+      "candidate_margin": -15689820.304482222,
+      "candidate_rate": 4050.0,
+      "candidate_reserve_total": 211084000.0,
+      "evidence_id": "e8d0d531d8bf9412a00a7e97c817dc0ad8dc0aa77921ccdd1d5cc3c51d0c3c2a",
+      "experience_sha256": "77b169ff03979028a6166ef85c0c953472a71ce725d6620682e2ef30e033cd7b",
+      "exposure_person_years": 56005.249999,
+      "reference_line": "A",
+      "required_rate": 4049.152897425355,
+      "reserve_submission_sha256": "52042e8fa1d5449031d031febd95070a3e736db44d9c845772061d9b1ec5a8b3",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 315681485.0970168,
+      "submitted_liability_mean_sum": 226773820.30448222,
+      "submitted_q95_sum": 291010063.0333309,
+      "target_reserve_before_rounding": 226773820.30448222,
+      "world": "qual-2"
+    },
+    {
+      "candidate_margin": -4603808.165422738,
+      "candidate_rate": 3847.0,
+      "candidate_reserve_total": 222969000.0,
+      "evidence_id": "74d404ccb0b4002d3199b27f2d2d07da13efe51e57f38923ce2a2b9b24189191",
+      "experience_sha256": "4e1e01ba2a0e7f6721a0f86c8e0bea93e87277462742e102b10a18940314ac6f",
+      "exposure_person_years": 59158.416664,
+      "reference_line": "A",
+      "required_rate": 3846.8373732508785,
+      "reserve_submission_sha256": "a851f7158a84718f46e4f2783a8359b21240ee93d9a6f2ce7a6cba8371b0bde4",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 312169539.7537224,
+      "submitted_liability_mean_sum": 227572808.16542274,
+      "submitted_q95_sum": 291480267.5199142,
+      "target_reserve_before_rounding": 227572808.16542274,
+      "world": "qual-3"
+    },
+    {
+      "candidate_margin": -13367002.880858064,
+      "candidate_rate": 3998.0,
+      "candidate_reserve_total": 220306000.0,
+      "evidence_id": "9d3a8d252f88e0d082779e50079e1ff02899875a63b184da5b121f0563723e86",
+      "experience_sha256": "f648fa096457ced7f1d68c4d2ca18018005fc887fb5184fc462f1d80878545db",
+      "exposure_person_years": 58452.0,
+      "reference_line": "A",
+      "required_rate": 3997.6904619321504,
+      "reserve_submission_sha256": "5cdf9da90022f2c68e7f059d1e37ab274d3be18a7e383b5f5579bbc9e8868bca",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 322242450.8429315,
+      "submitted_liability_mean_sum": 233673002.88085806,
+      "submitted_q95_sum": 297906545.45447224,
+      "target_reserve_before_rounding": 233673002.88085806,
+      "world": "qual-4"
+    },
+    {
+      "candidate_margin": -13006369.299468338,
+      "candidate_rate": 3983.0,
+      "candidate_reserve_total": 229439000.0,
+      "evidence_id": "275a81e15be8eb9181bc6a89d7dfb8c8f778831228d71303e74776311454d621",
+      "experience_sha256": "0fab6e94a4aab0c4c529989de22fbc956ba3d51c971046c95e29db4e6d93d443",
+      "exposure_person_years": 60875.25,
+      "reference_line": "A",
+      "required_rate": 3982.659115148904,
+      "reserve_submission_sha256": "5b5faf7aa12a4d12207ddb4123a7a68dafac043be535334755812d3fd7ef7b4b",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 355544146.2500771,
+      "submitted_liability_mean_sum": 242445369.29946834,
+      "submitted_q95_sum": 323632452.89445984,
+      "target_reserve_before_rounding": 242445369.29946834,
+      "world": "qual-5"
+    },
+    {
+      "candidate_margin": 5644463.809023976,
+      "candidate_rate": 3671.0,
+      "candidate_reserve_total": 215532000.0,
+      "evidence_id": "5b57ef2103fe2a93af4f0f65fb3a28dbadcac09678780e2f9e88954f3d07df88",
+      "experience_sha256": "5a80bac4c8ecd15cbc9ba40449732b9dc2c6d07453758e37f57310d9eae117bd",
+      "exposure_person_years": 57185.333331,
+      "reference_line": "B",
+      "required_rate": 3670.3036244644327,
+      "reserve_submission_sha256": "d0d89123813a1fe7e9677abbc366b44227db8d4fdf29566da2ec2b2883d1367a",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 352573211.96842587,
+      "submitted_liability_mean_sum": 209887536.19097602,
+      "submitted_q95_sum": 308503940.1422543,
+      "target_reserve_before_rounding": 209887536.19097602,
+      "world": "qual-0"
+    },
+    {
+      "candidate_margin": 49780.026106506586,
+      "candidate_rate": 3769.0,
+      "candidate_reserve_total": 237900000.0,
+      "evidence_id": "bef164046d44d8d1ee4944be6179ee0094d1796b689b1fa7c215a860d2a60750",
+      "experience_sha256": "071b2cdf05f396d8df9baf648c75505f5a5588e3f6c1641a25bd42ed8b714489",
+      "exposure_person_years": 63120.166667,
+      "reference_line": "B",
+      "required_rate": 3768.212800018548,
+      "reserve_submission_sha256": "686d33301e82afd907145bfc976a62ca26fb54f65a4521974b5a1efec7e6aad6",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 418244732.50569874,
+      "submitted_liability_mean_sum": 237850219.9738935,
+      "submitted_q95_sum": 358311004.3071644,
+      "target_reserve_before_rounding": 237850219.9738935,
+      "world": "qual-1"
+    },
+    {
+      "candidate_margin": -20727253.362915337,
+      "candidate_rate": 4140.0,
+      "candidate_reserve_total": 211084000.0,
+      "evidence_id": "55e5165d41c2534aefae367380a8950a8df3084b121c9531117dfa0b47006b89",
+      "experience_sha256": "77b169ff03979028a6166ef85c0c953472a71ce725d6620682e2ef30e033cd7b",
+      "exposure_person_years": 56005.249999,
+      "reference_line": "B",
+      "required_rate": 4139.098626772569,
+      "reserve_submission_sha256": "5c3ae7330b3e04d4675c49cbe8d9671241c39d5c57210deaae274fdbb564b6e6",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 397929577.2330528,
+      "submitted_liability_mean_sum": 231811253.36291534,
+      "submitted_q95_sum": 339331275.2419619,
+      "target_reserve_before_rounding": 231811253.36291534,
+      "world": "qual-2"
+    },
+    {
+      "candidate_margin": -8341368.869757086,
+      "candidate_rate": 3911.0,
+      "candidate_reserve_total": 222969000.0,
+      "evidence_id": "70c1aa725beb2c24202bbeb98e402fbaeba8ca8b636b6a2b06b759be5bf30fd9",
+      "experience_sha256": "4e1e01ba2a0e7f6721a0f86c8e0bea93e87277462742e102b10a18940314ac6f",
+      "exposure_person_years": 59158.416664,
+      "reference_line": "B",
+      "required_rate": 3910.0162227721976,
+      "reserve_submission_sha256": "2e826747a655d6c66eb9d4c722e238303ccc6fe3dcb0daa9cfde48854137c5fe",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 394575914.66787034,
+      "submitted_liability_mean_sum": 231310368.8697571,
+      "submitted_q95_sum": 346100644.78590906,
+      "target_reserve_before_rounding": 231310368.8697571,
+      "world": "qual-3"
+    },
+    {
+      "candidate_margin": -15977753.356461704,
+      "candidate_rate": 4043.0,
+      "candidate_reserve_total": 220306000.0,
+      "evidence_id": "a9e3b978c45cd4273c8baefaa454ec08be0879bd438bdb9a129bed2ce47df27a",
+      "experience_sha256": "f648fa096457ced7f1d68c4d2ca18018005fc887fb5184fc462f1d80878545db",
+      "exposure_person_years": 58452.0,
+      "reference_line": "B",
+      "required_rate": 4042.355323281696,
+      "reserve_submission_sha256": "1723d30a05a89b7707e1281e50c2f96c14fb476551f67d97a05c2d05d5b0b3e4",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 414661109.3557314,
+      "submitted_liability_mean_sum": 236283753.3564617,
+      "submitted_q95_sum": 352668167.35303116,
+      "target_reserve_before_rounding": 236283753.3564617,
+      "world": "qual-4"
+    },
+    {
+      "candidate_margin": -13277533.312799424,
+      "candidate_rate": 3988.0,
+      "candidate_reserve_total": 229439000.0,
+      "evidence_id": "c8f1a59a79c0acfe8f18df344b4bceb741f9d7f75f754adf5413e3e11ff50a01",
+      "experience_sha256": "0fab6e94a4aab0c4c529989de22fbc956ba3d51c971046c95e29db4e6d93d443",
+      "exposure_person_years": 60875.25,
+      "reference_line": "B",
+      "required_rate": 3987.1135364996353,
+      "reserve_submission_sha256": "d159239651d585535a75dbfcf8776669287daf3688610b6e6eeb628bae7df2ec",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 420801502.8349474,
+      "submitted_liability_mean_sum": 242716533.31279942,
+      "submitted_q95_sum": 362090125.3919103,
+      "target_reserve_before_rounding": 242716533.31279942,
+      "world": "qual-5"
+    },
+    {
+      "candidate_margin": 8784891.29526174,
+      "candidate_rate": 3616.0,
+      "candidate_reserve_total": 215532000.0,
+      "evidence_id": "ad38679c99f00c4fd8abf3e808692755f8e41bee668074f382fe47603f346f54",
+      "experience_sha256": "5a80bac4c8ecd15cbc9ba40449732b9dc2c6d07453758e37f57310d9eae117bd",
+      "exposure_person_years": 57185.333331,
+      "reference_line": "C",
+      "required_rate": 3615.386964836686,
+      "reserve_submission_sha256": "317f2134f78da2f94e819e2588a4ac4b731dd938a06b963ebdf9baa092cd1104",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 272695974.9716525,
+      "submitted_liability_mean_sum": 206747108.70473826,
+      "submitted_q95_sum": 252958694.63462985,
+      "target_reserve_before_rounding": 206747108.70473826,
+      "world": "qual-0"
+    },
+    {
+      "candidate_margin": 3919826.1888694465,
+      "candidate_rate": 3707.0,
+      "candidate_reserve_total": 237900000.0,
+      "evidence_id": "24a107bfd79d5798660efd9bfc5466fa7c9183e64e373280b36364a9d69f861a",
+      "experience_sha256": "071b2cdf05f396d8df9baf648c75505f5a5588e3f6c1641a25bd42ed8b714489",
+      "exposure_person_years": 63120.166667,
+      "reference_line": "C",
+      "required_rate": 3706.9004434910385,
+      "reserve_submission_sha256": "08cdaf17fd20e190a66e3cdde6692abd5d751fb02bdba07a3ee904eade5faf40",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 344719810.20165884,
+      "submitted_liability_mean_sum": 233980173.81113055,
+      "submitted_q95_sum": 312908585.4425829,
+      "target_reserve_before_rounding": 233980173.81113055,
+      "world": "qual-1"
+    },
+    {
+      "candidate_margin": -10234193.732677758,
+      "candidate_rate": 3952.0,
+      "candidate_reserve_total": 211084000.0,
+      "evidence_id": "23645cac09fad2d28f64f05f6e6c03b9236559ec0d1b2fc94103cebf24055dd1",
+      "experience_sha256": "77b169ff03979028a6166ef85c0c953472a71ce725d6620682e2ef30e033cd7b",
+      "exposure_person_years": 56005.249999,
+      "reference_line": "C",
+      "required_rate": 3951.740126802925,
+      "reserve_submission_sha256": "8b3d14c232c0d9425fad269b9b70f13e481eb300fb08f827a4732b9beda2e4c0",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 305850476.1745233,
+      "submitted_liability_mean_sum": 221318193.73267776,
+      "submitted_q95_sum": 283646758.88953674,
+      "target_reserve_before_rounding": 221318193.73267776,
+      "world": "qual-2"
+    },
+    {
+      "candidate_margin": -3687764.425788164,
+      "candidate_rate": 3832.0,
+      "candidate_reserve_total": 222969000.0,
+      "evidence_id": "c92ba419528ccc2b040d494f7f7be644db3b76028f9085db73c8f1ac4abadf38",
+      "experience_sha256": "4e1e01ba2a0e7f6721a0f86c8e0bea93e87277462742e102b10a18940314ac6f",
+      "exposure_person_years": 59158.416664,
+      "reference_line": "C",
+      "required_rate": 3831.352784729225,
+      "reserve_submission_sha256": "ff3ebd88a3e16ceb4bf1fc2a0fa4d667b1da030f597cc06dcecd344ce93ee371",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 315395722.6365827,
+      "submitted_liability_mean_sum": 226656764.42578816,
+      "submitted_q95_sum": 292652043.4113799,
+      "target_reserve_before_rounding": 226656764.42578816,
+      "world": "qual-3"
+    },
+    {
+      "candidate_margin": -5093131.411677122,
+      "candidate_rate": 3857.0,
+      "candidate_reserve_total": 220306000.0,
+      "evidence_id": "7f67561534155a59010d66332a7cf857faf3f33d215225d2958b535964335343",
+      "experience_sha256": "f648fa096457ced7f1d68c4d2ca18018005fc887fb5184fc462f1d80878545db",
+      "exposure_person_years": 58452.0,
+      "reference_line": "C",
+      "required_rate": 3856.1406181427005,
+      "reserve_submission_sha256": "5311bb124a5bd9fd211229842c72179f4c71477c05a72f52a61fc1de5e8912ad",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 311928910.1111241,
+      "submitted_liability_mean_sum": 225399131.41167712,
+      "submitted_q95_sum": 287002473.7998659,
+      "target_reserve_before_rounding": 225399131.41167712,
+      "world": "qual-4"
+    },
+    {
+      "candidate_margin": -6508218.047017336,
+      "candidate_rate": 3876.0,
+      "candidate_reserve_total": 229439000.0,
+      "evidence_id": "896cbf75f7e8e88df45b44314e226796ff350d0f73fd7102a689693556b18eb5",
+      "experience_sha256": "0fab6e94a4aab0c4c529989de22fbc956ba3d51c971046c95e29db4e6d93d443",
+      "exposure_person_years": 60875.25,
+      "reference_line": "C",
+      "required_rate": 3875.9137423997,
+      "reserve_submission_sha256": "1470d5bdd338ded9c9b13408f11e88c90cc3832f3808d201ea4ef02bd083c1f5",
+      "rounding_unit": 1000.0,
+      "submitted_es95_sum": 342634730.4053037,
+      "submitted_liability_mean_sum": 235947218.04701734,
+      "submitted_q95_sum": 313469286.63239104,
+      "target_reserve_before_rounding": 235947218.04701734,
+      "world": "qual-5"
+    }
+  ],
+  "identification": {
+    "candidates": [
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.029854548882945437,
+          "qual-1": 0.0002387273161253545,
+          "qual-2": 0.007880555102809382,
+          "qual-3": 0.007826587099012804,
+          "qual-4": 0.017170271847469804,
+          "qual-5": 0.0024753999328486326
+        },
+        "rate_per_person_year": 4140.0,
+        "skill_denominator": {
+          "qual-0": 6640445.080994751,
+          "qual-1": 52892.24511467953,
+          "qual-2": 1795915.0015113093,
+          "qual-3": 1830247.0176324695,
+          "qual-4": 3977714.3987790165,
+          "qual-5": 563824.8794809966
+        },
+        "worst_margin_share": 0.0002387273161253545,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03356747968274435,
+          "qual-1": 0.0013167048917596114,
+          "qual-2": 0.008122086588977595,
+          "qual-3": 0.0074342426740543815,
+          "qual-4": 0.018985628237034497,
+          "qual-5": 0.003805123911471395
+        },
+        "rate_per_person_year": 4050.0,
+        "skill_denominator": {
+          "qual-0": 7466299.565089241,
+          "qual-1": 291728.1482864638,
+          "qual-2": 1850958.0807979675,
+          "qual-3": 1738497.292678223,
+          "qual-4": 4398265.064128619,
+          "qual-5": 866697.7413733361
+        },
+        "worst_margin_share": 0.0013167048917596114,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.0337900676871393,
+          "qual-1": 0.0015104068121123988,
+          "qual-2": 0.00818286113399873,
+          "qual-3": 0.007361949762457779,
+          "qual-4": 0.01910295931270363,
+          "qual-5": 0.003897686149475403
+        },
+        "rate_per_person_year": 4043.0,
+        "skill_denominator": {
+          "qual-0": 7515809.05272773,
+          "qual-1": 334644.6004829271,
+          "qual-2": 1864808.1098491661,
+          "qual-3": 1721591.5987695283,
+          "qual-4": 4425446.31747506,
+          "qual-5": 887780.7558771957
+        },
+        "worst_margin_share": 0.0015104068121123988,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03516759507689736,
+          "qual-1": 0.003514871836573465,
+          "qual-2": 0.008394010641023821,
+          "qual-3": 0.006734540903638542,
+          "qual-4": 0.019843367147545258,
+          "qual-5": 0.004414819496279215
+        },
+        "rate_per_person_year": 3998.0,
+        "skill_denominator": {
+          "qual-0": 7822207.753144199,
+          "qual-1": 778752.3679489925,
+          "qual-2": 1912927.3809260083,
+          "qual-3": 1574872.067233881,
+          "qual-4": 4596971.319046443,
+          "qual-5": 1005568.852688578
+        },
+        "worst_margin_share": 0.003514871836573465,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03549279319596262,
+          "qual-1": 0.004178949308858232,
+          "qual-2": 0.008363905417972899,
+          "qual-3": 0.006558152647672234,
+          "qual-4": 0.019976401491714025,
+          "qual-5": 0.004520122341080646
+        },
+        "rate_per_person_year": 3988.0,
+        "skill_denominator": {
+          "qual-0": 7894540.457234371,
+          "qual-1": 925884.8746487242,
+          "qual-2": 1906066.643199332,
+          "qual-3": 1533623.682038187,
+          "qual-4": 4627790.436590596,
+          "qual-5": 1029553.8108326338
+        },
+        "worst_margin_share": 0.004178949308858232,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03565675159322204,
+          "qual-1": 0.004544146244095817,
+          "qual-2": 0.008336909049200517,
+          "qual-3": 0.006469316658140379,
+          "qual-4": 0.020038153307643088,
+          "qual-5": 0.004574087828728444
+        },
+        "rate_per_person_year": 3983.0,
+        "skill_denominator": {
+          "qual-0": 7931009.162115425,
+          "qual-1": 1006797.6337213949,
+          "qual-2": 1899914.388309652,
+          "qual-3": 1512849.3901479691,
+          "qual-4": 4642096.039294724,
+          "qual-5": 1041845.5961580611
+        },
+        "worst_margin_share": 0.004544146244095817,
+        "worst_world": "qual-1"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.036733338632604313,
+          "qual-1": 0.007294819242602947,
+          "qual-2": 0.007990808802052217,
+          "qual-3": 0.005866248453088734,
+          "qual-4": 0.020359406994628772,
+          "qual-5": 0.004983446640267645
+        },
+        "rate_per_person_year": 3952.0,
+        "skill_denominator": {
+          "qual-0": 8170470.730868608,
+          "qual-1": 1616234.6802593535,
+          "qual-2": 1821040.9310758058,
+          "qual-3": 1371821.9193281578,
+          "qual-4": 4716518.589370547,
+          "qual-5": 1135085.7548563639
+        },
+        "worst_margin_share": 0.004983446640267645,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03829093983520663,
+          "qual-1": 0.01172286164608031,
+          "qual-2": 0.007548317260885944,
+          "qual-3": 0.005143597799551946,
+          "qual-4": 0.020868864186708188,
+          "qual-5": 0.00590576257559246
+        },
+        "rate_per_person_year": 3911.0,
+        "skill_denominator": {
+          "qual-0": 8516922.63287275,
+          "qual-1": 2597308.43413148,
+          "qual-2": 1720200.674716318,
+          "qual-3": 1202830.0986669287,
+          "qual-4": 4834540.902965683,
+          "qual-5": 1345162.7869258784
+        },
+        "worst_margin_share": 0.005143597799551946,
+        "worst_world": "qual-3"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03946047348017364,
+          "qual-1": 0.01578126048269716,
+          "qual-2": 0.00779684578452374,
+          "qual-3": 0.005117194201178286,
+          "qual-4": 0.021188213342763523,
+          "qual-5": 0.007018700011290096
+        },
+        "rate_per_person_year": 3876.0,
+        "skill_denominator": {
+          "qual-0": 8777057.996841203,
+          "qual-1": 3496484.236563544,
+          "qual-2": 1776838.3224558104,
+          "qual-3": 1196655.618453931,
+          "qual-4": 4908522.243946398,
+          "qual-5": 1598657.9119863345
+        },
+        "worst_margin_share": 0.005117194201178286,
+        "worst_world": "qual-3"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.03999349189457485,
+          "qual-1": 0.018019830847583393,
+          "qual-2": 0.00819439376091401,
+          "qual-3": 0.0054608332191496455,
+          "qual-4": 0.021262187775608968,
+          "qual-5": 0.007687118696863308
+        },
+        "rate_per_person_year": 3857.0,
+        "skill_denominator": {
+          "qual-0": 8895615.457611013,
+          "qual-1": 3992460.2076746477,
+          "qual-2": 1867436.3025860712,
+          "qual-3": 1277015.5863208398,
+          "qual-4": 4925659.373124361,
+          "qual-5": 1750904.4560033525
+        },
+        "worst_margin_share": 0.0054608332191496455,
+        "worst_world": "qual-3"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.04027655839646496,
+          "qual-1": 0.019204731112890665,
+          "qual-2": 0.008464828012896624,
+          "qual-3": 0.0057684269443688515,
+          "qual-4": 0.021290724929113332,
+          "qual-5": 0.008035017880642025
+        },
+        "rate_per_person_year": 3847.0,
+        "skill_denominator": {
+          "qual-0": 8958576.970358718,
+          "qual-1": 4254985.821778114,
+          "qual-2": 1929066.0892853513,
+          "qual-3": 1348946.3642068896,
+          "qual-4": 4932270.371913597,
+          "qual-5": 1830145.879889085
+        },
+        "worst_margin_share": 0.0057684269443688515,
+        "worst_world": "qual-3"
+      },
+      {
+        "identified": false,
+        "margin_share": {
+          "qual-0": 0.0407557815306113,
+          "qual-1": 0.020988311272680298,
+          "qual-2": 0.00893821383941929,
+          "qual-3": 0.006410407423806139,
+          "qual-4": 0.021394617343344947,
+          "qual-5": 0.00854661542510138
+        },
+        "rate_per_person_year": 3832.0,
+        "skill_denominator": {
+          "qual-0": 9065168.931145601,
+          "qual-1": 4650154.50429175,
+          "qual-2": 2036946.9043121766,
+          "qual-3": 1499073.468525011,
+          "qual-4": 4956338.386426361,
+          "qual-5": 1946673.0802092475
+        },
+        "worst_margin_share": 0.006410407423806139,
+        "worst_world": "qual-3"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.043423469657834717,
+          "qual-1": 0.028489491310967983,
+          "qual-2": 0.011656027406785658,
+          "qual-3": 0.011529059961685323,
+          "qual-4": 0.02256954824672855,
+          "qual-5": 0.010722732847132136
+        },
+        "rate_per_person_year": 3769.0,
+        "skill_denominator": {
+          "qual-0": 9658533.666667309,
+          "qual-1": 6312110.327671927,
+          "qual-2": 2656314.714481309,
+          "qual-3": 2696070.118946485,
+          "qual-4": 5228526.247718032,
+          "qual-5": 2442330.015046861
+        },
+        "worst_margin_share": 0.010722732847132136,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.045185695903587154,
+          "qual-1": 0.03247637552334343,
+          "qual-2": 0.01366417840300543,
+          "qual-3": 0.015756693499587818,
+          "qual-4": 0.02360624963664832,
+          "qual-5": 0.011701822809037908
+        },
+        "rate_per_person_year": 3735.0,
+        "skill_denominator": {
+          "qual-0": 10050499.616348479,
+          "qual-1": 7195441.403593205,
+          "qual-2": 3113956.143588921,
+          "qual-3": 3684702.0189690404,
+          "qual-4": 5468691.46365349,
+          "qual-5": 2665338.536800074
+        },
+        "worst_margin_share": 0.011701822809037908,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.04674518477275644,
+          "qual-1": 0.035689516862810654,
+          "qual-2": 0.01566970896706705,
+          "qual-3": 0.019677433111710663,
+          "qual-4": 0.024612430315760693,
+          "qual-5": 0.011994815222865872
+        },
+        "rate_per_person_year": 3707.0,
+        "skill_denominator": {
+          "qual-0": 10397371.38556342,
+          "qual-1": 7907342.588901927,
+          "qual-2": 3571000.3973247632,
+          "qual-3": 4601566.789170913,
+          "qual-4": 5701786.16422856,
+          "qual-5": 2732073.7783354865
+        },
+        "worst_margin_share": 0.011994815222865872,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.04887607861374914,
+          "qual-1": 0.03964133089128529,
+          "qual-2": 0.018633221032036747,
+          "qual-3": 0.024686909854818216,
+          "qual-4": 0.026058525275336045,
+          "qual-5": 0.011455747706476846
+        },
+        "rate_per_person_year": 3671.0,
+        "skill_denominator": {
+          "qual-0": 10871338.806073507,
+          "qual-1": 8782903.541180862,
+          "qual-2": 4246360.915106244,
+          "qual-3": 5773032.685222628,
+          "qual-4": 6036792.668132706,
+          "qual-5": 2609289.708809236
+        },
+        "worst_margin_share": 0.011455747706476846,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.05169831675255336,
+          "qual-1": 0.0451297790216485,
+          "qual-2": 0.023556309575107043,
+          "qual-3": 0.032128484966270285,
+          "qual-4": 0.028567577990547034,
+          "qual-5": 0.010428103900556762
+        },
+        "rate_per_person_year": 3616.0,
+        "skill_denominator": {
+          "qual-0": 11499079.571465684,
+          "qual-1": 9998919.992595002,
+          "qual-2": 5368293.120759685,
+          "qual-3": 7513244.668034535,
+          "qual-4": 6618047.012924051,
+          "qual-5": 2375222.018439902
+        },
+        "worst_margin_share": 0.010428103900556762,
+        "worst_world": "qual-5"
+      },
+      {
+        "identified": true,
+        "margin_share": {
+          "qual-0": 0.05217080483272698,
+          "qual-1": 0.04642981593691941,
+          "qual-2": 0.024838800268369186,
+          "qual-3": 0.033849185706546166,
+          "qual-4": 0.029284879422630104,
+          "qual-5": 0.01025018607798512
+        },
+        "rate_per_person_year": 3602.0,
+        "skill_denominator": {
+          "qual-0": 11604173.477259379,
+          "qual-1": 10286955.196511652,
+          "qual-2": 5660562.414645724,
+          "qual-3": 7915630.453599375,
+          "qual-4": 6784219.118992487,
+          "qual-5": 2334697.457726378
+        },
+        "worst_margin_share": 0.01025018607798512,
+        "worst_world": "qual-5"
+      }
+    ],
+    "chosen": {
+      "rate_per_person_year": 3769.0,
+      "worlds": {
+        "qual-0": {
+          "j_baseline": 17476990.706740543,
+          "j_oracle": 7818457.0400732355,
+          "margin_share": 0.043423469657834717,
+          "reserve_total": 215532000.0,
+          "sealed_mean_total_liability": 222426575.8303968,
+          "skill_denominator": 9658533.666667309
+        },
+        "qual-1": {
+          "j_baseline": 6330196.980680639,
+          "j_oracle": 18086.653008711335,
+          "margin_share": 0.028489491310967983,
+          "reserve_total": 237900000.0,
+          "sealed_mean_total_liability": 221559249.99762523,
+          "skill_denominator": 6312110.327671927
+        },
+        "qual-2": {
+          "j_baseline": 14572682.377884883,
+          "j_oracle": 11916367.663403574,
+          "margin_share": 0.011656027406785658,
+          "reserve_total": 211084000.0,
+          "sealed_mean_total_liability": 227891941.37746385,
+          "skill_denominator": 2656314.714481309
+        },
+        "qual-3": {
+          "j_baseline": 14375980.817626491,
+          "j_oracle": 11679910.698680006,
+          "margin_share": 0.011529059961685323,
+          "reserve_total": 222969000.0,
+          "sealed_mean_total_liability": 233849952.02612966,
+          "skill_denominator": 2696070.118946485
+        },
+        "qual-4": {
+          "j_baseline": 15160509.248036163,
+          "j_oracle": 9931983.00031813,
+          "margin_share": 0.02256954824672855,
+          "reserve_total": 220306000.0,
+          "sealed_mean_total_liability": 231662866.733538,
+          "skill_denominator": 5228526.247718032
+        },
+        "qual-5": {
+          "j_baseline": 4765272.9420409575,
+          "j_oracle": 2322942.9269940965,
+          "margin_share": 0.010722732847132136,
+          "reserve_total": 229439000.0,
+          "sealed_mean_total_liability": 227771226.78199318,
+          "skill_denominator": 2442330.015046861
+        }
+      },
+      "worst_margin_share": 0.010722732847132136,
+      "worst_world": "qual-5"
+    }
+  },
+  "identification_margin_share": 0.01,
+  "identification_rule": "largest candidate rate whose baseline-minus-oracle expected uncovered obligation is at least identification_margin_share of the sealed mean total liability on every qualification world",
+  "measurement_contract_digest_sha256": "e184c2fda418eb70f700ac8693740da79cfccdd4199907eea9671d09e877a704",
+  "qualification_worlds": [
+    "qual-0",
+    "qual-1",
+    "qual-2",
+    "qual-3",
+    "qual-4",
+    "qual-5"
+  ],
+  "rate_grid": 1.0,
+  "rate_per_person_year": 3769.0,
+  "reference_lines": [
+    "A",
+    "B",
+    "C"
+  ],
+  "schema": "meridia.reserve-rate-calibration.v2",
+  "target_rule": "sum(submitted regional liability_mean) / public exposure"
+}

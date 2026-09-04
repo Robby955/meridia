@@ -3373,14 +3373,18 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 # has to name it as one rather than counting it as support.
                 separates_under_profile = result_ok \
                     and deciding_failed_worlds == worlds
+                # The separating and separated sets name the controls registered to the
+                # gate, so only a control's own primary gate is checked against them.
                 result_ok = result_ok \
                     and result.get("failed_worlds") == failed_worlds \
                     and result.get("passed_worlds") == passed_worlds \
                     and result.get("separates_all_worlds") is separates \
                     and isinstance(separated, dict) \
-                    and (control in separated.get(gate, [])) is separates \
                     and separating_ok \
-                    and (control in separating[gate]) is separates_under_profile
+                    and (gate != primary_gate or (
+                        (control in separated.get(gate, [])) is separates
+                        and (control in separating[gate]) is separates_under_profile
+                    ))
                 if not result_ok:
                     errors.append(f"{gate}/{control}: separation receipt is incomplete")
 

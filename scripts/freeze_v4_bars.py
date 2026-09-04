@@ -3374,21 +3374,13 @@ def _calibrate_components(references: list[dict[str, Any]],
             component: max(component_p99[component].values())
             for component in components
         }
-        component_counts: dict[str, dict[str, int]] = {
-            line: {
-                component: sum(
-                    row["component_values"][component] > component_bars[component]
-                    for row in observed_rows[line]
-                )
-                for component in components
-            }
-            for line in lines
-        }
-
-        component_records: dict[str, Any] = {}
+        # What the freeze publishes for each component is settled before any rate is
+        # counted, because a component published with no bar is compared against nothing:
+        # no replicate can be over it, so its false-fail rate is zero and the block's
+        # union carries the same reading.
         published: dict[str, float | None] = {}
+        unpublished_records: dict[str, dict[str, Any] | None] = {}
         for component in components:
-            normalizer = normalizers[component]
             _, attainable_high = COMPONENT_RANGES[(gate, component)]
             calibrated_value = component_bars[component]
             value: float | None = calibrated_value
@@ -3434,6 +3426,25 @@ def _calibrate_components(references: list[dict[str, Any]],
                 }
                 value = None
             published[component] = value
+            unpublished_records[component] = unpublishable
+
+        component_counts: dict[str, dict[str, int]] = {
+            line: {
+                component: sum(
+                    _exceeds(row["component_values"][component], published[component])
+                    for row in observed_rows[line]
+                )
+                for component in components
+            }
+            for line in lines
+        }
+
+        component_records: dict[str, Any] = {}
+        for component in components:
+            normalizer = normalizers[component]
+            calibrated_value = component_bars[component]
+            value = published[component]
+            unpublishable = unpublished_records[component]
             reference_witnesses = [
                 {
                     "reference_line": entry["reference_line"],

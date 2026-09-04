@@ -4015,3 +4015,180 @@ and the pass that freezes replaces the directory name there with the one it wrot
 The evidence still does not need rebuilding. The same 18 reference reports, 306 paired
 replicates, 132 controls and 24 development diagnostics carried this pass, and the
 measurements above were taken off those reports at the bars this pass published.
+
+## P5 pass seven, 2026-09-04
+
+### Standard reports the whole reserve block
+
+Pass six left two refusals in front of the shipping profile, and neither is a bar
+derivation question. The first is the reserve decision itself. At the compiled rate 3769
+the published total does not cover the mean liability on five of the six worlds, the
+eighteen final references read a skill loss above one on ten of them, and the proportional
+baseline reads exactly one everywhere. A bar taken from the reference spread therefore
+sits at 6.007926, six times above where the baseline lands, and no derivation reading this
+evidence puts the baseline above it. The rate sweep recorded under pass three settled that
+the rate cannot move: every candidate the published rule can produce lies between 3602 and
+4140, and the shortfall window does not open until 5322.
+
+The standard profile now decides four blocks, being exposures_and_rates,
+release_accuracy, interval_quality and tail_calibration. The reserve block is calibrated
+on the same replicate design and reported whole. Both of its components publish no bar.
+The worst regional shortfall probability already did, because its calibrated value reaches
+the top of its attainable range. The skill loss carries a finite calibrated value, so the
+profile registers the reason that value is not a ceiling a method should be held to, and
+the receipt carries the reason with the value.
+
+A profile may register a component with no bar only where it reports that component. A
+registration can never remove the bar under a verdict, and the verifier holds a receipt to
+the same registry and to the registered reason word for word. Because a component with no
+bar is compared against nothing, its false-fail rate is zero on every line and its block's
+union reads the same, so the accounting and the comparison now agree.
+
+Under a profile that reports the reserve block, the proportional baseline that passes it
+separates nothing, and the reserve calibration no longer stops on that. The reserve rate
+is still calibrated, still identified on every world, and still published, because the
+packet publishes a rate whether or not the block decides.
+
+### The requirement is one separating control per deciding block
+
+The requirement pass six would have refused next asked every registered control to fail
+its own block on every qualification world. At six worlds that is a claim about the world
+set rather than about the battery. Only two of the twenty-two controls meet it, being
+mean_only_tail and predictive_tails on pooled exceedance. Five more come close and stop
+short. uniform_allocation reaches five worlds of six in the reserve block.
+deterministic_linkage and version_three_recipe reach qual-5 alone in the exposure block,
+experience_history_only reaches qual-3 alone in release accuracy, and padded_tail reaches
+qual-1 alone in the tail block. The remaining fifteen fail their own block nowhere.
+
+The rule is now written per block. A registered control that hard-passes structure and
+fails its own block on every qualification world separates that block. A registered
+control that does not is a deletion candidate: its per-world readings are kept, it leaves
+the required battery for that profile, and it stops nothing. Each deciding block then
+holds one of two roles. A block with a separating control carries discriminating science.
+A block the profile registers as a validity gate does not need one, because the reference
+passes it on every world and no registered wrong method fails it on every world, so at
+this world size it rejects an empty or broken submission rather than telling two methods
+apart. Any other deciding block with registered controls has to have a separating control,
+and the freeze refuses by name when it does not.
+
+Standard registers exposures_and_rates, release_accuracy and interval_quality as validity
+gates and leaves the tail block to carry the science. Full and lite register none, so
+every block they decide has to separate. The registration is a claim the freeze checks
+rather than an exemption: a block that stands as a validity gate has to be passed by every
+final reference on every world, the receipt records which blocks hold which role, and the
+verifier recomputes the separating set from the receipt's own per-world comparisons before
+it accepts either role.
+
+### Three profiles on the same evidence
+
+The same 18 reference reports, 306 paired replicates, 132 controls and 24 development
+diagnostics carried all three runs. Nothing was rebuilt and nothing was loosened by hand.
+
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-full
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-lite
+
+Standard froze. `bars/national-v14-standard` holds a `bars.json` reading frozen true with
+an empty blocker list, a report reading `RESULT: FROZEN`, a provenance file, an accepted
+reserve calibration and a reserve qualification audit. The verifier reads that receipt
+with no schema error.
+
+Full refuses inside calibration, at the same place it has refused since pass five:
+
+    reserve_skill/worst_regional_shortfall_probability: the calibrated bar 1 reaches
+    its attainable ceiling 1, so the component cannot fail
+
+Lite refuses at the new control requirement, which is the honest reading of what lite
+decides on this world set:
+
+    no registered control fails a deciding gate on every qualification world:
+    exposures_and_rates, release_accuracy, interval_quality
+
+Lite decides the population, exposure and rate, and projection blocks and nothing else,
+and no registered wrong method fails any of those three on every world. It registers no
+validity gate, so it has nothing that discriminates and it does not freeze.
+
+### The bars standard published
+
+Each row names the component, the published bar, the reference line whose p99 for it is
+largest, the component's attainable range, and the largest of the eighteen final reference
+readings:
+
+    exposure and rate p95 error      15.667516   A    [0, none]    8.285235
+    release accuracy p95 error        1.314919   B    [0, none]    1.110512
+    interval coverage deviation       0.900000   B    [0, 1]       0.733333
+    mean interval score              10.250382   B    [0, none]    5.865275
+    pooled exceedance deviation       0.192106   A    [0, 0.95]    0.086475
+    q95 width error                  18.100609   B    [0, none]   11.653963
+    es95 width error                 20.680355   B    [0, none]   13.544241
+    reserve skill loss               no bar      C    [0, none]    4.632584
+    worst regional shortfall         no bar      ABC  [0, 1]       1.000000
+
+The seven published bars reproduce the values passes five and six measured, to the digit.
+The two reserve rows carry their calibrated values, 6.007926 and 1.000000, the reason each
+is not a bar, and reference witnesses whose verdict is null rather than a pass. No final
+reference exceeds any published bar on any world, so there is no gated reference failure
+and no ungated reference failure in any of the three runs.
+
+### False-fail rates and products
+
+Counts are out of the 102 replicates of a line, and the nine columns are the nine
+components in registered order, being exposure and rate p95, release accuracy p95,
+interval coverage, interval score, pooled exceedance, q95 width, es95 width, skill loss
+and shortfall. The last two read zero because nothing is compared against a component with
+no bar:
+
+    line A   1 1 0 0 1 0 0 0 0   component product 0.915147
+    line B   1 1 0 1 0 1 1 0 0   component product 0.862617
+    line C   0 1 0 0 1 0 0 0 0   component product 0.942600
+
+The union over each block's components, in the five registered blocks:
+
+    line A   1 1 0 1 0   union product 0.915147
+    line B   1 1 1 2 0   union product 0.862363
+    line C   0 1 0 1 0   union product 0.942600
+
+A count of one is a rate of 0.980392 percent, so every component on every line is at or
+under the one-percent target. The single reading above one percent is line B's tail block
+union at 1.960784 percent, where the q95 width error and the es95 width error are exceeded
+by two different replicates. The target marginal product over nine components and three
+graded worlds is 0.762343, the conservative achieved component reading is line B at
+0.862617, and the conservative union reading is line B at 0.862363.
+
+Under lite the reserve skill loss still carries a bar, so its column reads one on every
+line and the products fall back to 0.888494, 0.837494 and 0.915147, with a conservative
+union of 0.837248. Under full no calibration completes, so no rate exists.
+
+### Control separation under standard
+
+The matrix was measured off the 132 control reports at the bars above. Every control
+passes the structural hard checks on every world, nothing is hard-invalid, and no report
+is missing, duplicated or unregistered.
+
+    exposures_and_rates   validity gate    separating: none
+    release_accuracy      validity gate    separating: none
+    interval_quality      validity gate    separating: none
+    tail_calibration      discriminating   separating: mean_only_tail, predictive_tails
+    reserve_skill         reported         separating: none
+
+The deletion candidates, being every registered control that does not fail its own block
+on every world, by block:
+
+    exposures_and_rates   deterministic_linkage, ignore_health_selection, informative_selection, version_three_recipe
+    release_accuracy      register_only, survey_only, no_dedup, static_projection, benchmark_only, exact_key_union, experience_history_only
+    interval_quality      inflated_intervals, reconstruction_uncertainty
+    tail_calibration      development_average_regime, normal_tail, padded_tail, regime_recombination
+    reserve_skill         uniform_allocation, reserve_allocation, proportional_reserve
+
+Twenty of the twenty-two controls are also profile deletion candidates, being every
+control except the two tail methods, because those twenty fail no block standard decides
+on every world. The report and the provenance file carry the requirement, the role of each
+block, the separating controls per block, the deletion candidates per block and the
+per-world readings behind every one of them.
+
+What this says about the gate is worth stating plainly. At six qualification worlds the
+tail block is the only deciding block that tells a wrong method from the reference
+everywhere. The other three deciding blocks reject an empty or broken submission and, on
+this world set, do not separate the registered wrong methods from the reference. The
+receipt says so in those words rather than implying a discrimination the evidence does not
+support.
