@@ -2175,3 +2175,21 @@ The +0.474 pooled figure sits between the +0.195 the drifted in-flight build rep
 the +0.445 the fixed-snapshot diagnostic recovered on the committed geometry. Source
 policy is consistent here: truth and participant files come from one snapshot of one
 generator, which is what the earlier cross identified as the difference that mattered.
+
+### The full world build
+
+All eighteen worlds were then rebuilt at the committed 2,048-member ensemble into one
+`worlds-p4` tree, twelve development worlds and six qualification worlds as separate
+builder invocations sharing one continuation cache. Both invocations ran at once, twelve
+world processes and six, on a machine whose eighteen logical cores are six of one kind and
+twelve of a slower kind.
+
+Per world the build took 5,346 to 6,336 seconds, and the two invocations finished in 6,336
+and 6,240 seconds of wall time. That per-world figure is what eighteen worlds at once costs
+on this machine, not what one world costs alone: the earlier single-world measurement of
+about 310 seconds for a 2,048-member ensemble across fourteen processes is the free-machine
+number, and the twelve slower cores carry most of this set. The finished tree is 932
+megabytes and the ensemble cache 2.6 megabytes.
+
+Nothing else was built. Graded worlds wait on a completed freeze, which is what the seal
+and the derivation require before a seed exists at all.
