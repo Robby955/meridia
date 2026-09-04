@@ -5,7 +5,7 @@ PROFILE: full
 
 ## Blockers
 
-- third line does not improve median elder exposure error
+- interval_quality/coverage_deviation: the calibrated bar 3.67017737936 reaches its attainable ceiling 1, so the component cannot fail
 
 ## Gate profile
 
@@ -14,6 +14,7 @@ PROFILE: full
 - measured and reported, deciding nothing: none
 - reference results above a reported bar:
   - none
+- components published with no bar, because the calibrated value reaches the top of the component's attainable range: none
 
 ## Authenticated evidence design
 

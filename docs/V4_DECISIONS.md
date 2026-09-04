@@ -3400,3 +3400,209 @@ block has no publishable rate at which either component grades.
 rate the eighteen worlds under `worlds-p5` already carry. This measurement moves no
 published value. Rewriting the rule to reach a rate it could never produce would change
 what the published total means to a participant, and that decision is left open.
+
+### What lite decides now, and what a bar that nothing can fail becomes
+
+A lite verdict is decided by three blocks. Exposures and rates, release accuracy and
+interval quality are those three. The tail and the reserve are computed on every submission, written into the
+verifier result, carried in the freeze report and named in `PROVENANCE.md`, and neither
+can produce a reason. Under `full` all five still decide, and that profile is untouched.
+
+Reserve skill left the reduced selection for the reading above. Its shortfall component
+sits at 1.000000 on all eighteen final references at every rate the published rule can
+select, and that is the top of a range running from zero to one. A ceiling calibrated there
+is one no submission can exceed and no wrong method can fail. Keeping it inside a reduced
+profile would let the receipt read as though the reserve block decides something when it
+decides nothing, which is the failure the profile mechanism exists to avoid.
+
+That leaves a general question the freeze had answered one way only. A calibrated bar
+landing on the top of its component's attainable range was a refusal, whatever profile was
+running. Refusing stays right where the profile decides on that component, since the
+receipt would otherwise claim a gate it does not have. Where the profile leaves it out,
+there is nothing to claim, and a refusal throws away every other bar in the document over a
+component that was never going to matter. So the rule forks on the selection. A deciding
+component still refuses. One the profile leaves out is now published with a null value
+beside the value the calibration produced, the attainable ceiling that value reached, and a
+sentence saying why it is not a bar. Nothing compares a submission against it, so it yields
+no reference failure, no control separation and no verdict. The verifier reads such a
+record only on a component its own profile leaves out, checks that the recorded value
+recomputes from the gate's severity ceiling and the registered normalizer, checks that the
+value really does reach the range's top, and rejects a receipt carrying a null value where
+the profile decides.
+
+Deletion candidates follow the same selection. A control whose registered primary gate
+decides is judged on it exactly as before. One whose gate does not decide has to fail some
+other deciding block on every qualification world to separate anything. Under the reduced
+profile the six tail controls and the three reserve controls, `uniform_allocation`,
+`reserve_allocation` and `proportional_reserve`, fail nothing that decides, so all nine are
+named as deletion candidates in the receipt, the freeze report and the provenance file.
+The profile's price is written in all three, where a reader cannot miss it. Its registered
+per-primary-gate battery is unchanged, and `full` names nobody.
+
+Four tests hold both directions on one body of evidence. The first drives the shortfall
+component to its attainable ceiling on every reference and replicate, then checks that
+`full` refuses with the component named and that `lite` freezes with the component
+published and unbarred, its sibling skill loss bar intact so an ungated reserve exceedance
+is still recorded. The second takes that lite receipt, confirms the verifier accepts it,
+relabels it `full` and confirms the verifier then refuses it for carrying no bar where the
+profile decides, and forges the recorded calibration value to confirm the recomputation
+check fires. Third is the undefined skill score, which is a reason under `full` and a
+reported failure with the same stated cause under `lite`. Fourth checks that a refused
+document still names its profile and the gates that profile would have reported.
+
+### The world set, the published share and the normalizers are where they were
+
+Nothing was rebuilt. The compiled rate did not move, so the eighteen worlds under
+`worlds-p5` still carry the rate their contracts publish, and the evidence built on them
+still describes the packets a freeze reads. Every one of the eighteen final reference
+reports records a rate of 3769 in its reserve rule evidence and no other value.
+
+The published baseline share was recomputed from participant bytes alone on two worlds,
+following the rule each contract carries, with no build state and no sealed file: read
+`sources/population_revised.csv` and `geography.csv`, map every register row's county to
+its state, keep rows whose age at the revised tick is at or above the eligibility minimum,
+count by state, divide. qual-0 gives 4,683 rows split 1091, 1087, 864, 207, 688 and 746.
+qual-3 gives 4,812 rows split 1134, 865, 287, 528, 264 and 1734. Both reproduce their
+published vectors exactly. A register county outside the published geography would have
+raised on either tree, and neither held one.
+
+All nine component normalizers were read again from the eighteen final reference reports,
+each as the median of its component over those reports. Every one reproduces the registered
+constant. Measured median, registered constant, then the smallest and largest reading
+behind it:
+
+    0.945509  1.0000  0.405048   8.285235  exposure rates
+    0.624498  1.0000  0.399349   1.110512  release accuracy
+    0.520000  0.5200  0.100000   0.733333  interval coverage
+    1.452311  1.4523  0.853394   5.865275  interval score
+    0.050000  0.0500  0.037565   0.086475  pooled exceedance
+    3.714905  3.7149  0.873314  11.653963  q95 width
+    4.373467  4.3735  0.899293  13.544241  es95 width
+    1.250698  1.2507  0.269351   4.632584  skill loss
+    1.000000  1.0000  1.000000   1.000000  regional shortfall
+
+The last row carries no spread at all. Its smallest and largest readings over the eighteen
+are both exactly one, which is the saturation the ladder measurement predicts, read here
+off built reports rather than off a sweep.
+
+### Both profiles refuse, and the block that stops them is interval quality
+
+With the elder comparison demoted the freeze reached calibration for the first time, and
+stopped there under either profile on one line, which names the interval block's coverage
+component and the bar its calibration produced:
+
+    the calibrated bar 3.67017737936 reaches its attainable ceiling 1,
+    so the component cannot fail
+
+Both bar directories hold a fail-closed `bars.json` naming that blocker, a freeze report
+reading `RESULT: NOT FROZEN`, and a provenance file. Each names its profile and the gates
+that profile would have reported rather than decided. Neither holds a reserve calibration
+acceptance, so nothing downstream ran.
+
+Calibration raises inside the first gate it cannot publish, so no receipt carries bars,
+false-fail products, a separation matrix, deletion candidates or ungated failures. Those
+quantities were measured directly off the 306 replicate and 18 reference reports instead.
+Per block, the joint max-severity ceiling, the three reference-line p99 order statistics
+behind it, and the line that binds:
+
+    15.667516  15.667516  15.520683   1.393716  A  exposure rates
+     1.314919   1.196343   1.314919   1.196343  B  release accuracy
+     7.058033   6.007702   7.058033   1.784802  B  interval quality
+     4.931197   3.842122   4.931197   3.840820  B  tail calibration
+     4.803651   4.283276   4.605360   4.803651  C  reserve skill
+
+Those five ceilings imply nine component bars. Each is shown beside the range it has to fit
+in, and two of them do not:
+
+    15.667516  [0, none]  exposure rates
+     1.314919  [0, none]  release accuracy
+     3.670177  [0, 1]     interval coverage
+    10.250382  [0, none]  interval score
+     0.246560  [0, 0.95]  pooled exceedance
+    18.318903  [0, none]  q95 width
+    21.566589  [0, none]  es95 width
+     6.007926  [0, none]  skill loss
+     4.803651  [0, 1]     regional shortfall
+
+Interval coverage deviation reaches 3.67 against a bound of one, and the reserve shortfall
+probability reaches 4.80 against the same bound. Seven others sit inside their bounds, and
+that includes every tail component: registering component normalizers did move the pooled
+exceedance bar off the top of its range down to 0.2466, which was that pass working.
+
+Joint false-fail rates at those ceilings, by reference line:
+
+    0.980392%  0.980392%  0.000000%  exposure rates
+    0.980392%  0.980392%  0.980392%  release accuracy
+    0.000000%  0.980392%  0.000000%  interval quality
+    0.000000%  0.980392%  0.000000%  tail calibration
+    0.980392%  0.980392%  0.980392%  reserve skill
+
+Every rate is at or under the registered one percent, so false-fail accounting blocks
+nothing. None of the eighteen final references exceeds any of the seven publishable bars,
+on any world, under either profile. The reference itself is no longer the obstruction it
+was through the phase-two and phase-three passes.
+
+### Why the interval coverage bar cannot be published, in the numbers that set it
+
+That block is calibrated jointly over two components whose scales do not meet. Coverage
+deviation is the largest distance between an interval group's realized coverage and its
+nominal level, so it lives in a band one unit wide, and across the 306 replicates it reads
+0.10 to 0.90 with its own p99 at 0.90. The mean interval score has no upper bound and reads
+0.84 to 10.54 over the same reports, p99 at 9.17. Because a gate's severity is the larger
+of the two normalized losses, the score decides the ceiling on nearly every row.
+
+Binding is line B on qual-5, outer resample 010: coverage deviation 0.860000 against mean
+interval score 10.250382. Divided by the registered normalizers 0.52 and 1.4523 those
+become severities of 1.653846 and 7.058033. The larger of the two is that row's severity,
+the row is line B's p99, and line B's p99 is the largest of the three, so 7.058033 becomes
+the gate ceiling. Multiplied back by 0.52 the coverage bar is 3.670177, or 3.67 times the
+largest value the component is able to take. Runner-up is the same world and the same
+shape, line B on qual-5 outer-000 at severity 7.256576.
+
+For that bar to land inside its range the gate ceiling would have to fall below 1.9231,
+being one divided by 0.52. It is 7.0580. The gap is the score's own spread: its replicate
+p99 is 7.06 times its reference median, against 1.65 for coverage deviation. Registering
+each component at the median of its reference distribution equalized the two scales at the
+centre and left them far apart in the tail, and a p99 calibration reads the tail.
+
+Pass four of the P4 record predicted this failure for exactly this pair and expected the
+normalizer registration to close it. That worked on the tail, whose widest component
+spread is 4.93 against its median. Here it did not.
+
+Nothing was widened to get past it. Both profiles decide on this block, so both refuse, and
+no range, normalizer or quantile moved.
+
+### What stands between here and a graded mint
+
+The interval block is first. Its coverage component cannot be given a bar under a joint
+max-severity calibration on this evidence, and the three ways out are all changes to the
+calibration design rather than readings of it. Calibrate that component against its own
+distribution instead of the gate's. Register it at a scale drawn from the replicate tail
+rather than the reference median, which is a different rule from the one written into the
+module today. Or split the block so a bounded component and an unbounded one stop sharing
+one ceiling. Which of the three is right is a decision this pass does not take.
+
+Reserve skill is second, and it is the same shape with a different cause. Its shortfall
+component reads exactly one on all eighteen references and its bar lands at 4.80 against a
+bound of one. The ladder measurement above shows that no publishable rate changes it. Under
+`lite` the component leaves the profile and would be published unbarred with its calibrated
+value and its reason, so it is not what stops a reduced freeze; under `full` it waits as a
+second refusal behind the first.
+
+Third, unchanged from the previous pass, are the two example seeds in the mechanism and
+survey tests. Those files are the last places in the tree carrying qualification values,
+and the next mint replaces both with seeds drawn independently.
+
+No profile froze, so nothing was sealed, no graded world was minted, no seed was derived,
+and the task package was not repinned. Every command for the mint and the repin stays where
+the last pass wrote it, under "The morning commands, gated on a profile that froze", and
+what gates all of them is still the presence of `reserve_calibration_accepted.json` beside
+a set of bars. Neither directory holds one.
+
+The evidence does not need rebuilding. Its 18 reference reports, 306 paired replicates, 132
+controls and 24 development diagnostics were built at the compiled rate and reproduce the
+composite surface a freeze reads. A next pass therefore starts at the freeze itself, with
+the two commands the previous pass recorded and one change to each. Each needs an output
+directory nothing has written before, so use the v12 pair of bar directories in place of
+the v11 pair, since such a directory binds the digests of its own sources at first write
+and will refuse a resume whose sources have moved.

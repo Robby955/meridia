@@ -5,15 +5,16 @@ PROFILE: lite
 
 ## Blockers
 
-- third line does not improve median elder exposure error
+- interval_quality/coverage_deviation: the calibrated bar 3.67017737936 reaches its attainable ceiling 1, so the component cannot fail
 
 ## Gate profile
 
 - profile: lite
-- gates that decide: exposures_and_rates (p95_relative_error), release_accuracy (p95_relative_error), interval_quality (coverage_deviation, mean_interval_score), reserve_skill (skill_loss)
-- measured and reported, deciding nothing: tail_calibration, reserve_skill (worst_regional_shortfall_probability)
+- gates that decide: exposures_and_rates (p95_relative_error), release_accuracy (p95_relative_error), interval_quality (coverage_deviation, mean_interval_score)
+- measured and reported, deciding nothing: tail_calibration, reserve_skill
 - reference results above a reported bar:
   - none
+- components published with no bar, because the calibrated value reaches the top of the component's attainable range: none
 
 ## Authenticated evidence design
 
@@ -32,7 +33,7 @@ ES95 is the mean of all continuations tied at or above q95.
 
 ## False-fail accounting
 
-- the rates below cover all 5 calibrated gates; 4 of them decide under the lite profile
+- the rates below cover all 5 calibrated gates; 3 of them decide under the lite profile
 - target per gate: 1.00%
 - target marginal product over five gates and three graded worlds: 0.860058
 - conservative achieved conditional marginal-rate product: unavailable

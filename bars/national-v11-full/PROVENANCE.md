@@ -21,6 +21,7 @@ Gate profile: `full`.
 - measured and reported, deciding nothing: none
 - reference results above a reported bar:
   - none
+- components published with no bar, because the calibrated value reaches the top of the component's attainable range: none
 
 ## Authenticated evidence design
 
