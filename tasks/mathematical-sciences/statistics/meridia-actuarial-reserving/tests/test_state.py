@@ -72,6 +72,13 @@ def _summary(report: dict, bars: dict) -> str:
 
 
 def test_submission_passes_every_frozen_gate() -> None:
+    """Hold the three submitted files to the sealed truth at ``/tests/packet/hidden``.
+
+    Under the standard profile the verdict is the submission contract and then the four
+    deciding blocks, ``exposures_and_rates``, ``release_accuracy``, ``interval_quality``
+    and ``tail_calibration``; the reserve block is held to its own arithmetic and its
+    skill is reported without deciding.
+    """
     bars = json.loads(BARS.read_text())
     contract_errors = validate_submission_contract(SUBMISSION)
     assert not contract_errors, "\n" + "\n".join(contract_errors)
