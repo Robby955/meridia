@@ -278,6 +278,13 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
 # relative weights it is then judged by. A single-component gate is invariant to its
 # normalizer, since the value divides out of the order statistic and multiplies back into
 # the bar, so those two stay at one and their published bar is the order statistic itself.
+#
+# The seven components that do not read the published reserve total were measured again on
+# packets at the compiled rate 3769 and reproduce the values written here. The reserve pair
+# was read at that rate for the first time. Its skill loss moves to the median of the
+# eighteen reports there. Its worst regional shortfall probability reads exactly one on all
+# eighteen, because the published total no longer covers the mean liability on five of the
+# six worlds, so at least one region is short on every continuation.
 GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
     "exposures_and_rates": {"p95_relative_error": 1.0},
     "release_accuracy": {"p95_relative_error": 1.0},
@@ -291,8 +298,8 @@ GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
         "es95_width_relative_error": 4.3735,
     },
     "reserve_skill": {
-        "skill_loss": 1.1793,
-        "worst_regional_shortfall_probability": 0.3364,
+        "skill_loss": 1.2507,
+        "worst_regional_shortfall_probability": 1.0,
     },
 }
 
