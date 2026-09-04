@@ -259,12 +259,41 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-# Every component is already a dimensionless loss with zero as its ideal value.  Keeping
-# these normalizers fixed at registration time makes the composite order statistic a
-# transparent max loss and prevents the qualification sample from tuning relative weights.
+# Every component is a dimensionless loss with zero as its ideal value, but the components
+# inside one gate are not on one scale. Pooled exceedance deviation lives in a band 0.95
+# wide while the q95 and ES95 width errors on the same block run past ten, so a max-severity
+# taken with equal weights is the width error alone and the exceedance component is carried
+# to whatever ceiling the width error sets. Clipped at its attainable range that made the
+# published exceedance bar exactly 0.95, a bar no submission can exceed and no tail control
+# can fail. Interval coverage deviation against the mean interval score, and the worst
+# regional shortfall probability against skill loss, sit the same way.
+#
+# Each component therefore carries the scale of its own reference distribution: the median
+# of that component over the eighteen final reference reports on the six qualification
+# worlds, three fixed-seed lines each. A severity of one is a typical reference report on
+# that component, so the max over components is a comparison of like with like.
+#
+# These are registration-time constants, read once and written here. They are not
+# recomputed from the sample a freeze calibrates on, which would let that sample tune the
+# relative weights it is then judged by. A single-component gate is invariant to its
+# normalizer, since the value divides out of the order statistic and multiplies back into
+# the bar, so those two stay at one and their published bar is the order statistic itself.
 GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
-    gate: {component: 1.0 for component in components}
-    for gate, components in GATE_COMPONENTS.items()
+    "exposures_and_rates": {"p95_relative_error": 1.0},
+    "release_accuracy": {"p95_relative_error": 1.0},
+    "interval_quality": {
+        "coverage_deviation": 0.52,
+        "mean_interval_score": 1.4523,
+    },
+    "tail_calibration": {
+        "pooled_exceedance_deviation": 0.05,
+        "q95_width_relative_error": 3.7149,
+        "es95_width_relative_error": 4.3735,
+    },
+    "reserve_skill": {
+        "skill_loss": 1.1793,
+        "worst_regional_shortfall_probability": 0.3364,
+    },
 }
 
 # Criterion ranges, not tunable attainability caps. An unbounded endpoint is null in JSON.
@@ -2917,6 +2946,18 @@ def _calibrate_components(references: list[dict[str, Any]],
             _, attainable_high = COMPONENT_RANGES[(gate, component)]
             value = severity_ceiling * normalizer
             if attainable_high is not None:
+                # A bar at the top of the component's attainable range is not a bar. No
+                # submission can exceed it and no control can fail on it, so the component
+                # decides nothing and the gate is weaker than its receipt reads. The
+                # freeze refuses rather than publishing one.
+                if value >= attainable_high or math.isclose(
+                    value, attainable_high, rel_tol=1e-9, abs_tol=1e-12
+                ):
+                    raise EvidenceError(
+                        f"{gate}/{component}: the calibrated bar "
+                        f"{value:.12g} reaches its attainable ceiling "
+                        f"{attainable_high:.12g}, so the component cannot fail"
+                    )
                 value = min(value, attainable_high)
             reference_witnesses = [
                 {

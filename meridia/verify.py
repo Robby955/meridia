@@ -136,9 +136,41 @@ COMPOSITE_GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
                          "q95_width_relative_error", "es95_width_relative_error"),
     "reserve_skill": ("skill_loss", "worst_regional_shortfall_probability"),
 }
+# Every component is a dimensionless loss with zero as its ideal value, but the components
+# inside one gate are not on one scale. Pooled exceedance deviation lives in a band 0.95
+# wide while the q95 and ES95 width errors on the same block run past ten, so a max-severity
+# taken with equal weights is the width error alone and the exceedance component is carried
+# to whatever ceiling the width error sets. Clipped at its attainable range that made the
+# published exceedance bar exactly 0.95, a bar no submission can exceed and no tail control
+# can fail. Interval coverage deviation against the mean interval score, and the worst
+# regional shortfall probability against skill loss, sit the same way.
+#
+# Each component therefore carries the scale of its own reference distribution: the median
+# of that component over the eighteen final reference reports on the six qualification
+# worlds, three fixed-seed lines each. A severity of one is a typical reference report on
+# that component, so the max over components is a comparison of like with like.
+#
+# These are registration-time constants, read once and written here. They are not
+# recomputed from the sample a freeze calibrates on, which would let that sample tune the
+# relative weights it is then judged by. A single-component gate is invariant to its
+# normalizer, since the value divides out of the order statistic and multiplies back into
+# the bar, so those two stay at one and their published bar is the order statistic itself.
 GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
-    gate: {component: 1.0 for component in components}
-    for gate, components in COMPOSITE_GATE_COMPONENTS.items()
+    "exposures_and_rates": {"p95_relative_error": 1.0},
+    "release_accuracy": {"p95_relative_error": 1.0},
+    "interval_quality": {
+        "coverage_deviation": 0.52,
+        "mean_interval_score": 1.4523,
+    },
+    "tail_calibration": {
+        "pooled_exceedance_deviation": 0.05,
+        "q95_width_relative_error": 3.7149,
+        "es95_width_relative_error": 4.3735,
+    },
+    "reserve_skill": {
+        "skill_loss": 1.1793,
+        "worst_regional_shortfall_probability": 0.3364,
+    },
 }
 # A gate profile selects which of the five frozen composites decide a verdict. It never
 # adds a gate, never adds a component, and never moves a frozen ceiling: every profile is
@@ -3041,6 +3073,17 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             expected_value = float(severity_ceiling) * normalizer \
                 if finite_number(severity_ceiling) else float("nan")
             if high is not None:
+                # A bar at the top of its attainable range decides nothing, so a receipt
+                # carrying one is rejected rather than read as a pass.
+                if math.isfinite(expected_value) and (
+                    expected_value >= float(high)
+                    or math.isclose(expected_value, float(high),
+                                    rel_tol=1e-9, abs_tol=1e-12)
+                ):
+                    errors.append(
+                        f"{gate}/{component}: the calibrated bar reaches its attainable "
+                        f"ceiling and cannot fail"
+                    )
                 expected_value = min(expected_value, float(high))
             if record.get("normalizer") != normalizer \
                     or record.get("calibration_method") \

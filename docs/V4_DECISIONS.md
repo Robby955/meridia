@@ -2557,3 +2557,41 @@ blocks are recorded here rather than added.
 Nothing about the control changed. It runs the same switches and produces the same
 submission. Only the composite it is judged on moved, in the three registries that have to
 agree: the control registry, the verifier, and the freeze.
+
+### Component normalizers, and a bar that cannot fail
+
+Every gate component was registered with a normalizer of 1.0. A gate's severity is the
+maximum normalized component loss, so with one shared scale the severity of a gate is
+whichever of its components carries the largest raw numbers, and every other component of
+that gate is then published at that same number. Clipped at its own attainable range, the
+result on the tail block is a published exceedance bar of exactly 0.95, the top of the
+range the component can take. No submission can exceed it and no tail control can fail on
+it, so the component decides nothing while the receipt reads as though it does. Interval
+coverage deviation against the mean interval score, and the worst regional shortfall
+probability against skill loss, sit the same way at a ceiling of 1.0.
+
+Each component now carries the scale of its own reference distribution: the median of that
+component over the eighteen final reference reports on the six qualification worlds, three
+fixed-seed lines each. Measured on the P4 world set at the compiled rate, those medians
+are 0.9455 for the exposure and rate error, 0.6245 for release accuracy, 0.52 for interval
+coverage deviation, 1.4523 for the mean interval score, 0.05 for pooled exceedance
+deviation, 3.7149 for the q95 width error, 4.3735 for the ES95 width error, 1.1793 for
+skill loss and 0.3364 for the worst regional shortfall probability.
+
+The registered values are those medians for the three gates with more than one component.
+The two single-component gates stay at one. A single-component gate is invariant to its
+normalizer, since the value divides out of the order statistic and multiplies straight
+back into the bar, so registering anything else there would only introduce rounding. Skill
+loss and the shortfall probability were read at the compiled rate 4600, which is the only
+rate at which eighteen reference reports exist. They set relative weights within a gate,
+not thresholds, and the reserve block's pair should be read again once packets exist at
+the accepted rate.
+
+These are registration-time constants written into the module. They are not recomputed
+from the sample a freeze calibrates on, which would let that sample tune the weights it is
+then judged by.
+
+Alongside them the freeze refuses any bar that lands on the top of its component's
+attainable range, within floating-point rounding of it. Such a bar is not a bar, and a
+receipt carrying one is rejected by the verifier on the same rule rather than read as a
+pass.

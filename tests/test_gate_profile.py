@@ -58,10 +58,11 @@ def _bars(gate_profile: str) -> dict:
 
 
 def _wrong_tail_submission(tmp_path):
-    """A submission whose gated blocks are right and whose filed tails are far out.
+    """A submission whose gated blocks are right and whose filed q95 is far out.
 
     The filed q95 sits six ensemble tail widths above the sealed quantile and ES95 is
-    carried up with it, so both width-relative errors run well past their frozen bars.
+    carried up with it. Against the registered component normalizers the q95 width error
+    runs well past its frozen bar while the ES95 error stays inside its own, wider one.
     The allocation is the perfect-information one, so the reserve skill is exact.
     """
     actuarial = _actuarial_fixtures()
@@ -118,7 +119,7 @@ def test_lite_passes_a_submission_whose_tails_are_wrong(tmp_path):
     tail = report["gate_results"]["tail_calibration"]
     assert tail["gated"] is False and tail["pass"] is None and tail["reasons"] == []
     assert [detail.split()[0] for detail in tail["ungated_failures"]] == [
-        "q95_width_relative_error", "es95_width_relative_error"]
+        "q95_width_relative_error"]
     reserve = report["gate_results"]["reserve_skill"]
     assert reserve["gated"] is True and reserve["pass"] is True
     assert reserve["gated_components"] == ["skill_loss"]
@@ -230,7 +231,7 @@ def test_a_reference_above_a_tail_bar_blocks_full_and_is_recorded_under_lite():
     references, replicates, controls = fixtures._evidence(freeze)
     references = deepcopy(references)
     references[0]["report"]["composite_metrics"]["tail_calibration"][
-        "q95_width_relative_error"] = 0.9
+        "q95_width_relative_error"] = 5.0
     fixtures._rebind(freeze, references[0], "reference")
     kwargs = fixtures._calibration_kwargs(freeze, references, controls)
     full = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
