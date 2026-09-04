@@ -291,18 +291,31 @@ GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
 # A gate profile selects which of the five calibrated composites decide a verdict. It is
 # a subset of GATE_COMPONENTS: no profile adds a gate, adds a component, or moves a bar.
 # Every profile calibrates all five gates on the same replicate design and reports all
-# five; the profile only says which ones decide. "lite" decides on the population,
-# exposure and rate, and projection blocks, and reports the tail and the reserve.
+# five; the profile only says which ones decide.
 #
-# The reserve block leaves lite for a measured reason. On this world set the worst-region
-# shortfall probability reads exactly one on all eighteen final reference reports at every
-# rate the published rate rule can select, so its calibrated bar sits at the top of the
-# component's attainable range and no submission can exceed it and no control can fail on
-# it. A block one of whose components cannot be given a bar is not a block a reduced
-# profile should decide on, and the readings stay in the receipt where a reader sees them.
+# "standard" is the shipping selection. All five blocks decide, and the only component
+# that does not is the worst-region shortfall probability. On this world set that
+# component reads exactly one on all eighteen final reference reports and all three
+# hundred and six replicates at the compiled rate, so its own p99 sits at the top of its
+# attainable range: no submission can exceed it and no control can fail on it. A ceiling
+# nothing can fail is not a bar, so the freeze publishes the component with no bar, the
+# value its calibration produced, the ceiling that value reached, and the reason, and the
+# other eight components decide.
+#
+# "full" decides on all nine components, so it refuses rather than publish that component
+# without a bar. "lite" decides on the population, exposure and rate, and projection
+# blocks, and reports the tail and the reserve blocks whole.
 DEFAULT_GATE_PROFILE = "full"
 GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     "full": {gate: tuple(components) for gate, components in GATE_COMPONENTS.items()},
+    "standard": {
+        "exposures_and_rates": ("p95_relative_error",),
+        "release_accuracy": ("p95_relative_error",),
+        "interval_quality": ("coverage_deviation", "mean_interval_score"),
+        "tail_calibration": ("pooled_exceedance_deviation",
+                             "q95_width_relative_error", "es95_width_relative_error"),
+        "reserve_skill": ("skill_loss",),
+    },
     "lite": {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
@@ -469,6 +482,22 @@ def gate_profile_selection(name: Any) -> dict[str, tuple[str, ...]]:
             )
         selection[gate] = tuple(components)
     return selection
+
+
+def gate_profile_reported_only(name: Any) -> list[str]:
+    """Name every component the profile measures and reports but never decides on.
+
+    A profile can leave out one component of a block it otherwise decides on, so each
+    entry names the gate and the component in registered order.
+    """
+
+    selection = gate_profile_selection(name)
+    return [
+        f"{gate}/{component}"
+        for gate, components in GATE_COMPONENTS.items()
+        for component in components
+        if component not in selection.get(gate, ())
+    ]
 
 
 def _canonical_digest(value: Any) -> str:
@@ -3736,8 +3765,10 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
     )
     try:
         selection = gate_profile_selection(gate_profile)
+        reported_only = gate_profile_reported_only(gate_profile)
     except EvidenceError:
         selection = {}
+        reported_only = []
     return {
         "schema": SCHEMA,
         "frozen": False,
@@ -3746,6 +3777,7 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
                                    for gate, components in selection.items()},
         "reported_only_gates": [gate for gate in GATE_COMPONENTS
                                 if gate not in selection],
+        "reported_only_components": reported_only,
         "gates": {},
         "blockers": list(blockers),
         "reference_failures": [],
@@ -4055,6 +4087,7 @@ def calibrate_composite_bars(
                                    for gate, components in profile_selection.items()},
         "reported_only_gates": [gate for gate in GATE_COMPONENTS
                                 if gate not in profile_selection],
+        "reported_only_components": gate_profile_reported_only(gate_profile),
         "gates": gates,
         "blockers": blockers,
         "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
@@ -4281,6 +4314,14 @@ def _append_gate_profile(lines: list[str], bars: Mapping[str, Any]) -> None:
     selection = bars.get("gate_profile_selection")
     selection = selection if isinstance(selection, Mapping) else {}
     reported_only = [gate for gate in GATE_COMPONENTS if gate not in selection]
+    reported_only_components = bars.get("reported_only_components")
+    if not isinstance(reported_only_components, list):
+        reported_only_components = [
+            f"{gate}/{component}"
+            for gate, components in GATE_COMPONENTS.items()
+            for component in components
+            if component not in selection.get(gate, [])
+        ]
     lines.extend([
         "## Gate profile",
         "",
@@ -4303,6 +4344,8 @@ def _append_gate_profile(lines: list[str], bars: Mapping[str, Any]) -> None:
             if gate in reported_only
             or set(selection.get(gate, [])) != set(GATE_COMPONENTS[gate])
         ) or "none"),
+        "- reported-only components: "
+        + (", ".join(reported_only_components) if reported_only_components else "none"),
     ])
     ungated = bars.get("ungated_reference_failures")
     lines.append("- reference results above a reported bar:")

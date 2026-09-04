@@ -191,17 +191,32 @@ GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
 # A gate profile selects which of the five frozen composites decide a verdict. It never
 # adds a gate, never adds a component, and never moves a frozen ceiling: every profile is
 # a subset of COMPOSITE_GATE_COMPONENTS. Whatever a profile leaves out is still measured
-# and still reported; it only stops deciding. "full" is the default and decides on all
-# five. "lite" drops the tail block and the reserve block: exceedance deviations, the q95
-# and ES95 width-relative errors, the skill loss and the regional shortfall probabilities
-# are reported, and the population, exposure and rate, and projection blocks decide. The
-# reserve block leaves lite because its shortfall component reads exactly one on every
-# reference report at every rate the published rate rule can select, so that component
-# cannot be given a bar anything could fail.
+# and still reported; it only stops deciding.
+#
+# "standard" is the shipping selection. All five blocks decide, and every component
+# decides except the worst regional shortfall probability. That component reads exactly
+# one on all eighteen final reference reports and all three hundred and six replicates at
+# the compiled rate, so its own p99 lands on the top of its attainable range and no
+# submission could ever exceed it. It stays measured, and the receipt carries the value
+# its calibration produced, the ceiling that value reached, and the reason it is not a
+# bar, in place of a ceiling nothing can fail.
+#
+# "full" decides on all nine components. "lite" drops the tail block and the reserve block
+# whole: exceedance deviations, the q95 and ES95 width-relative errors, the skill loss and
+# the regional shortfall probabilities are reported, and the population, exposure and
+# rate, and projection blocks decide.
 DEFAULT_GATE_PROFILE = "full"
 GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     "full": {gate: tuple(components)
              for gate, components in COMPOSITE_GATE_COMPONENTS.items()},
+    "standard": {
+        "exposures_and_rates": ("p95_relative_error",),
+        "release_accuracy": ("p95_relative_error",),
+        "interval_quality": ("coverage_deviation", "mean_interval_score"),
+        "tail_calibration": ("pooled_exceedance_deviation",
+                             "q95_width_relative_error", "es95_width_relative_error"),
+        "reserve_skill": ("skill_loss",),
+    },
     "lite": {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
@@ -219,6 +234,22 @@ def gate_profile_selection(name: str) -> dict[str, tuple[str, ...]]:
         raise ValueError(f"unknown gate profile {name!r}")
     return {gate: tuple(components)
             for gate, components in GATE_PROFILES[name].items()}
+
+
+def gate_profile_reported_only(name: str) -> list[str]:
+    """Name every component the profile measures and reports but never decides on.
+
+    The list is in registered gate and component order, and each entry names the gate and
+    the component, because a profile can leave out one component of a block it otherwise
+    decides on.
+    """
+    selection = gate_profile_selection(name)
+    return [
+        f"{gate}/{component}"
+        for gate, components in COMPOSITE_GATE_COMPONENTS.items()
+        for component in components
+        if component not in selection.get(gate, ())
+    ]
 
 
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
@@ -1261,6 +1292,14 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         if bars.get("gate_profile_selection", registered_selection) \
                 != registered_selection:
             errors.append("gate profile selection differs from the registered profile")
+        registered_reported_only = gate_profile_reported_only(
+            bars.get("gate_profile", DEFAULT_GATE_PROFILE)
+        )
+        if bars.get("reported_only_components", registered_reported_only) \
+                != registered_reported_only:
+            errors.append(
+                "reported-only components differ from the registered profile"
+            )
     worlds = bars.get("qualification_worlds")
     if worlds != list(QUALIFICATION_WORLD_NAMES):
         errors.append("freeze receipt must name qual-0 through qual-5 in order")
@@ -3831,8 +3870,13 @@ def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
 def _failed_v4_report(reason: str, *, schema_errors: list[str] | None = None,
                       gate_profile: str = DEFAULT_GATE_PROFILE) -> dict:
     empty = {gate: {} for gate in COMPOSITE_GATE_COMPONENTS}
+    try:
+        reported_only = gate_profile_reported_only(gate_profile)
+    except ValueError:
+        reported_only = []
     return {"pass": False, "hard_pass": False, "reasons": [reason],
             "gate_profile": gate_profile,
+            "reported_only_components": reported_only,
             "schema_errors": list(schema_errors or []), "additivity_errors": [],
             "rate_errors": [], "reserve_errors": [], "metrics": {},
             "projection_metrics": {}, "rate_metrics": {},
@@ -4028,6 +4072,7 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
     report = {
         "pass": not reasons, "hard_pass": hard_pass, "reasons": reasons,
         "gate_profile": gate_profile,
+        "reported_only_components": gate_profile_reported_only(gate_profile),
         "schema_errors": all_schema_errors, "additivity_errors": all_additivity_errors,
         "rate_errors": rate_errors, "reserve_errors": reserve_errors,
         "metrics": metrics, "projection_metrics": projection_metrics,

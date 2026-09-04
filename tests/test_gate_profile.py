@@ -12,7 +12,8 @@ import pytest
 from meridia.actuarial import perfect_information_allocation
 from meridia.verify import (COMPOSITE_GATE_COMPONENTS, DEFAULT_GATE_PROFILE,
                             GATE_PROFILES, evaluate_composite_gates,
-                            gate_profile_selection, verify_submission)
+                            gate_profile_reported_only, gate_profile_selection,
+                            verify_submission)
 
 TAIL_CONTROLS = (
     "development_average_regime", "mean_only_tail", "normal_tail", "padded_tail",
@@ -87,7 +88,8 @@ def test_every_profile_is_a_selection_over_the_five_frozen_gates():
     freeze = _freeze()
     assert DEFAULT_GATE_PROFILE == "full"
     assert freeze.DEFAULT_GATE_PROFILE == DEFAULT_GATE_PROFILE
-    assert set(GATE_PROFILES) == set(freeze.GATE_PROFILES) == {"full", "lite"}
+    assert set(GATE_PROFILES) == set(freeze.GATE_PROFILES) \
+        == {"full", "standard", "lite"}
     for name in GATE_PROFILES:
         selection = gate_profile_selection(name)
         assert selection == freeze.gate_profile_selection(name)
@@ -103,6 +105,25 @@ def test_every_profile_is_a_selection_over_the_five_frozen_gates():
     assert set(lite) == {
         "exposures_and_rates", "release_accuracy", "interval_quality"}
     assert "tail_calibration" not in lite and "reserve_skill" not in lite
+    standard = gate_profile_selection("standard")
+    assert set(standard) == set(COMPOSITE_GATE_COMPONENTS)
+    assert standard["reserve_skill"] == ("skill_loss",)
+    for gate in ("exposures_and_rates", "release_accuracy", "interval_quality",
+                 "tail_calibration"):
+        assert standard[gate] == COMPOSITE_GATE_COMPONENTS[gate]
+    assert gate_profile_reported_only("standard") == [
+        "reserve_skill/worst_regional_shortfall_probability"]
+    assert gate_profile_reported_only("full") == []
+    assert gate_profile_reported_only("lite") == [
+        "tail_calibration/pooled_exceedance_deviation",
+        "tail_calibration/q95_width_relative_error",
+        "tail_calibration/es95_width_relative_error",
+        "reserve_skill/skill_loss",
+        "reserve_skill/worst_regional_shortfall_probability",
+    ]
+    for name in GATE_PROFILES:
+        assert gate_profile_reported_only(name) \
+            == freeze.gate_profile_reported_only(name)
     with pytest.raises(ValueError):
         gate_profile_selection("tail_only")
     with pytest.raises(freeze.EvidenceError):
@@ -302,3 +323,91 @@ def test_a_refused_freeze_still_names_the_profile_and_what_it_reports():
         assert refused["ungated_reference_failures"] == []
         text = freeze.render_freeze_report(refused)
         assert f"PROFILE: {profile}" in text
+
+
+def _standard_bars():
+    """A complete freeze under standard, on evidence whose shortfall reads one."""
+    freeze, fixtures = _freeze(), _fixtures()
+    references, replicates, controls = fixtures._evidence(freeze)
+    fixtures._saturate_shortfall(freeze, references, replicates, controls)
+    return freeze.calibrate_composite_bars(
+        references, replicates, controls, gate_profile="standard",
+        **fixtures._calibration_kwargs(freeze, references, controls),
+    )
+
+
+def test_standard_decides_on_eight_components_and_reports_the_ninth():
+    from meridia.verify import _bar_schema_errors
+
+    freeze = _freeze()
+    bars = _standard_bars()
+    assert bars["blockers"] == []
+    assert bars["frozen"] is True
+    assert bars["gate_profile"] == "standard"
+    assert bars["reported_only_gates"] == []
+    assert bars["reported_only_components"] == [
+        "reserve_skill/worst_regional_shortfall_probability"]
+    assert _bar_schema_errors(bars) == []
+
+    reserve = bars["gates"]["reserve_skill"]["components"]
+    assert reserve["skill_loss"]["value"] > 0.0
+    unpublished = reserve["worst_regional_shortfall_probability"]
+    assert unpublished["value"] is None
+    assert unpublished["publishable"] is False
+    assert unpublished["unpublishable"]["calibrated_value"] == 1.0
+    assert unpublished["unpublishable"]["attainable_ceiling"] == 1.0
+    assert unpublished["unpublishable"]["decides_under_profile"] is False
+    assert "cannot fail" in unpublished["unpublishable"]["reason"]
+    assert all(witness["pass"] is None
+               for witness in unpublished["reference_witnesses"])
+
+    for text in (freeze.render_freeze_report(bars), freeze.render_provenance(bars)):
+        assert "PROFILE: standard" in text or "Gate profile: `standard`." in text
+        assert "- profile: standard" in text
+        assert ("- reported-only components: "
+                "reserve_skill/worst_regional_shortfall_probability") in text
+        assert "reserve_skill (worst_regional_shortfall_probability)" in text
+        assert "reserve_skill/worst_regional_shortfall_probability" in text
+        assert "value: no bar published" in text
+
+
+def test_standard_scores_the_reserve_block_on_skill_loss_alone(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    bars = _standard_bars()
+    report = verify_submission(packet, submission, bars, gate_profile="standard")
+
+    assert report["gate_profile"] == "standard"
+    assert report["reported_only_components"] == [
+        "reserve_skill/worst_regional_shortfall_probability"]
+    reserve = report["gate_results"]["reserve_skill"]
+    assert reserve["gated"] is True
+    assert reserve["gated_components"] == ["skill_loss"]
+    # The shortfall component was measured and carries no bar, so it can neither pass
+    # nor fail and never reaches the reasons or the ungated failures.
+    assert reserve["ungated_failures"] == []
+    assert "worst_regional_shortfall_probability" in \
+        report["composite_metrics"]["reserve_skill"]
+    # The tail block decides under standard, so this submission fails on it.
+    assert report["pass"] is False
+    assert [reason.split(":")[0] for reason in report["reasons"]] == \
+        ["tail_calibration"]
+
+
+def test_a_standard_receipt_cannot_decide_under_another_profile(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    bars = _standard_bars()
+    for other in ("full", "lite"):
+        report = verify_submission(packet, submission, bars, gate_profile=other)
+        assert report["pass"] is False and report["hard_pass"] is False
+        assert any("the receipt froze the 'standard' gate profile" in reason
+                   for reason in report["reasons"])
+    renamed = deepcopy(bars)
+    renamed["gate_profile"] = "full"
+    renamed["gate_profile_selection"] = {
+        gate: list(components)
+        for gate, components in gate_profile_selection("full").items()
+    }
+    from meridia.verify import _bar_schema_errors
+    errors = _bar_schema_errors(renamed)
+    assert any("must carry a published bar" in error for error in errors)
+    assert any("reported-only components differ" in error for error in errors)
