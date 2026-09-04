@@ -106,12 +106,15 @@ def test_every_profile_is_a_selection_over_the_five_frozen_gates():
         "exposures_and_rates", "release_accuracy", "interval_quality"}
     assert "tail_calibration" not in lite and "reserve_skill" not in lite
     standard = gate_profile_selection("standard")
-    assert set(standard) == set(COMPOSITE_GATE_COMPONENTS)
-    assert standard["reserve_skill"] == ("skill_loss",)
+    assert set(standard) == {
+        "exposures_and_rates", "release_accuracy", "interval_quality",
+        "tail_calibration"}
+    assert "reserve_skill" not in standard
     for gate in ("exposures_and_rates", "release_accuracy", "interval_quality",
                  "tail_calibration"):
         assert standard[gate] == COMPOSITE_GATE_COMPONENTS[gate]
     assert gate_profile_reported_only("standard") == [
+        "reserve_skill/skill_loss",
         "reserve_skill/worst_regional_shortfall_probability"]
     assert gate_profile_reported_only("full") == []
     assert gate_profile_reported_only("lite") == [
@@ -128,6 +131,34 @@ def test_every_profile_is_a_selection_over_the_five_frozen_gates():
         gate_profile_selection("tail_only")
     with pytest.raises(freeze.EvidenceError):
         freeze.gate_profile_selection("tail_only")
+
+
+def test_a_profile_publishes_no_bar_only_for_a_component_it_reports():
+    """The registry that drops a bar can never reach a component a verdict rests on."""
+    from meridia.verify import (GATE_PROFILE_UNPUBLISHED_COMPONENTS,
+                                gate_profile_unpublished_components)
+
+    freeze = _freeze()
+    assert GATE_PROFILE_UNPUBLISHED_COMPONENTS \
+        == freeze.GATE_PROFILE_UNPUBLISHED_COMPONENTS
+    assert set(GATE_PROFILE_UNPUBLISHED_COMPONENTS) <= set(GATE_PROFILES)
+    for name in GATE_PROFILES:
+        registered = gate_profile_unpublished_components(name)
+        assert registered == freeze.gate_profile_unpublished_components(name)
+        assert set(registered) <= set(gate_profile_reported_only(name))
+        assert all(isinstance(reason, str) and reason
+                   for reason in registered.values())
+    assert set(gate_profile_unpublished_components("standard")) == {
+        "reserve_skill/skill_loss"}
+    assert gate_profile_unpublished_components("full") == {}
+    assert gate_profile_unpublished_components("lite") == {}
+    freeze.GATE_PROFILE_UNPUBLISHED_COMPONENTS["lite"] = {
+        "exposures_and_rates/p95_relative_error": "not readable"}
+    try:
+        with pytest.raises(freeze.EvidenceError):
+            freeze.gate_profile_unpublished_components("lite")
+    finally:
+        del freeze.GATE_PROFILE_UNPUBLISHED_COMPONENTS["lite"]
 
 
 def test_lite_passes_a_submission_whose_tails_are_wrong(tmp_path):
@@ -336,78 +367,51 @@ def _standard_bars():
     )
 
 
-def test_standard_decides_on_eight_components_and_reports_the_ninth():
-    from meridia.verify import _bar_schema_errors
+def test_standard_reports_the_whole_reserve_block_with_no_bar():
+    """Standard decides four blocks and publishes no bar under either reserve component.
+
+    The shortfall probability carries no bar because its calibrated value reaches the top
+    of its attainable range. The skill loss carries none because the profile registers
+    the reason its finite value is not a ceiling any method should be held to.
+    """
+    from meridia.verify import gate_profile_unpublished_components
 
     freeze = _freeze()
     bars = _standard_bars()
-    assert bars["blockers"] == []
-    assert bars["frozen"] is True
     assert bars["gate_profile"] == "standard"
-    assert bars["reported_only_gates"] == []
+    assert bars["gate_profile_selection"] == {
+        gate: list(components)
+        for gate, components in gate_profile_selection("standard").items()
+    }
+    assert bars["reported_only_gates"] == ["reserve_skill"]
     assert bars["reported_only_components"] == [
+        "reserve_skill/skill_loss",
         "reserve_skill/worst_regional_shortfall_probability"]
-    assert _bar_schema_errors(bars) == []
+    assert bars["reference_failures"] == []
 
     reserve = bars["gates"]["reserve_skill"]["components"]
-    assert reserve["skill_loss"]["value"] > 0.0
-    unpublished = reserve["worst_regional_shortfall_probability"]
-    assert unpublished["value"] is None
-    assert unpublished["publishable"] is False
-    assert unpublished["unpublishable"]["calibrated_value"] == 1.0
-    assert unpublished["unpublishable"]["attainable_ceiling"] == 1.0
-    assert unpublished["unpublishable"]["decides_under_profile"] is False
-    assert "cannot fail" in unpublished["unpublishable"]["reason"]
-    assert all(witness["pass"] is None
-               for witness in unpublished["reference_witnesses"])
+    registered = gate_profile_unpublished_components("standard")
+    skill = reserve["skill_loss"]
+    assert skill["value"] is None and skill["publishable"] is False
+    assert skill["unpublishable"]["calibrated_value"] > 0.0
+    assert skill["unpublishable"]["attainable_ceiling"] is None
+    assert skill["unpublishable"]["decides_under_profile"] is False
+    assert skill["unpublishable"]["reason"] == registered["reserve_skill/skill_loss"]
+    assert all(witness["pass"] is None for witness in skill["reference_witnesses"])
+    shortfall = reserve["worst_regional_shortfall_probability"]
+    assert shortfall["value"] is None and shortfall["publishable"] is False
+    assert shortfall["unpublishable"]["attainable_ceiling"] == 1.0
+    assert "cannot fail" in shortfall["unpublishable"]["reason"]
 
     for text in (freeze.render_freeze_report(bars), freeze.render_provenance(bars)):
-        assert "PROFILE: standard" in text or "Gate profile: `standard`." in text
         assert "- profile: standard" in text
-        assert ("- reported-only components: "
+        assert ("- reported-only components: reserve_skill/skill_loss, "
                 "reserve_skill/worst_regional_shortfall_probability") in text
-        assert "reserve_skill (worst_regional_shortfall_probability)" in text
-        assert "reserve_skill/worst_regional_shortfall_probability" in text
+        assert "reserve_skill (reported, decides nothing)" in text
         assert "value: no bar published" in text
 
-
-def test_standard_scores_the_reserve_block_on_skill_loss_alone(tmp_path):
-    packet, submission = _wrong_tail_submission(tmp_path)
-    bars = _standard_bars()
-    report = verify_submission(packet, submission, bars, gate_profile="standard")
-
-    assert report["gate_profile"] == "standard"
-    assert report["reported_only_components"] == [
-        "reserve_skill/worst_regional_shortfall_probability"]
-    reserve = report["gate_results"]["reserve_skill"]
-    assert reserve["gated"] is True
-    assert reserve["gated_components"] == ["skill_loss"]
-    # The shortfall component was measured and carries no bar, so it can neither pass
-    # nor fail and never reaches the reasons or the ungated failures.
-    assert reserve["ungated_failures"] == []
-    assert "worst_regional_shortfall_probability" in \
-        report["composite_metrics"]["reserve_skill"]
-    # The tail block decides under standard, so this submission fails on it.
-    assert report["pass"] is False
-    assert [reason.split(":")[0] for reason in report["reasons"]] == \
-        ["tail_calibration"]
-
-
-def test_a_standard_receipt_cannot_decide_under_another_profile(tmp_path):
-    packet, submission = _wrong_tail_submission(tmp_path)
-    bars = _standard_bars()
-    for other in ("full", "lite"):
-        report = verify_submission(packet, submission, bars, gate_profile=other)
-        assert report["pass"] is False and report["hard_pass"] is False
-        assert any("the receipt froze the 'standard' gate profile" in reason
-                   for reason in report["reasons"])
-    renamed = deepcopy(bars)
-    renamed["gate_profile"] = "full"
-    renamed["gate_profile_selection"] = {
-        gate: list(components)
-        for gate, components in gate_profile_selection("full").items()
-    }
-    from meridia.verify import _bar_schema_errors
-    errors = _bar_schema_errors(renamed)
-    assert any("must carry a published bar" in error for error in errors)
-    assert any("reported-only components differ" in error for error in errors)
+    # The reserve controls can fail nothing once the block carries no bar, so the
+    # registered per-gate battery is the next thing to stop this freeze. Pass seven takes
+    # that requirement up.
+    assert any("control separation is incomplete" in blocker
+               and "reserve_skill" in blocker for blocker in bars["blockers"])

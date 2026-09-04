@@ -293,16 +293,18 @@ GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
 # Every profile calibrates all five gates on the same replicate design and reports all
 # five; the profile only says which ones decide.
 #
-# "standard" is the shipping selection. All five blocks decide, and the only component
-# that does not is the worst-region shortfall probability. On this world set that
-# component reads exactly one on all eighteen final reference reports and all three
-# hundred and six replicates at the compiled rate, so its own p99 sits at the top of its
-# attainable range: no submission can exceed it and no control can fail on it. A ceiling
-# nothing can fail is not a bar, so the freeze publishes the component with no bar, the
-# value its calibration produced, the ceiling that value reached, and the reason, and the
-# other eight components decide.
+# "standard" is the shipping selection. Four blocks decide, being the exposure and rate
+# block, the release accuracy block, the interval block and the tail block. The reserve
+# block is calibrated and reported whole and decides nothing. Both of its components
+# publish no bar. The worst-region shortfall probability reads exactly one on all
+# eighteen final reference reports and all three hundred and six replicates at the
+# compiled rate, so its own p99 sits at the top of its attainable range and no submission
+# can exceed it. The skill loss has a finite bar, but at the compiled rate the reference
+# allocations lose to the proportional baseline on half the qualification worlds, so the
+# bar taken from the reference spread sits far above where the baseline lands and the
+# decision carries no gradable value at this world set.
 #
-# "full" decides on all nine components, so it refuses rather than publish that component
+# "full" decides on all nine components, so it refuses rather than publish a component
 # without a bar. "lite" decides on the population, exposure and rate, and projection
 # blocks, and reports the tail and the reserve blocks whole.
 DEFAULT_GATE_PROFILE = "full"
@@ -314,12 +316,28 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
         "tail_calibration": ("pooled_exceedance_deviation",
                              "q95_width_relative_error", "es95_width_relative_error"),
-        "reserve_skill": ("skill_loss",),
     },
     "lite": {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
+    },
+}
+
+# A component a profile reports can still carry a finite calibrated bar that means
+# nothing at this world set. Publishing such a number invites a reader to treat it as a
+# ceiling a method was held to, so the profile registers the component as one the freeze
+# publishes with no bar, together with the reason the record has to carry. The freeze
+# refuses to apply a registration to a component the profile decides on, so a
+# registration can never remove a bar a verdict rests on.
+GATE_PROFILE_UNPUBLISHED_COMPONENTS: dict[str, dict[str, str]] = {
+    "standard": {
+        "reserve_skill/skill_loss": (
+            "at the compiled reserve rate the reference allocations lose to the "
+            "proportional baseline on half the qualification worlds, so a bar taken "
+            "from the reference spread sits far above where the baseline lands and the "
+            "reserve decision carries no gradable value at this world set"
+        ),
     },
 }
 
@@ -498,6 +516,28 @@ def gate_profile_reported_only(name: Any) -> list[str]:
         for component in components
         if component not in selection.get(gate, ())
     ]
+
+
+def gate_profile_unpublished_components(name: Any) -> dict[str, str]:
+    """Name every component this profile publishes with no bar, and why.
+
+    A registration is readable only when the profile reports the component and decides
+    nothing on it, so a profile can never register away a bar one of its own verdicts
+    rests on.
+    """
+
+    reported_only = set(gate_profile_reported_only(name))
+    registered = GATE_PROFILE_UNPUBLISHED_COMPONENTS.get(name, {})
+    for label, reason in sorted(registered.items()):
+        if label not in reported_only:
+            raise EvidenceError(
+                f"gate profile {name!r} publishes no bar for {label} while deciding on it"
+            )
+        if not isinstance(reason, str) or not reason:
+            raise EvidenceError(
+                f"gate profile {name!r} publishes no bar for {label} and gives no reason"
+            )
+    return dict(registered)
 
 
 def _canonical_digest(value: Any) -> str:
@@ -1594,6 +1634,7 @@ def _validate_reserve_calibration_candidate(
     references: Sequence[Mapping[str, Any]],
     controls: Sequence[Mapping[str, Any]],
     gates: Mapping[str, Any],
+    reserve_decides: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(audit, Mapping) \
             or audit.get("schema") != RESERVE_CALIBRATION_SCHEMA:
@@ -1830,7 +1871,7 @@ def _validate_reserve_calibration_candidate(
             for component in GATE_COMPONENTS["reserve_skill"]
         )
     ]
-    if failed_references:
+    if failed_references and reserve_decides:
         raise EvidenceError(
             "reserve calibration remains blocked because final references fail "
             "reserve_skill: " + ", ".join(failed_references)
@@ -1860,7 +1901,12 @@ def _validate_reserve_calibration_candidate(
             for component in GATE_COMPONENTS["reserve_skill"]
         )
     ]
-    if passed_proportional:
+    # The proportional baseline has to be separated from the reference only where the
+    # reserve block decides a verdict. Under a profile that reports the block and decides
+    # nothing on it, no submission is scored on reserve skill, so a baseline that passes
+    # the block separates nothing and is recorded by the control matrix as a deletion
+    # candidate rather than stopping the freeze.
+    if passed_proportional and reserve_decides:
         raise EvidenceError(
             "reserve calibration remains blocked because proportional_reserve passes "
             "reserve_skill: " + ", ".join(passed_proportional)
@@ -3214,7 +3260,8 @@ def _calibrate_components(references: list[dict[str, Any]],
                           lines: list[str], worlds: list[str],
                           eligible_cells_by_world: Mapping[str, list[Any]],
                           eligibility_audit_by_world: Mapping[str, dict[str, Any]],
-                          profile_selection: Mapping[str, Sequence[str]]) \
+                          profile_selection: Mapping[str, Sequence[str]],
+                          unpublished_registry: Mapping[str, str]) \
         -> dict[str, Any]:
     """Calibrate every component on its own distribution, independently within a line.
 
@@ -3237,6 +3284,10 @@ def _calibrate_components(references: list[dict[str, Any]],
     reason, and nothing compares a submission against it. A profile is a selection over
     the gates that decide, and a component it leaves out cannot make a verdict either by
     passing everything or by stopping the freeze.
+
+    A profile can also register a reported component it publishes with no bar for a
+    stated reason, and the same receipt shape carries it. The registry is read only for
+    components the profile reports, so the value a verdict rests on always has a bar.
     """
 
     gates: dict[str, Any] = {}
@@ -3328,6 +3379,22 @@ def _calibrate_components(references: list[dict[str, Any]],
                         "decides_under_profile": False,
                     }
                     value = None
+            registered_reason = unpublished_registry.get(f"{gate}/{component}")
+            if unpublishable is None and registered_reason is not None:
+                # The profile reports this component and registers the reason its
+                # calibrated value is not a ceiling anything should be held to.
+                if decides:
+                    raise EvidenceError(
+                        f"{gate}/{component}: a component the profile decides on cannot "
+                        f"be published without a bar"
+                    )
+                unpublishable = {
+                    "calibrated_value": calibrated_value,
+                    "attainable_ceiling": attainable_high,
+                    "reason": registered_reason,
+                    "decides_under_profile": False,
+                }
+                value = None
             published[component] = value
             reference_witnesses = [
                 {
@@ -3914,6 +3981,7 @@ def calibrate_composite_bars(
         gates = _calibrate_components(
             references, replicates, lines, worlds, eligible_cells_by_world,
             eligibility_audit_by_world, profile_selection,
+            gate_profile_unpublished_components(gate_profile),
         )
         reserve_red_team_measurement = _validate_reserve_red_team_measurement(
             reserve_red_team_audit, references, diagnostics
@@ -3923,6 +3991,7 @@ def calibrate_composite_bars(
             references,
             controls,
             gates,
+            reserve_decides="reserve_skill" in profile_selection,
         )
     except EvidenceError as exc:
         return _empty_result(

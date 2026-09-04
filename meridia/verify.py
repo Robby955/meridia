@@ -193,13 +193,15 @@ GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
 # a subset of COMPOSITE_GATE_COMPONENTS. Whatever a profile leaves out is still measured
 # and still reported; it only stops deciding.
 #
-# "standard" is the shipping selection. All five blocks decide, and every component
-# decides except the worst regional shortfall probability. That component reads exactly
-# one on all eighteen final reference reports and all three hundred and six replicates at
-# the compiled rate, so its own p99 lands on the top of its attainable range and no
-# submission could ever exceed it. It stays measured, and the receipt carries the value
-# its calibration produced, the ceiling that value reached, and the reason it is not a
-# bar, in place of a ceiling nothing can fail.
+# "standard" is the shipping selection. Four blocks decide, being the exposure and rate
+# block, the release accuracy block, the interval block and the tail block. The reserve
+# block is measured and reported whole and decides nothing, and both of its components
+# carry no bar. The worst regional shortfall probability reads exactly one on all
+# eighteen final reference reports and all three hundred and six replicates at the
+# compiled rate, so its own p99 lands on the top of its attainable range and no
+# submission could ever exceed it. The skill loss has a finite calibrated value, but at
+# the compiled rate the reference allocations lose to the proportional baseline on half
+# the qualification worlds, so that value is not a ceiling any method should be held to.
 #
 # "full" decides on all nine components. "lite" drops the tail block and the reserve block
 # whole: exceedance deviations, the q95 and ES95 width-relative errors, the skill loss and
@@ -215,12 +217,27 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
         "tail_calibration": ("pooled_exceedance_deviation",
                              "q95_width_relative_error", "es95_width_relative_error"),
-        "reserve_skill": ("skill_loss",),
     },
     "lite": {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
+    },
+}
+
+# Components a profile reports with no bar for a registered reason, rather than because
+# the calibrated value reached the top of the component's attainable range. The verifier
+# holds a receipt to this registry: a receipt may carry an unpublished bar of this kind
+# only for a component the profile it names reports and decides nothing on, and only with
+# the reason registered here.
+GATE_PROFILE_UNPUBLISHED_COMPONENTS: dict[str, dict[str, str]] = {
+    "standard": {
+        "reserve_skill/skill_loss": (
+            "at the compiled reserve rate the reference allocations lose to the "
+            "proportional baseline on half the qualification worlds, so a bar taken "
+            "from the reference spread sits far above where the baseline lands and the "
+            "reserve decision carries no gradable value at this world set"
+        ),
     },
 }
 
@@ -250,6 +267,18 @@ def gate_profile_reported_only(name: str) -> list[str]:
         for component in components
         if component not in selection.get(gate, ())
     ]
+
+
+def gate_profile_unpublished_components(name: str) -> dict[str, str]:
+    """Name every component this profile reports with no bar, and the registered reason.
+
+    A registration is readable only for a component the profile reports, so a receipt can
+    never drop the bar under a component one of its own verdicts rests on.
+    """
+    reported_only = set(gate_profile_reported_only(name))
+    registered = GATE_PROFILE_UNPUBLISHED_COMPONENTS.get(name, {})
+    return {label: reason for label, reason in registered.items()
+            if label in reported_only and isinstance(reason, str) and reason}
 
 
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
@@ -1280,12 +1309,16 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     # A receipt has to name a registered profile and carry that profile's own selection.
     # A receipt with no profile field predates profiles and is read as the full one.
     registered_selection: dict[str, list[str]] = {}
+    registered_unpublished: dict[str, str] = {}
     try:
         registered_selection = {
             gate: list(components) for gate, components
             in gate_profile_selection(bars.get("gate_profile",
                                                DEFAULT_GATE_PROFILE)).items()
         }
+        registered_unpublished = gate_profile_unpublished_components(
+            bars.get("gate_profile", DEFAULT_GATE_PROFILE)
+        )
     except ValueError:
         errors.append("freeze receipt names an unregistered gate profile")
     else:
@@ -3427,6 +3460,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 errors.extend(_unpublished_bar_errors(
                     gate, component, record, calibrated_value,
                     component in registered_selection.get(gate, []),
+                    registered_unpublished.get(f"{gate}/{component}"),
                 ))
                 continue
             value = record.get("value")
@@ -3712,14 +3746,20 @@ def _worst_line_p99(recorded: object) -> float:
 
 
 def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, object],
-                            calibrated_value: float, decides: bool) -> list[str]:
+                            calibrated_value: float, decides: bool,
+                            registered_reason: str | None = None) -> list[str]:
     """Check a component the freeze published no bar for.
 
     Such a component decides nothing, so the receipt carries no ceiling to compare a
     submission against. What it must still carry is the value its own calibration
-    produced, the attainable ceiling that value reached, and the fact that the profile
-    does not decide on it. A profile that does decide on the component may not carry one
-    at all: there the freeze refuses instead of publishing.
+    produced, the ceiling that value reached where there is one, and the fact that the
+    profile does not decide on it. A profile that does decide on the component may not
+    carry one at all: there the freeze refuses instead of publishing.
+
+    There are two readable reasons. Either the calibrated value reached the top of the
+    component's attainable range, and the receipt has to reproduce that from its own
+    per-line record, or the profile registered the component as one it reports with no
+    bar, and the receipt has to carry the registered reason word for word.
     """
     def finite_number(value: object) -> bool:
         return not isinstance(value, bool) and isinstance(value, (int, float)) \
@@ -3743,7 +3783,7 @@ def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, obje
     high = expected_range[1]
     normalizer = GATE_COMPONENT_NORMALIZERS[gate][component]
     calibrated = unpublished.get("calibrated_value")
-    if high is None or record.get("range") != expected_range \
+    if record.get("range") != expected_range \
             or record.get("normalizer") != normalizer \
             or record.get("calibration_method") \
             != "worst-reference-line-component-p99" \
@@ -3758,9 +3798,14 @@ def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, obje
             or not math.isclose(float(calibrated), float(calibrated_value),
                                 rel_tol=1e-12, abs_tol=1e-15):
         return [f"{label}: unpublished bar does not recompute from its calibration"]
-    if not (float(calibrated) >= float(high)
-            or math.isclose(float(calibrated), float(high),
-                            rel_tol=1e-9, abs_tol=1e-12)):
+    if registered_reason is not None:
+        if unpublished.get("reason") != registered_reason:
+            return [f"{label}: unpublished bar does not carry the registered reason"]
+    elif high is None or not (
+        float(calibrated) >= float(high)
+        or math.isclose(float(calibrated), float(high),
+                        rel_tol=1e-9, abs_tol=1e-12)
+    ):
         return [f"{label}: a bar below its attainable ceiling must be published"]
     witnesses = record.get("reference_witnesses")
     if not isinstance(witnesses, list) or not witnesses \
