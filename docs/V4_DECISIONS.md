@@ -501,7 +501,7 @@ Committed in `scripts/build_v4_worlds.py`, one world size for all three families
 
 - development, seeds 1101 to 1112, one per row of the committed twelve-run design, under
   the development source regime. A method may tune on these.
-- qualification, seeds 2101 to 2106, under the hidden source regime, minted before any
+- qualification, six sealed seeds, under the hidden source regime, minted before any
   graded world. Every threshold is frozen on these and on nothing else.
 - graded, seeds 3101 to 3103, under the hidden source regime, minted after the freeze and
   never read back into it.
@@ -670,7 +670,7 @@ about old-age mortality and still clear every rate ceiling. Person-years is the 
 invariant to hold constant across bands, because the same exposure buys two orders of
 magnitude more deaths at 85 than at 8, so the floors fall with age.
 
-Measured on qualification world qual-5, seed 2106, over the sixty-month window. State by
+Measured on qualification world qual-5 over the sixty-month window. State by
 sex cells, the level the rate gates read:
 
     band     exposure range        gated cells, flat floor   gated cells, per band
@@ -734,7 +734,7 @@ seven of them change what a world contains:
 
 - twelve development worlds, seeds 1101 to 1112, one per row of the committed design,
   shipping truth, the only worlds a method may tune on;
-- six qualification worlds, seeds 2101 to 2106, hidden regime, the only worlds a bar
+- six qualification worlds, sealed seeds, hidden regime, the only worlds a bar
   reads;
 - three graded worlds, seeds 3101 to 3103, hidden regime, built and left closed.
 
@@ -870,7 +870,7 @@ back, and the reference's weakest quantity is now scored.
 
 ### Determinism receipt
 
-`qual-0`, seed 2101, built twice at the committed size, once inside the four-process shard
+`qual-0` built twice at the committed size, once inside the four-process shard
 that produced the world set and once alone across seven processes:
 
     manifest sha256 first  07e3d7c48e4f6c8648ed53004d4f2d35c53791bd87b670864b99f022cfb68bc1
@@ -2679,3 +2679,309 @@ PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderma
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
 PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
 ```
+
+## Two disclosure fixes, 2026-09-03
+
+### The published baseline share is computed from participant bytes
+
+`reserve.baseline_share` was computed from the register table the build holds in memory and
+from `admin["county_state"]`. Both of those are published, so the value was already
+reproducible, but the published field was a function of build state rather than of the files
+a participant receives, and no test held the two together.
+
+It is now computed the way the reserve total already is, by reading the participant bytes
+back after serialization. The two files are `participant/sources/population_revised.csv` and
+`participant/geography.csv`, which are the two the reference method already opens as
+`data["population"]` and `data["county_state"]`. The quantity is the register's own count of
+rows whose age at the revised tick is at or above the obligation's eligibility age, by state,
+divided by the total of those counts and rounded to six decimals. The register carries its
+own coverage error, so the share is not the sealed regional composition: on the test world
+the register split is 0.530707 to 0.469293 while the retained elder split is 0.524926 to
+0.475074. A register county outside the published geography now raises instead of wrapping
+to the last state.
+
+`contract["reserve"]["baseline_share_rule"]` publishes the recipe the way `total_rule`
+publishes the reserve total rule: the two file names, the four column names, the tick, the
+minimum age, the aggregation, and the rounding.
+`tests/test_packet.py::test_the_published_baseline_share_is_a_function_of_participant_files_only`
+rebuilds the share from the participant tree with pandas alone, asserts equality with the
+contract, and asserts the retained elder split is not the published one.
+
+No published value moves. A packet built before and after this change carries the same
+`baseline_share`, and the rest of the contract is identical apart from the rule sentence and
+the new rule block. The contract bytes change, so the packet digests and the identifiability
+source digest that covers `meridia/packet.py` change with them.
+
+### The qualification seeds are sealed outside the repository
+
+Six qualification seeds were literals in `scripts/build_v4_worlds.py`. Every bar stands on
+those worlds, and a world's whole configuration follows from its seed, so the values in the
+tree were the measured worlds in the tree.
+
+`qualification_seeds` now reads them the way a sealed input is read, from a JSON object at
+`~/.config/meridia/v4_qualification_seeds.json`, mode 600, or wherever
+`MERIDIA_QUALIFICATION_SEED_FILE` points, under the single key `qualification_seeds`. The
+reader refuses a missing, unreadable, malformed, short, non-integer or repeating file, names
+the file and the fault in each refusal, and carries no value into any message.
+`QUALIFICATION_WORLD_COUNT` stays in the tree because the freeze design publishes the world
+count; only the values are sealed. Nothing else about the family changed, so every
+qualification world rebuilds to the packet it had: the digest of the seed list the plan now
+returns is the digest of the list that was committed.
+
+Digests of the sealed set, canonical JSON with no spaces:
+
+- seed list `sha256:364672c03204fbdea0a5a39a46a4bfd1ab7ce4d40c55f1aad378802232068f8f`
+- sealed file `sha256:6fa4f38b8f3e76176deb4090dbbe6daadc3c5c382b153668eb9cbb7c8bfe6ca6`
+
+Those digests authenticate a rebuild against the same set. They are not a confidentiality
+boundary. Six small integers drawn from a guessable range are recoverable
+from their digest by search, so sealing the file closes the disclosure only against a reader
+of the repository, not against a reader who guesses the draw. Closing it against search needs
+the qualification set redrawn from the keyed seal into a range no search covers, and that
+cannot be done while a freeze stands on the present set. It is the next mint's work.
+
+The four places the decisions record named a qualification seed now name the world instead.
+Four files outside that lane still carried the same six values. Two of them are closed at
+this merge and two remain.
+
+`scripts/identifiability_v4.py` registered the eighteen seeds at `EXPECTED_WORLD_SEEDS`, and
+`tests/test_identifiability_v4_receipt.py` asserted against that dictionary. The audit now
+registers the twelve committed development seeds at `EXPECTED_DEVELOPMENT_WORLD_SEEDS` and
+resolves a qualification seed through `expected_world_seed`, which calls
+`build_v4_worlds.qualification_seeds()` at the point the audit compares a retained seed
+against the plan rather than at import. The refusal message still names the world and not
+the value. The receipt test compares against the same call. This is the edit the leak-fix
+branch left to the lane that owns the script, and it closes the attribute error that branch
+recorded on `test_identifiability_receipt_requires_exact_registered_world_family`.
+
+`tests/test_mechanisms.py` and `tests/test_survey.py` still use the six values as example
+seeds and are the remaining disclosure. Both use them to exercise the mechanism draw and the
+survey, so neither needs the qualification set in particular, and the next mint replaces them
+with unrelated seeds.
+
+## P5, 2026-09-03
+
+### The leak-fix lane merged, and the one edit it left behind
+
+The leak-fix branch merged into this line. Three changes arrive with it. The published
+`reserve.baseline_share` is read back from the participant bytes after serialization rather
+than computed from build state. The six qualification seeds are read from a sealed JSON file
+outside the repository. The decisions record names the identifiability audit as the remaining
+seed disclosure.
+
+The branch left one failing test and named the edit that closes it, and that edit is taken at
+the merge. `scripts/identifiability_v4.py` registers the twelve committed development seeds at
+`EXPECTED_DEVELOPMENT_WORLD_SEEDS` and resolves a qualification seed through
+`expected_world_seed`, which calls `build_v4_worlds.qualification_seeds()` at the point the
+audit compares a retained seed against the plan rather than at import. The receipt test compares
+against the same call. The refusal message names the world and not the value.
+`tests/test_mechanisms.py` and `tests/test_survey.py` still carry the six values as example
+seeds and are the disclosure the next mint closes.
+
+The decisions record conflicted at its tail. Both sides are kept, the P4 close first and the two
+disclosure fixes after it.
+
+### The compiled rate is the rate the retargeted rule selected
+
+`PacketParams.reserve_rate_per_person_year` moves from the provisional 4600 to 3769. Nothing
+else in `meridia/packet.py` moves, `GRADING_WORLD` does not name the field, and the builder
+reads `GRADING_WORLD` unchanged.
+
+The evidence runner's preflight already read the compiled value from `PacketParams` rather than
+from a literal, both in the candidate comparison and in the manifest it writes, so no edit was
+needed there for the check to follow the new default.
+
+### Hidden-regime identifiability is reported and no longer refuses
+
+The previous pass held every anchored axis to 0.4 within the six hidden worlds and made the
+freeze refuse below it. Six worlds is too few points for a rank correlation to carry a
+threshold: one world changing rank moves the value by more than the margin the threshold asks
+for, so a refusal there is a statement about six draws rather than about the anchor.
+
+The registered gate stays on the pooled eighteen-world correlation. All six axes clear 0.4
+pooled on this world set and `missingness_target_dependence` binds at 0.401, which the receipt
+still has to name and which the freeze still refuses to accept named as anything else.
+
+The within-hidden values stay measured and stay recorded. Every axis below the threshold there
+is written into the freeze report beside its value and the reason it does not decide, and the
+audit's own text report says the same in place of its shortfall line. The receipt fields do not
+move, so its schema does not move: the per-axis hidden reading, the per-axis qualification flag,
+and the list of axes below the threshold were already carried. The list still has to be exact,
+and a flag that disagrees with its own value is still a refusal. The verifier no longer treats a
+receipt carrying such an axis as invalid evidence.
+
+### The rebuild, and the share recomputed from participant bytes
+
+The eighteen worlds were rebuilt at the merged tree into
+`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5`, twelve development worlds and six
+qualification worlds as separate builder invocations against the P4 continuation cache. Both
+invocations ran at once and finished in 58 seconds of wall time, 49 to 57 seconds per world with
+all eighteen in flight. Every world took its ensemble off the shelf, so the cache key did not
+move when the packet contract bytes and the reserve rate did. The finished tree is 936 megabytes.
+
+The recorded P4 commands named `--out .../worlds-p5/development` and
+`--out .../worlds-p5/qualification`. The builder appends the family name to the output
+directory, so those commands produce `worlds-p5/development/development/dev-00` and the two
+families no longer share one worlds root, which the evidence runner requires. The commands
+below name `--out .../worlds-p5` for both families.
+
+The contract's `reserve.baseline_share` was rebuilt from the participant tree alone on two
+worlds, qual-0 and dev-00, by reading `participant/sources/population_revised.csv` and
+`participant/geography.csv` and following the published `baseline_share_rule`. Both reproduce
+the published vector exactly, over 4,683 register elders on qual-0 and 8,280 on dev-00.
+
+### The reserve normalizers read at the accepted rate
+
+The reference stage was run alone first, as `build_v4_freeze_evidence.py --references-only`. It
+ran the twelve calibration fits and the three fixed-seed reference lines over the six
+qualification worlds in 166 seconds and authorized the full battery: the calibrated candidate is
+3769 and equals the compiled rate, so the preflight that stopped both P4 attempts now passes.
+The eighteen candidate rates reproduce the P4 ladder from 3602 to 4140, the chosen rate is line B
+on qual-1, and the worst identification margin is 1.07 percent on qual-5.
+
+Each component normalizer is the median of that component over those eighteen reference reports.
+Seven of the nine belong to blocks that do not read the published reserve total, and measured
+again at 3769 they reproduce their registered values to the fourth decimal: 0.945509 for the
+exposure and rate error, 0.624498 for release accuracy, 0.52 for interval coverage deviation,
+1.452311 for the mean interval score, 0.05 for pooled exceedance deviation, 3.714905 for the q95
+width error and 4.373467 for the ES95 width error. That is the check that the rebuild changed the
+reserve total and nothing else.
+
+The reserve pair had only ever been read at 4600. Read at 3769, skill loss moves from 1.1793 to
+1.2507, and the worst regional shortfall probability moves from 0.3364 to 1.0. It is exactly 1.0
+on all eighteen reports, with no spread at all: the published total at this rate no longer covers
+the mean liability on five of the six worlds, so at least one region is short on every
+continuation of every world. Both registries carry the new pair, the freeze and the verifier.
+
+Skill is also defined everywhere now. No reference report carries an undefined skill loss on any
+world, which was the failure that stopped the P4 pass, and the fifteen defined values it did have
+are replaced by eighteen.
+
+### The full battery reached the collector for the first time, and found a defect there
+
+Both P4 attempts stopped at the reserve-rate preflight, so no pass had ever run the stage that
+collects base reports. This one did, and raised after the whole measurement stage was paid for:
+
+    KeyError: 'diagnostic_reports'
+
+The collector builds three manifest list names from three report kinds, and only two of them are
+named after their kind. A decomposition control is a development diagnostic, and the manifest and
+the expected counts call its list `development_diagnostic_reports`. The three kinds and their
+lists are now one registered mapping, used both to open the groups and to file each entry, and a
+test holds that mapping against the counts the manifest is checked against. That run cost 1,242
+seconds of wall time and produced no manifest.
+
+### The freeze did not run, and why
+
+The rerun after the fix cleared the reference stage and was killed inside the measurement stage.
+The volume this machine builds on was at 98 percent when this pass began, and other work on the
+same machine took it to 100 percent while the pass ran: free space fell from 23 gigabytes to
+under 550 megabytes, and the run left a zero-byte log, which is what a killed process leaves.
+
+Neither `bars/national-v11-full` nor `bars/national-v11-lite` exists. No bar was calibrated, no
+control separation matrix was produced, and nothing was loosened. The evidence a freeze needs is
+the 18 reference reports, 306 paired replicates, 132 control reports and 24 development
+diagnostics, and this tree has the first 18 of those. The pass needs roughly half a gigabyte of
+scratch and about half an hour of wall time on a free machine.
+
+### What the reference stage already says about the reserve block
+
+The eighteen reference reports at 3769 carry one reading that a freeze will act on, and it is
+worth stating before the next attempt rather than after it.
+
+`worst_regional_shortfall_probability` is exactly 1.0 on all eighteen, with no spread. The
+component's attainable range is 0 to 1, and its registered normalizer is now that median. A
+calibrated bar is the gate's severity ceiling times the component normalizer, and the severity
+of a row is the maximum over its components, so this component's bar cannot land below 1.0. The
+freeze refuses a bar that reaches the top of its component's attainable range, on the rule the
+previous pass registered: such a bar is not a bar, because no submission can exceed it and no
+control can fail on it. On this evidence the reserve block is expected to refuse under both
+profiles, and the refusal is a property of the published total rather than of any estimator.
+
+That is the mirror of the defect the tail block had at 4600 and above. There the reserve was wide
+enough that seven of eighteen reports had zero exceedance and the skill denominator collapsed.
+Here it is narrow enough that every region is short on every continuation. The retarget bought a
+defined and separating skill loss on all six worlds, which was the P4 blocker, and it saturated
+the shortfall probability, which is a new one. Both readings come from the same quantity, the
+published total against the sealed liability, and the next decision is which of the two the
+reserve block is meant to measure. That is a rule decision and it is not taken here.
+
+### The commands, in order, on a machine with room
+
+The eighteen worlds are already built at
+`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5`, so the first two commands are only needed on
+a fresh tree. Note the `--out` argument: the builder appends the family name.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 -m pytest tests -q
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family development --world-workers 12 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family qualification --world-workers 6 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --out /Users/robsneiderman/Desktop/meridia-p5/evidence-p6
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+```
+
+The evidence output directory has to be one the pass has not written before. It binds the digests
+of its own sources at the first write and refuses a resume whose sources have moved, which is why
+this pass used three directories rather than one.
+
+### After a profile freezes
+
+These are not to be run until `freeze_report.txt` in the chosen bars directory reads
+`RESULT: FROZEN`. Replace `PROFILE` with `full` or `lite`, the same one throughout. The freeze
+writes `reserve_calibration_accepted.json` beside the bars only when it froze, so its presence is
+the gate on all of this.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+```
+
+The graded build takes no cache. Its seeds are new, so every ensemble is computed, and three
+worlds at the committed size on a free machine is the single-world figure times one, not the
+eighteen-at-once figure. No seed is printed, and none reaches a participant tree.
+
+Between the graded build and the repin, one file is written by hand:
+`seals/meridia-v4-worlds-confirmation.md`, the seal confirmation record, in the shape the version
+two and version three confirmations under `seals/` already have. The asset builder reads it and
+refuses unless the text contains the sha256 of the graded packet's `manifest.json`, so that digest
+is what the record has to carry.
+
+The repin then runs from the task package worktree, with the twelve development packets given
+one at a time and the graded world given once. `SEAL_INDEX` is the index of the graded world
+being packaged, and `GRADED` is that world's directory under
+`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
+PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden GRADED --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+```
+
+Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the task
+package was not repinned, because all three still wait on a completed freeze.
