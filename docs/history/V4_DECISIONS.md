@@ -10,6 +10,21 @@ families, the development design, the identifiers, the local measurement scales,
 health selection rule, the historical experience file, and the health anchor. The
 verifier, scoring, and reserve lanes record their own decisions.
 
+This file is the dated construction record of version four. The reader-facing
+specifications are `docs/DESIGN.md` and `docs/SUBMISSION_FORMAT.md`; where this file
+disagrees with either, the current file wins.
+
+Commands below are written against four variables, set once before running anything here.
+`MERIDIA_REPO` is this checkout. `MERIDIA_WORK` is any directory outside the tree with
+room for the world trees. `MERIDIA_TASK_PACKAGE` is the packaging repository, which is
+published separately. `MERIDIA_SEALED_KEY_FILE` names the master key file, which is never
+committed, logged, or printed.
+
+    MERIDIA_REPO=/path/to/meridia
+    MERIDIA_WORK=/path/to/scratch
+    MERIDIA_TASK_PACKAGE=/path/to/task-package
+    MERIDIA_SEALED_KEY_FILE=/path/to/sealed_master.key
+
 ## Resolved
 
 ### Historical experience file: annual, five years, long format
@@ -198,7 +213,9 @@ lanes. They are listed so nothing is silently decided by default.
   not reachable without either a much smaller grading world, a cheaper continuation than
   a full ledger replay, or extracting the monthly loop so a member starts from a replayed
   branch state and pays only the suffix. That extraction is the one structural change the
-  ensemble still needs from the ledger, and it is deliberately not done here.
+  ensemble still needs from the ledger, and it is deliberately not done here. Superseded:
+  the integration pass settled M = 2048; see the entry "Ensemble size M = 2048, and every
+  member is a predictive future" below.
 - Whether ES95 is required in version four or deferred.
 - gamma, w_r, and the rounding rule for R. R is written into the participant contract by
   the packet builder once the reserve lane fixes it; the generator does not set it.
@@ -2044,7 +2061,7 @@ filed raw regional q95 values summing to 275,429,461.51700795, an excess of
 filing the allocation already equals its q95 floor, so no allocation can both stay above
 every floor and sum to the published total. Fitting those q95 values back to the total would
 reintroduce the sealed-tail leakage that phase three removes. The partial tree at
-`/Users/robsneiderman/Projects/meridia-v4-methods-p3-evidence-20260903` is preserved as a
+`$MERIDIA_WORK/methods-p3-evidence` is preserved as a
 failed checkpoint; it contains no final elder audit. The exposure-rule reserve contract is
 now integrated. This checkpoint diagnosed why the q95 allocation floor had to be removed;
 its negative margin remains reportable but no longer invalidates a legal allocation. The
@@ -2596,7 +2613,7 @@ attainable range, within floating-point rounding of it. Such a bar is not a bar,
 receipt carrying one is rejected by the verifier on the same rule rather than read as a
 pass.
 
-### What ran at the close, and what the morning needs
+### The rebuild sequence at the candidate rate
 
 The evidence runner was invoked against the P4 world tree with the new rate rule in place:
 
@@ -2632,52 +2649,51 @@ at 3769. Either the anchors for those two axes are strengthened, or the hidden d
 them move inside a range the current anchors can read, or the world set changes. That is a
 generator decision and it belongs with the same lane that holds the rate.
 
-The commands for the morning, in order, once
+The rebuild runs in this order, once
 `reserve_rate_per_person_year` reads 3769.0 in `meridia/packet.py`. They build into
-`/Users/robsneiderman/Desktop/meridia-p5`, where the continuation ensemble cache from the
+`$MERIDIA_WORK`, where the continuation ensemble cache from the
 P4 build has already been copied, so the eighteen worlds recompile off it rather than
 regenerating their ensembles.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+cd $MERIDIA_REPO
 PYTHONPATH=$PWD python3 -m pytest tests -q
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --family development --world-workers 12 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5/development --family development --world-workers 12 --cache $MERIDIA_WORK/ensemble-cache
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --family qualification --world-workers 6 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5/qualification --family qualification --world-workers 6 --cache $MERIDIA_WORK/ensemble-cache
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/identifiability_v4.py --packets /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-0 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-1 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-2 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-3 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-4 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-5 --out /Users/robsneiderman/Desktop/meridia-p5/identifiability-p5.txt --receipt /Users/robsneiderman/Desktop/meridia-p5/identifiability-p5.json
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/identifiability_v4.py --packets $MERIDIA_WORK/worlds-p5/development/dev-00 $MERIDIA_WORK/worlds-p5/development/dev-01 $MERIDIA_WORK/worlds-p5/development/dev-02 $MERIDIA_WORK/worlds-p5/development/dev-03 $MERIDIA_WORK/worlds-p5/development/dev-04 $MERIDIA_WORK/worlds-p5/development/dev-05 $MERIDIA_WORK/worlds-p5/development/dev-06 $MERIDIA_WORK/worlds-p5/development/dev-07 $MERIDIA_WORK/worlds-p5/development/dev-08 $MERIDIA_WORK/worlds-p5/development/dev-09 $MERIDIA_WORK/worlds-p5/development/dev-10 $MERIDIA_WORK/worlds-p5/development/dev-11 $MERIDIA_WORK/worlds-p5/qualification/qual-0 $MERIDIA_WORK/worlds-p5/qualification/qual-1 $MERIDIA_WORK/worlds-p5/qualification/qual-2 $MERIDIA_WORK/worlds-p5/qualification/qual-3 $MERIDIA_WORK/worlds-p5/qualification/qual-4 $MERIDIA_WORK/worlds-p5/qualification/qual-5 --out $MERIDIA_WORK/identifiability-p5.txt --receipt $MERIDIA_WORK/identifiability-p5.json
 ```
 
 The identifiability run is placed before the evidence pass on purpose. The evidence pass
 mints its own copy of that receipt and embeds it in the manifest, so the freeze commands
 below take no separate audit path. The point of running it first is the last line of its
 text report: while that line still reads HIDDEN-REGIME SHORTFALL, the freeze will refuse
-on it and the hours the evidence pass costs buy nothing. Read that line before starting
-the pass.
+on it and the hours the evidence pass costs buy nothing, so that line is read first.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --out /Users/robsneiderman/Desktop/meridia-p5/evidence-p5
-```
-
-```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root $MERIDIA_WORK/worlds-p5/development --qualification-root $MERIDIA_WORK/worlds-p5/qualification --out $MERIDIA_WORK/evidence-p5
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out $MERIDIA_REPO/bars/national-v11-full
+```
+
+```
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out $MERIDIA_REPO/bars/national-v11-lite
 ```
 
 ## Two disclosure fixes, 2026-09-03
@@ -2813,7 +2829,7 @@ receipt carrying such an axis as invalid evidence.
 ### The rebuild, and the share recomputed from participant bytes
 
 The eighteen worlds were rebuilt at the merged tree into
-`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5`, twelve development worlds and six
+`$MERIDIA_WORK/worlds-p5`, twelve development worlds and six
 qualification worlds as separate builder invocations against the P4 continuation cache. Both
 invocations ran at once and finished in 58 seconds of wall time, 49 to 57 seconds per world with
 all eighteen in flight. Every world took its ensemble off the shelf, so the cache key did not
@@ -2909,37 +2925,37 @@ reserve block is meant to measure. That is a rule decision and it is not taken h
 ### The commands, in order, on a machine with room
 
 The eighteen worlds are already built at
-`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5`, so the first two commands are only needed on
+`$MERIDIA_WORK/worlds-p5`, so the first two commands are only needed on
 a fresh tree. Note the `--out` argument: the builder appends the family name.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+cd $MERIDIA_REPO
 PYTHONPATH=$PWD python3 -m pytest tests -q
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family development --world-workers 12 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5 --family development --world-workers 12 --cache $MERIDIA_WORK/ensemble-cache
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family qualification --world-workers 6 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5 --family qualification --world-workers 6 --cache $MERIDIA_WORK/ensemble-cache
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --out /Users/robsneiderman/Desktop/meridia-p5/evidence-p6
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root $MERIDIA_WORK/worlds-p5/development --qualification-root $MERIDIA_WORK/worlds-p5/qualification --out $MERIDIA_WORK/evidence-p6
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p6/freeze_evidence_manifest.json --gate-profile full --out $MERIDIA_REPO/bars/national-v11-full
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p6/freeze_evidence_manifest.json --gate-profile lite --out $MERIDIA_REPO/bars/national-v11-lite
 ```
 
 The evidence output directory has to be one the pass has not written before. It binds the digests
@@ -2954,13 +2970,13 @@ writes `reserve_calibration_accepted.json` beside the bars only when it froze, s
 the gate on all of this.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out $MERIDIA_REPO/seals/meridia-v4-worlds.json --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v11-PROFILE/reserve_calibration_accepted.json
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5 --family graded --world-workers 3 --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --key "$MERIDIA_SEALED_KEY_FILE"
 ```
 
 The graded build takes no cache. Its seeds are new, so every ensemble is computed, and three
@@ -2976,11 +2992,11 @@ is what the record has to carry.
 The repin then runs from the task package worktree, with the twelve development packets given
 one at a time and the graded world given once. `SEAL_INDEX` is the index of the graded world
 being packaged, and `GRADED` is that world's directory under
-`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`.
+`$MERIDIA_WORK/worlds-p5/graded`.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
-PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden GRADED --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p6/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+cd $MERIDIA_TASK_PACKAGE/authoring
+PYTHONPATH=$MERIDIA_REPO python3 build_assets.py --meridia $MERIDIA_REPO --development $MERIDIA_WORK/worlds-p5/development/dev-00 --development $MERIDIA_WORK/worlds-p5/development/dev-01 --development $MERIDIA_WORK/worlds-p5/development/dev-02 --development $MERIDIA_WORK/worlds-p5/development/dev-03 --development $MERIDIA_WORK/worlds-p5/development/dev-04 --development $MERIDIA_WORK/worlds-p5/development/dev-05 --development $MERIDIA_WORK/worlds-p5/development/dev-06 --development $MERIDIA_WORK/worlds-p5/development/dev-07 --development $MERIDIA_WORK/worlds-p5/development/dev-08 --development $MERIDIA_WORK/worlds-p5/development/dev-09 --development $MERIDIA_WORK/worlds-p5/development/dev-10 --development $MERIDIA_WORK/worlds-p5/development/dev-11 --hidden GRADED --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --calibration-a $MERIDIA_WORK/evidence-p6/phase_three/calibration_A.json --calibration-b $MERIDIA_WORK/evidence-p6/phase_three/calibration_B.json --bar-provenance $MERIDIA_REPO/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report $MERIDIA_REPO/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --seal-confirmation $MERIDIA_REPO/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir $MERIDIA_TASK_PACKAGE
 ```
 
 Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the task
@@ -3144,7 +3160,7 @@ would have raised, and neither tree held one.
 ### Both profiles refuse, and the reserve block is not what stops them
 
 The full battery ran to completion for the first time. The evidence at
-`/Users/robsneiderman/Desktop/meridia-p5/evidence-p5` carries the registered design exactly:
+`$MERIDIA_WORK/evidence-p5` carries the registered design exactly:
 18 final reference reports, 306 paired replicate reports at 17 resamples per line and world,
 132 qualification control reports, and 24 development diagnostics. The reference stage
 reproduces the earlier one report for report: the composite metric surface of all eighteen
@@ -3257,23 +3273,23 @@ write and refuses a resume whose sources have moved, so a rerun after any tree c
 a directory that has not been written before.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+cd $MERIDIA_REPO
 PYTHONPATH=$PWD python3 -m pytest tests -q
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/sweep_reserve_rate_joint.py --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --stage /Users/robsneiderman/Desktop/meridia-p5/sweep/stage --out /Users/robsneiderman/Desktop/meridia-p5/sweep/reserve_rate_joint_sweep.json --low 3769 --high 6321
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/sweep_reserve_rate_joint.py --qualification-root $MERIDIA_WORK/worlds-p5/qualification --calibration-a $MERIDIA_WORK/evidence-p5/phase_three/calibration_A.json --calibration-b $MERIDIA_WORK/evidence-p5/phase_three/calibration_B.json --stage $MERIDIA_WORK/sweep/stage --out $MERIDIA_WORK/sweep/reserve_rate_joint_sweep.json --low 3769 --high 6321
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out $MERIDIA_REPO/bars/national-v11-full
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out $MERIDIA_REPO/bars/national-v11-lite
 ```
 
 ### The morning commands, gated on a profile that froze
@@ -3285,13 +3301,13 @@ that file is the gate. Neither directory holds it today. Replace `PROFILE` with 
 `lite`, the same one throughout.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out $MERIDIA_REPO/seals/meridia-v4-worlds.json --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v11-PROFILE/reserve_calibration_accepted.json
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5 --family graded --world-workers 3 --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --key "$MERIDIA_SEALED_KEY_FILE"
 ```
 
 The graded build takes no cache. Its seeds are new, so every ensemble is computed, and three
@@ -3307,11 +3323,11 @@ record has to carry.
 The repin then runs from the task package worktree, with the twelve development packets given
 one at a time and the graded world given once. `SEAL_INDEX` is the index of the graded world
 being packaged and `GRADED` is that world's directory under
-`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`.
+`$MERIDIA_WORK/worlds-p5/graded`.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
-PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden GRADED --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+cd $MERIDIA_TASK_PACKAGE/authoring
+PYTHONPATH=$MERIDIA_REPO python3 build_assets.py --meridia $MERIDIA_REPO --development $MERIDIA_WORK/worlds-p5/development/dev-00 --development $MERIDIA_WORK/worlds-p5/development/dev-01 --development $MERIDIA_WORK/worlds-p5/development/dev-02 --development $MERIDIA_WORK/worlds-p5/development/dev-03 --development $MERIDIA_WORK/worlds-p5/development/dev-04 --development $MERIDIA_WORK/worlds-p5/development/dev-05 --development $MERIDIA_WORK/worlds-p5/development/dev-06 --development $MERIDIA_WORK/worlds-p5/development/dev-07 --development $MERIDIA_WORK/worlds-p5/development/dev-08 --development $MERIDIA_WORK/worlds-p5/development/dev-09 --development $MERIDIA_WORK/worlds-p5/development/dev-10 --development $MERIDIA_WORK/worlds-p5/development/dev-11 --hidden GRADED --bars $MERIDIA_REPO/bars/national-v11-PROFILE/bars.json --calibration-a $MERIDIA_WORK/evidence-p5/phase_three/calibration_A.json --calibration-b $MERIDIA_WORK/evidence-p5/phase_three/calibration_B.json --bar-provenance $MERIDIA_REPO/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report $MERIDIA_REPO/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --seal-confirmation $MERIDIA_REPO/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir $MERIDIA_TASK_PACKAGE
 ```
 
 Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the
@@ -3865,9 +3881,9 @@ profile it names and still refuses to score under a profile the receipt did not 
 The same 18 reference reports, 306 paired replicates, 132 controls and 24 development
 diagnostics carried all three runs. Nothing was rebuilt.
 
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-standard
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-full
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-lite
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out $MERIDIA_REPO/bars/national-v13-standard
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out $MERIDIA_REPO/bars/national-v13-full
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out $MERIDIA_REPO/bars/national-v13-lite
 
 None of the three froze. Each directory holds a fail-closed `bars.json`, a report reading
 `RESULT: NOT FROZEN`, and a provenance file, and none holds a reserve calibration
@@ -4084,9 +4100,9 @@ it accepts either role.
 The same 18 reference reports, 306 paired replicates, 132 controls and 24 development
 diagnostics carried all three runs. Nothing was rebuilt and nothing was loosened by hand.
 
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-full
-    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-lite
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out $MERIDIA_REPO/bars/national-v14-standard
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out $MERIDIA_REPO/bars/national-v14-full
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence $MERIDIA_WORK/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out $MERIDIA_REPO/bars/national-v14-lite
 
 Standard froze. `bars/national-v14-standard` holds a `bars.json` reading frozen true with
 an empty blocker list, a report reading `RESULT: FROZEN`, a provenance file, an accepted
@@ -4193,7 +4209,7 @@ this world set, do not separate the registered wrong methods from the reference.
 receipt says so in those words rather than implying a discrimination the evidence does not
 support.
 
-### The mint and the repin, written and not run
+### The mint and the repin
 
 Standard froze, so the two sequences that were gated on a frozen profile can be written
 out. Neither was run in this pass. What gates both is `reserve_calibration_accepted.json`
@@ -4205,17 +4221,17 @@ The mint takes the V4 seal over three graded worlds and then builds them at the 
 rate. Run both from the integration repository with a clean tree.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/reserve_calibration_accepted.json
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out $MERIDIA_REPO/seals/meridia-v4-worlds.json --bars $MERIDIA_REPO/bars/national-v14-standard/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v14-standard/reserve_calibration_accepted.json
 ```
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+cd $MERIDIA_REPO
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out $MERIDIA_WORK/worlds-p5 --family graded --world-workers 3 --bars $MERIDIA_REPO/bars/national-v14-standard/bars.json --reserve-calibration-audit $MERIDIA_REPO/bars/national-v14-standard/reserve_calibration_accepted.json --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --key "$MERIDIA_SEALED_KEY_FILE"
 ```
 
 That writes `graded-0`, `graded-1` and `graded-2` under
-`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`. The graded build takes no
+`$MERIDIA_WORK/worlds-p5/graded`. The graded build takes no
 cache. Its seeds are new, so every ensemble is computed, and three worlds at the committed
 size on a free machine is the single-world figure times one rather than the
 eighteen-at-once figure. The twelve development worlds and the six qualification worlds
@@ -4233,29 +4249,22 @@ the integration tree has to be clean and unchanged under `meridia/` when it runs
 graded world goes into the package, and `--seal-index` names which one.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
-PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded/graded-0 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index 0 --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+cd $MERIDIA_TASK_PACKAGE/authoring
+PYTHONPATH=$MERIDIA_REPO python3 build_assets.py --meridia $MERIDIA_REPO --development $MERIDIA_WORK/worlds-p5/development/dev-00 --development $MERIDIA_WORK/worlds-p5/development/dev-01 --development $MERIDIA_WORK/worlds-p5/development/dev-02 --development $MERIDIA_WORK/worlds-p5/development/dev-03 --development $MERIDIA_WORK/worlds-p5/development/dev-04 --development $MERIDIA_WORK/worlds-p5/development/dev-05 --development $MERIDIA_WORK/worlds-p5/development/dev-06 --development $MERIDIA_WORK/worlds-p5/development/dev-07 --development $MERIDIA_WORK/worlds-p5/development/dev-08 --development $MERIDIA_WORK/worlds-p5/development/dev-09 --development $MERIDIA_WORK/worlds-p5/development/dev-10 --development $MERIDIA_WORK/worlds-p5/development/dev-11 --hidden $MERIDIA_WORK/worlds-p5/graded/graded-0 --bars $MERIDIA_REPO/bars/national-v14-standard/bars.json --calibration-a $MERIDIA_WORK/evidence-p5/phase_three/calibration_A.json --calibration-b $MERIDIA_WORK/evidence-p5/phase_three/calibration_B.json --bar-provenance $MERIDIA_REPO/bars/national-v14-standard/PROVENANCE.md --freeze-report $MERIDIA_REPO/bars/national-v14-standard/freeze_report.txt --seal-manifest $MERIDIA_REPO/seals/meridia-v4-worlds.json --seal-confirmation $MERIDIA_REPO/seals/meridia-v4-worlds-confirmation.md --seal-index 0 --task-dir $MERIDIA_TASK_PACKAGE
 ```
 
 The submission contract is checked straight after, out of the same worktree, along with
 the package and instruction checks that sit beside it.
 
 ```
-cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
-PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 -m pytest -q test_submission_contract.py test_task_package.py test_instruction_similarity.py
+cd $MERIDIA_TASK_PACKAGE/authoring
+PYTHONPATH=$MERIDIA_REPO python3 -m pytest -q test_submission_contract.py test_task_package.py test_instruction_similarity.py
 ```
 
-Then both images are built and the two gate lines are run through the trial runner, with
-the scoring container driven directly and the network off. Neither line uses a model. The
-first build is the one that builds both images.
-
-```
-/Users/robsneiderman/Projects/theorempath/HQ/MERIDIA_READINESS/tools/run_trial.sh --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving --agent oracle --out /Users/robsneiderman/Desktop/meridia-p5/trials-v14/oracle --tests-image meridia-v14-tests:local --env-image meridia-v14-env:local --build-images
-```
-
-```
-/Users/robsneiderman/Projects/theorempath/HQ/MERIDIA_READINESS/tools/run_trial.sh --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving --agent nop --out /Users/robsneiderman/Desktop/meridia-p5/trials-v14/nop --tests-image meridia-v14-tests:local --env-image meridia-v14-env:local
-```
+The two gate lines, a reference solution and a do-nothing submission, are then run
+through the packaging repository's trial runner with the network off. The runner lives
+outside this repository, with the task package. Neither line uses a model, and the first
+run builds both images.
 
 The reference line has to reach a reward of one and write `release.csv`, `projection.csv`
 and `reserve.csv` and no fourth file. The do-nothing line has to reach a reward of zero on
@@ -4263,10 +4272,10 @@ an empty submission directory. A reference line that does not pass the four deci
 blocks on the graded world is the reading that matters most, because it is the first time
 those bars meet a world that was not in the calibration set.
 
-Nothing above was run in this pass. No graded world was minted, no seed was derived, no
-seal was written, and the task package was not repinned.
+The mint ran after this entry was written; `seals/meridia-v4-worlds-confirmation.md`
+records what was built and its digests. The repin had not run at the time of writing.
 
-### What standard gates and what it reports, for the proposal thread
+### What the standard profile gates and what it reports
 
 The shipping profile decides four of the five composite blocks. A submission is scored on
 the exposure and rate block at a p95 relative error bar of 15.667516, on the release
