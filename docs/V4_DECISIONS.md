@@ -3606,3 +3606,195 @@ the two commands the previous pass recorded and one change to each. Each needs a
 directory nothing has written before, so use the v12 pair of bar directories in place of
 the v11 pair, since such a directory binds the digests of its own sources at first write
 and will refuse a resume whose sources have moved.
+
+
+## P5 pass five, 2026-09-04
+
+### Each component now reads its own distribution
+
+Pass four stopped before a single bar could be published. One ceiling was calibrated per
+composite gate, at the largest of the three reference-line p99 order statistics of a row's
+maximum normalized component loss, and each component's bar was that ceiling multiplied by
+its registered normalizer. The interval block took its ceiling from the mean interval
+score, whose replicate spread is far wider than its reference median, and carried the
+coverage component up with it. Coverage came out at 3.670177 against a component that
+cannot exceed one, so both profiles refused.
+
+The derivation is per component from this pass on. A component's bar is the empirical p99
+of that component's own values over the 102 replicates of one reference line, taken on the
+line whose p99 for it is the largest of the three. The rank stays at 101 of 102, lines are
+still never pooled, and the same one-percent false-fail accounting is applied per line to a
+component rather than to a block. A gate passes when every gated component sits under its
+own bar, which is what the verifier already did when it graded a submission.
+
+Two consequences follow, and the receipt carries both. The registered normalizers no longer
+set the height of anything: dividing a component's values by a positive constant and
+multiplying the order statistic back by it returns the same number. The registry now
+records the scale each component was registered at, the verifier still binds it, and every
+gate record carries `normalizers_scale_published_bars` reading false. Second, the union of
+one block's component exceedances is not bounded by one percent any more, since two
+components of one block can be exceeded by two different replicates. On this evidence that
+happens once. The one-percent target binds a component on a line, the union is measured and
+printed beside it, and the target marginal product moves from 0.99 to the fifteenth power
+to 0.99 to the twenty-seventh, being nine components across three graded worlds.
+
+The attainable-range rule keeps its shape and now reads each component's own p99. A
+component whose p99 lands on the top of its range is refused where the profile decides it,
+and published with a null value, its calibrated reading and its reason where the profile
+does not.
+
+### The nine bars, before and after
+
+Each row names the line whose p99 sets the bar, then the component, then the value pass
+four derived, then the value this pass publishes:
+
+    B    interval coverage deviation             3.670177    0.900000
+    A    pooled tail exceedance deviation        0.246560    0.192106
+    B    q95 width error                        18.318903   18.100609
+    B    es95 width error                       21.566589   20.680355
+    ABC  worst regional shortfall reading        4.803651    1.000000
+    A    exposure and rate p95 error            15.667516   15.667516
+    B    release accuracy p95 error              1.314919    1.314919
+    B    mean interval score                    10.250382   10.250382
+    C    reserve skill loss                      6.007926    6.007926
+
+Coverage deviation and the shortfall probability run from zero to one. Pooled exceedance
+deviation runs from zero to 0.95. No upper bound exists for the other six.
+
+The last four rows do not move, because each was already the component that set its block's
+ceiling and so was reading its own p99 all along. Interval coverage falls from 3.67 to 0.90
+and now sits inside its range with room to spare, which is what this pass was for. The
+exceedance and the two width errors fall because they no longer carry a neighbour's
+ceiling. The shortfall probability reads exactly one everywhere, so its own p99 is one and
+lands on the top of its range. No derivation reading this evidence can give it a bar.
+
+No final reference exceeds any of the eight published bars, on any world, under either
+profile. Reading the largest of the eighteen against the bar it faces: 8.285 under 15.668,
+1.111 under 1.315, 0.733 under 0.900, 5.865 under 10.250, 0.086 under 0.192, 11.654 under
+18.101, 13.544 under 20.680, and 4.633 under 6.008.
+
+### False-fail rates per line and per component
+
+Counts are out of the 102 replicates of a line. The nine columns are the nine components in
+registered order, being exposure and rate p95, release accuracy p95, interval coverage,
+interval score, pooled exceedance, q95 width, es95 width, skill loss, shortfall:
+
+    line A   1 1 0 0 1 0 0 1 0   product 0.888494
+    line B   1 1 0 1 0 1 1 1 0   product 0.837494
+    line C   0 1 0 0 1 0 0 1 0   product 0.915147
+
+A count of one is a rate of 0.980392 percent, so every component on every line is at or
+under the registered target and the accounting blocks nothing. Over nine components and
+three graded worlds the target product is 0.762343, and the conservative achieved reading
+is line B at 0.837494.
+
+The union over each block's components, in the five registered blocks, is the reading the
+one-percent target no longer covers:
+
+    line A   1 1 0 1 1   product 0.888494
+    line B   1 1 1 2 1   product 0.837248
+    line C   0 1 0 1 1   product 0.915147
+
+Line B's tail block is the two, at 1.960784 percent. It is the only reading above one
+percent anywhere in the design, and it comes from the q95 width error and the es95 width
+error being exceeded by two different replicates.
+
+### Neither profile froze, and the two stops are different
+
+Under `full` the freeze refuses inside calibration, at the first component it cannot
+publish:
+
+    reserve_skill/worst_regional_shortfall_probability: the calibrated bar 1
+    reaches its attainable ceiling 1, so the component cannot fail
+
+That component reads 1.000000 on all 306 replicates and all 18 final references, so its p99
+is 1.000000 on every one of the three lines against an attainable ceiling of 1. No world
+and no replicate reads anything else. Since `full` decides on it, the freeze refuses rather
+than publish a ceiling nothing can exceed. The directory `bars/national-v12-full` holds a
+fail-closed `bars.json`, a report reading `RESULT: NOT FROZEN`, and a provenance file. It
+holds no reserve calibration acceptance, so nothing downstream ran.
+
+Under `lite` that component leaves the profile, calibration completes for the first time in
+this task, and the freeze then stops on the reserve rate candidate:
+
+    reserve calibration input must be the canonical unaccepted candidate
+
+That is not a bar and not a reading of one. The candidate embedded in the evidence is what
+`scripts/calibrate_reserve_rate.py` emits under the published rate rule. Its target rule
+reads `sum(submitted regional liability_mean) / public exposure`, and it carries
+`identification`, `identification_rule`, `identification_margin_share` and
+`binding_reference`. The contract `_validate_reserve_calibration_candidate` still expects
+the earlier candidate, whose target rule reads `sum(q95) + tail_slack_share * sum(ES95 -
+q95)` and which carries `tail_slack_share`. The key set and the rule string both differ, so
+the freezer refuses the candidate its own calibrator produced. Reconciling those two is a
+change to the reserve mechanism rather than to bar derivation, and this pass does not make
+it. The lite directory holds the same three fail-closed files.
+
+That refusal lands before control separation is attached, so neither receipt carries a
+separation matrix, deletion candidates or a promoted reserve audit.
+
+### What the freeze reads next, measured off the reports
+
+The separation matrix was measured directly off the 132 control reports at the nine bars
+above, in the comparison `_control_matrix` makes. Every control passes the structural hard
+checks on every world, so nothing is hard-invalid, and no report is missing or duplicated.
+
+Two of the twenty-two registered controls fail their own block on all six qualification
+worlds. Both are tail methods and both fail on the exceedance component: `mean_only_tail`
+and `predictive_tails`.
+
+Five fail their own block on some worlds and not others. `uniform_allocation` fails the
+reserve block on five worlds through skill loss and passes qual-0. `deterministic_linkage`
+fails the exposure block on qual-5 alone, and `version_three_recipe` does the same. On
+qual-3 only, `experience_history_only` fails release accuracy. On qual-1 only, `padded_tail`
+fails the tail block through the q95 width error.
+
+The other fifteen fail their own block on no world at all. They are `benchmark_only`,
+`exact_key_union`, `no_dedup`, `register_only`, `static_projection`, `survey_only`,
+`informative_selection`, `ignore_health_selection`, `inflated_intervals`,
+`reconstruction_uncertainty`, `development_average_regime`, `normal_tail`,
+`regime_recombination`, `proportional_reserve` and `reserve_allocation`.
+
+Under the lite selection, where the population, exposure and rate, and projection blocks
+decide, only three controls fail a deciding component on any world: `version_three_recipe`
+on four worlds, `deterministic_linkage` on two, `experience_history_only` on one. None
+fails a deciding component on every world, so every one of the twenty-two would be named a
+deletion candidate for that profile.
+
+The finding does not depend on the derivation, and every bar this pass publishes is at or
+below the value pass four derived. A ceiling set at the p99 of the correct method's own
+replicate spread sits above where these wrong methods land. Release accuracy is the
+plainest case. Its bar is 1.314919 because line B's replicates reach that, while
+`benchmark_only`, `register_only`, `survey_only`, `no_dedup`, `static_projection` and
+`exact_key_union` all read between 0.377 and 0.915 on every qualification world. The wrong
+methods sit inside the correct method's noise on this world set, which is a statement about
+the world set and the composite metrics rather than about which order statistic a bar is
+taken over. Pass four could not see it, because calibration refused first.
+
+### Science note: line B's interval coverage
+
+Line B is the Bayesian line, and its intervals do not cover. On qual-5 the replicate
+`outer-010` reads a coverage deviation of 0.860000 beside a mean interval score of
+10.250382, and that row is the one whose score sets the interval score bar for the whole
+design. The reading is not confined to it. Over the 17 qual-5 replicates of line B the
+coverage deviation runs from 0.66 to 0.90 and averages 0.8412, while lines A and C read
+0.54 on every qual-5 replicate they have. World by world the line B average runs from
+0.7424 to 0.8853; for the other two lines it runs from 0.1003 to 0.7333.
+
+A coverage deviation of 0.86 says the worst interval group misses its nominal level by 86
+points of coverage, which for a nominal 90 percent interval is a group that is covered
+essentially never. The published coverage bar of 0.900000 is line B's own p99, so the
+ceiling this design publishes for coverage is set by a line whose intervals fail. A
+reviewer will see that, so it belongs in the record rather than in a gate.
+
+### Nothing was minted and no command was written
+
+Neither profile froze. No graded world was minted, no seed was derived, no seal was
+written, and the task package was not repinned. The mint and repin commands are not
+recorded for v12: both stay gated on `reserve_calibration_accepted.json` sitting beside a
+set of bars, and neither v12 directory holds that file. Their shapes stay where the
+previous pass wrote them, under "The morning commands, gated on a profile that froze", and
+a pass that freezes replaces the v11 directory name with the one it wrote.
+
+The evidence still does not need rebuilding. The same 18 reference reports, 306 paired
+replicates, 132 controls and 24 development diagnostics carried this pass.
