@@ -93,9 +93,12 @@ lands, the two must be reconciled against it and this note removed.
     it is an exact integer. `authoring/build_assets.py` renders it into the instruction
     and refuses a total that is not integral. Until it runs, `instruction.md` commits the
     token `RESERVE_TOTAL` between the bold markers, never a figure, so the committed
-    constraint cannot be read as a real one and cannot go stale. The instruction says
-    nothing about this step, because it reaches the solver verbatim. Check: the rounding
-    unit, and the rendered figure against the sealed contract.
+    constraint cannot be read as a real one and cannot go stale. The sentence also names
+    `contract.json` as where the total is published, which is the same number the verifier
+    reads, so the constraint is satisfiable from inside the container whether or not the
+    packaging step has run. The instruction says nothing about the step itself, because it
+    reaches the solver verbatim. Check: the rounding unit, and the rendered figure against
+    the sealed contract.
 17. The skill baseline is `proportional_baseline_allocation` over
     `contract["reserve"]["baseline_share"]`, and the oracle is
     `perfect_information_allocation`. Both are published rules that never read the
@@ -106,9 +109,12 @@ lands, the two must be reconciled against it and this note removed.
 
 18. The verifier reads five retained files: `truth_revised.csv`, `truth_horizon.csv`,
     `detailed_revised.csv`, `rate_truth_horizon.csv`, and
-    `continuation_liabilities.npz`. `authoring/build_assets.py` packages exactly those,
-    and `tests/Dockerfile` asserts each one and asserts `world.json` is absent. Check:
-    the five names and that nothing else is read.
+    `continuation_liabilities.npz`. It also reads two participant files back out of the
+    same packet, `participant/contract.json` in `verify_submission` and
+    `participant/geography.csv` in `admin_from_packet`. `authoring/build_assets.py`
+    packages exactly those seven, and `tests/Dockerfile` asserts each one and asserts
+    `world.json` is absent. Check: the seven names and that nothing else is opened on the
+    packet.
 19. The participant bar keys are `actuarial`, `coverage_floor`,
     `detailed_accuracy_ceiling`, `disclosure_utility_floor`, `frozen`,
     `interval_score_ceiling`, `projection`, `worst_error`. `frozen_from` is withheld

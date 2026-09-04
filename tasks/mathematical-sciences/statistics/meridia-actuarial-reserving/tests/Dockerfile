@@ -17,13 +17,17 @@ RUN mkdir -p /app/submission /logs/verifier /tests /tests/packet
 
 # MERIDIA_TEST_ASSETS and MERIDIA_VERIFIER_SOURCE are build-time paths, relative to this
 # build context, of the two archives authoring/build_assets.py writes. The first holds the
-# hidden world's retained truth, its rate truth, the sealed continuation ensemble, and the
+# hidden world's retained truth, its rate truth, the sealed continuation ensemble, the two
+# participant files the scorer reads back (the contract and the geography table), and the
 # full frozen bar set. The second holds the frozen scoring code. Neither is committed and
-# neither reaches the agent image.
+# neither reaches the agent image. The checks below are the image's own statement of what
+# it staged, and they name every file meridia.verify opens on this packet.
 ARG MERIDIA_TEST_ASSETS=test_assets.tar.gz
 COPY ${MERIDIA_TEST_ASSETS} /tmp/test_assets.tar.gz
 RUN tar -xzf /tmp/test_assets.tar.gz -C /tests/packet && \
     rm /tmp/test_assets.tar.gz && \
+    test -f /tests/packet/hidden/participant/contract.json && \
+    test -f /tests/packet/hidden/participant/geography.csv && \
     test -f /tests/packet/hidden/retained/truth_revised.csv && \
     test -f /tests/packet/hidden/retained/truth_horizon.csv && \
     test -f /tests/packet/hidden/retained/detailed_revised.csv && \
