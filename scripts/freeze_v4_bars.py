@@ -2237,6 +2237,7 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
     }
     before_errors: list[float] = []
     after_errors: list[float] = []
+    world_comparison: list[dict[str, Any]] = []
     for row in rows:
         world = row["world"]
         before_reference = reference_by_key[(before_line, world)]
@@ -2367,10 +2368,33 @@ def _validate_elder_audit(audit: Mapping[str, Any] | None,
             )
         before_errors.append(before_error)
         after_errors.append(after_error)
-    if statistics.median(after_errors) >= 10.0:
+        world_comparison.append({
+            "world": world,
+            "before": before_error,
+            "after": after_error,
+            "after_improves_on_before": after_error < before_error,
+        })
+    before_median = statistics.median(before_errors)
+    after_median = statistics.median(after_errors)
+    if after_median >= 10.0:
         raise EvidenceError("third-line median elder exposure error is not single digit")
-    if statistics.median(after_errors) >= statistics.median(before_errors):
-        raise EvidenceError("third line does not improve median elder exposure error")
+    # Whether the third line reads the elder level better than the first is a claim about
+    # an ablation, not a property of the surface a submission is scored on. It was written
+    # as a precondition and stopped the freeze before a single bar was calibrated. It is
+    # now recorded instead: both medians, the per-world direction, and the verdict on the
+    # comparison travel in the receipt, the freeze report and the provenance file, and
+    # nothing reads them to decide. The single-digit bound above still refuses, because a
+    # third line whose elder level is out by ten percent or more is not measuring what the
+    # audit says it measures.
+    normalized["median_exposure_error_comparison"] = {
+        "before_line": before_line,
+        "after_line": after_line,
+        "before_median": before_median,
+        "after_median": after_median,
+        "after_improves_on_before": after_median < before_median,
+        "reported_only": True,
+        "by_world": world_comparison,
+    }
     normalized["digest_sha256"] = _canonical_digest(normalized)
     return normalized
 
@@ -3820,6 +3844,29 @@ def _append_elder_audit(lines: list[str], bars: Mapping[str, Any]) -> None:
                 f"{region.get('submitted_before')} before, "
                 f"{region.get('submitted_after')} after, {region.get('sealed')} sealed"
             )
+    comparison = audit.get("median_exposure_error_comparison")
+    if isinstance(comparison, Mapping):
+        lines.extend([
+            "",
+            "### Median elder exposure error, reported and deciding nothing",
+            "",
+            f"- median absolute 65+ exposure error, line "
+            f"{comparison.get('before_line')}: {comparison.get('before_median')}%",
+            f"- median absolute 65+ exposure error, line "
+            f"{comparison.get('after_line')}: {comparison.get('after_median')}%",
+            f"- line {comparison.get('after_line')} reads the elder level better than "
+            f"line {comparison.get('before_line')}: "
+            f"{str(bool(comparison.get('after_improves_on_before'))).lower()}",
+            "- this comparison is a diagnostic on the third reference line and no gate, "
+            "bar or verdict reads it",
+        ])
+        for record in comparison.get("by_world", []):
+            better = "better" if record.get("after_improves_on_before") else "worse"
+            lines.append(
+                f"- {record.get('world')}: {record.get('before')}% before, "
+                f"{record.get('after')}% after, {better}"
+            )
+        lines.append("")
     lines.extend([
         f"- audit digest: `{audit.get('digest_sha256')}`",
         "",

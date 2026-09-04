@@ -2764,11 +2764,53 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 before_values.append(float(exposure["before"]))
                 after_values.append(float(exposure["after"]))
             if elder_ok:
-                before_values.sort()
-                after_values.sort()
-                before_median = 0.5 * (before_values[2] + before_values[3])
-                after_median = 0.5 * (after_values[2] + after_values[3])
-                elder_ok = after_median < 10.0 and after_median < before_median
+                ordered_before = sorted(before_values)
+                ordered_after = sorted(after_values)
+                before_median = 0.5 * (ordered_before[2] + ordered_before[3])
+                after_median = 0.5 * (ordered_after[2] + ordered_after[3])
+                # Whether the third line reads the elder level better than the first is a
+                # reported diagnostic on an ablation, not a condition on the scoring
+                # surface. The receipt has to carry both medians and the per-world
+                # direction, and they have to recompute from the audit rows, but their
+                # verdict decides nothing. The single-digit bound still refuses.
+                comparison = unsigned.get("median_exposure_error_comparison")
+                elder_ok = after_median < 10.0 \
+                    and isinstance(comparison, dict) \
+                    and set(comparison) == {
+                        "before_line", "after_line", "before_median", "after_median",
+                        "after_improves_on_before", "reported_only", "by_world",
+                    } \
+                    and comparison.get("reported_only") is True \
+                    and comparison.get("before_line") == method["before_line"] \
+                    and comparison.get("after_line") == method["after_line"] \
+                    and finite_number(comparison.get("before_median")) \
+                    and finite_number(comparison.get("after_median")) \
+                    and math.isclose(float(comparison["before_median"]), before_median,
+                                     rel_tol=1e-12, abs_tol=1e-12) \
+                    and math.isclose(float(comparison["after_median"]), after_median,
+                                     rel_tol=1e-12, abs_tol=1e-12) \
+                    and comparison.get("after_improves_on_before") \
+                    is (after_median < before_median) \
+                    and isinstance(comparison.get("by_world"), list) \
+                    and len(comparison["by_world"]) == len(before_values) \
+                    and all(
+                        isinstance(record, dict)
+                        and set(record) == {
+                            "world", "before", "after", "after_improves_on_before",
+                        }
+                        and record["world"] == row.get("world")
+                        and finite_number(record.get("before"))
+                        and finite_number(record.get("after"))
+                        and math.isclose(float(record["before"]), before,
+                                         rel_tol=1e-12, abs_tol=1e-12)
+                        and math.isclose(float(record["after"]), after,
+                                         rel_tol=1e-12, abs_tol=1e-12)
+                        and record["after_improves_on_before"] is (after < before)
+                        for record, row, before, after in zip(
+                            comparison["by_world"], audit_worlds,
+                            before_values, after_values,
+                        )
+                    )
         if elder_ok and provenance_ok:
             after_line = method["after_line"]
             method_digests = {

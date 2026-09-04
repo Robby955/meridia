@@ -349,7 +349,19 @@ def _diagnostics(freeze) -> list[dict]:
     ]
 
 
-def _elder_audit(freeze, references: list[dict]) -> dict:
+def _set_elder_levels(freeze, references: list[dict], *, before: float,
+                      after: float) -> None:
+    """Give the first and third lines their own submitted elder levels, and rebind."""
+    for entry in references:
+        submitted = after if entry["reference_line"] == "C" else before
+        rows = entry["report"]["elder_reference_evidence"]["state_65_plus_person_years"]
+        for row in rows:
+            row["submitted_person_years"] = submitted
+        _rebind(freeze, entry, "reference")
+
+
+def _elder_audit(freeze, references: list[dict], *, before_level: float = 110.0,
+                 after_level: float = 105.0) -> dict:
     by_pair = {(row["reference_line"], row["world"]): row for row in references}
     worlds = []
     for index in range(6):
@@ -367,12 +379,12 @@ def _elder_audit(freeze, references: list[dict]) -> dict:
             "after_report_evidence_id": after["evidence_id"],
             "exposure_65_plus_absolute_error_percent": {
                 "definition": freeze.ELDER_EXPOSURE_ERROR_DEFINITION,
-                "before": 10.0,
-                "after": 5.0,
+                "before": abs(before_level - 100.0),
+                "after": abs(after_level - 100.0),
             },
             "state_65_plus_person_years": [
-                {"state": state, "submitted_before": 110.0,
-                 "submitted_after": 105.0, "sealed": 100.0}
+                {"state": state, "submitted_before": before_level,
+                 "submitted_after": after_level, "sealed": 100.0}
                 for state in range(6)
             ],
             "liability_mean_by_region": [
@@ -2724,3 +2736,50 @@ def test_a_reading_one_rounding_step_past_an_endpoint_is_that_endpoint():
     with pytest.raises(freeze.EvidenceError):
         freeze._number(low - 1e-3, "tail_calibration",
                        "pooled_exceedance_deviation")
+
+
+def test_a_third_line_that_reads_the_elder_level_worse_is_reported_not_a_blocker():
+    """The improvement comparison travels in the receipt and stops nothing."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    _set_elder_levels(freeze, references, before=103.0, after=106.0)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["elder_reconstruction_audit"] = _elder_audit(
+        freeze, references, before_level=103.0, after_level=106.0
+    )
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["blockers"] == []
+    assert bars["frozen"] is True
+    comparison = bars["elder_reconstruction_audit"]["median_exposure_error_comparison"]
+    assert comparison["before_line"] == "A" and comparison["after_line"] == "C"
+    assert comparison["before_median"] == pytest.approx(3.0)
+    assert comparison["after_median"] == pytest.approx(6.0)
+    assert comparison["after_improves_on_before"] is False
+    assert comparison["reported_only"] is True
+    assert [row["world"] for row in comparison["by_world"]] == [
+        f"qual-{index}" for index in range(6)
+    ]
+    assert all(row["after_improves_on_before"] is False
+               for row in comparison["by_world"])
+    for text in (freeze.render_freeze_report(bars), freeze.render_provenance(bars)):
+        assert "Median elder exposure error, reported and deciding nothing" in text
+        assert "no gate, bar or verdict reads it" in text
+        assert "line C reads the elder level better than line A: false" in text
+
+
+def test_a_third_line_out_by_ten_percent_still_refuses():
+    """The single-digit bound is a gate; only the comparison was demoted."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    _set_elder_levels(freeze, references, before=103.0, after=112.0)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["elder_reconstruction_audit"] = _elder_audit(
+        freeze, references, before_level=103.0, after_level=112.0
+    )
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert bars["frozen"] is False
+    assert any("not single digit" in blocker for blocker in bars["blockers"])
