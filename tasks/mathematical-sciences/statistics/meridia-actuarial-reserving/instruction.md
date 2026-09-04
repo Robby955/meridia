@@ -15,10 +15,9 @@ and link badly. The twelve worlds at `/data/development/world-1/participant/`
 through `/data/development/world-12/participant/` share that layout and add a `truth/`
 directory. The graded world has none; its truth and the scoring code are not here.
 
-Write exactly the three files below into `/app/submission/`, add nothing else there,
-work deterministically, and leave `/data` unchanged. The graded world decides
-the verdict, except the reserve block, which is read against a committed ensemble of its
-continuations.
+Write the three files below into `/app/submission/`, add nothing else there, work
+deterministically, and leave `/data` unchanged. The graded world decides the verdict,
+except the reserve block, read against a committed ensemble of its continuations.
 
 ## What the records support
 
@@ -33,10 +32,10 @@ measurement. The open worlds settle inside a published band; the graded world se
 outside it, along axes it does not publish, so a fixed calibration will miss. The
 reference counts come off an independent line whose bias persists, rounded to hundreds.
 
-That contract publishes the obligation and its formula, the discount rate, the
-eligibility age, the shock and survey families, the experience block, and the reserve
-block including `reserve.total`. Survival, migration, and incidence over
-the horizon are yours to estimate.
+The contract at `/data/hidden/participant/contract.json` publishes the obligation and its
+formula, the discount rate, the eligibility age, the shock and survey families, the
+experience block, and the reserve block including `reserve.total`. Survival, migration,
+and incidence over the horizon are yours to estimate.
 
 ## The three files
 
@@ -63,8 +62,8 @@ Headers are exact and ordered; every required row appears once and no other appe
 Counties add to their state and states to `nation`. Exposure adds across bands and across
 counties, and a state rate on its own exposure implies the event count its counties do.
 In every reserve row the four numbers are finite and nonnegative, `q95` sits at or above
-`liability_mean`, and `es95` sits at or above `q95`. Allocations are
-finite, nonnegative, and sum to the total the contract publishes at `reserve.total`.
+`liability_mean`, and `es95` sits at or above `q95`. Allocations are finite, nonnegative,
+and sum to the total the contract publishes at `reserve.total`.
 
 Four composites then decide, each held to a ceiling frozen in `/data/bars.json` shipped
 with the task. `exposures_and_rates` is the 95th percentile of relative error over the
