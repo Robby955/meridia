@@ -59,6 +59,23 @@ RESERVE_CALIBRATION_PENDING_BLOCKERS = (
     "show the proportional reserve control failing at the candidate rate",
     "record the held-out reserve-total red-team measurement",
 )
+# The published rate rule. A reference contributes one candidate rate, the sum of its
+# submitted regional mean liabilities over the packet's public exposure, rounded up to the
+# rate grid. The published rate is the largest of those candidates that still leaves the
+# reserve decision identified on every qualification world, where identified means the
+# skill denominator is at least this share of that world's sealed mean total liability.
+# The freezer never recomputes the identification readings, which are freeze-side and read
+# the retained continuation ensemble. It recomputes everything the candidate can be held
+# to from its own readings and from the authenticated reference reports.
+RESERVE_CALIBRATION_TARGET_RULE = (
+    "sum(submitted regional liability_mean) / public exposure"
+)
+RESERVE_CALIBRATION_IDENTIFICATION_RULE = (
+    "largest candidate rate whose baseline-minus-oracle expected uncovered obligation is "
+    "at least identification_margin_share of the sealed mean total liability on every "
+    "qualification world"
+)
+RESERVE_IDENTIFICATION_MARGIN_SHARE = 0.01
 RESERVE_CALIBRATION_CANDIDATE_KEYS = {
     "schema",
     "candidate",
@@ -66,8 +83,11 @@ RESERVE_CALIBRATION_CANDIDATE_KEYS = {
     "blockers",
     "rate_per_person_year",
     "rate_grid",
-    "tail_slack_share",
+    "identification_margin_share",
     "target_rule",
+    "identification_rule",
+    "binding_reference",
+    "identification",
     "reference_lines",
     "qualification_worlds",
     "evidence",
@@ -78,14 +98,39 @@ RESERVE_CALIBRATION_EVIDENCE_KEYS = {
     "evidence_id",
     "exposure_person_years",
     "rounding_unit",
+    "submitted_liability_mean_sum",
     "submitted_q95_sum",
     "submitted_es95_sum",
     "target_reserve_before_rounding",
     "required_rate",
+    "candidate_rate",
     "experience_sha256",
     "reserve_submission_sha256",
     "candidate_reserve_total",
     "candidate_margin",
+}
+RESERVE_CALIBRATION_IDENTIFICATION_KEYS = {"chosen", "candidates"}
+RESERVE_CALIBRATION_CHOSEN_KEYS = {
+    "rate_per_person_year",
+    "worst_margin_share",
+    "worst_world",
+    "worlds",
+}
+RESERVE_CALIBRATION_CHOSEN_WORLD_KEYS = {
+    "reserve_total",
+    "j_baseline",
+    "j_oracle",
+    "skill_denominator",
+    "margin_share",
+    "sealed_mean_total_liability",
+}
+RESERVE_CALIBRATION_LADDER_KEYS = {
+    "rate_per_person_year",
+    "identified",
+    "worst_margin_share",
+    "worst_world",
+    "margin_share",
+    "skill_denominator",
 }
 RESERVE_RED_TEAM_MEASUREMENT_KEYS = {
     "schema",
@@ -1364,6 +1409,157 @@ def _public_reserve_total(exposure: float, rate: float, unit: float) -> float:
     return float(raw_units.to_integral_value(rounding=ROUND_CEILING) * Decimal(str(unit)))
 
 
+def _validate_reserve_rate_identification(
+    candidate: Mapping[str, Any],
+    rate: float,
+    margin_share: float,
+    candidate_rates: set[float],
+    world_totals: Mapping[str, float],
+) -> None:
+    """Check the published rate against the identification ladder it was chosen from.
+
+    The readings themselves come from the retained continuation ensemble and cannot be
+    recomputed here. Everything else can be. The ladder must carry one rung for every
+    distinct candidate rate the reference evidence produces, in descending order; each
+    rung's worst world and worst margin share must be the minimum of its own per-world
+    readings; each rung must be marked identified exactly when that minimum reaches the
+    registered margin share; and the published rate must be the largest rung that is.
+    """
+
+    ladder = candidate.get("identification")
+    if not isinstance(ladder, Mapping) \
+            or set(ladder) != RESERVE_CALIBRATION_IDENTIFICATION_KEYS:
+        raise EvidenceError("reserve calibration identification fields differ")
+    rungs = ladder.get("candidates")
+    expected_rates = sorted(candidate_rates, reverse=True)
+    if not isinstance(rungs, list) or len(rungs) != len(expected_rates):
+        raise EvidenceError(
+            "reserve calibration rate ladder differs from its reference evidence"
+        )
+    identified: list[float] = []
+    shares_at_rate: dict[str, float] = {}
+    for rung, expected_rate in zip(rungs, expected_rates):
+        if not isinstance(rung, Mapping) \
+                or set(rung) != RESERVE_CALIBRATION_LADDER_KEYS:
+            raise EvidenceError("reserve calibration rate ladder fields differ")
+        shares = rung.get("margin_share")
+        denominators = rung.get("skill_denominator")
+        if not isinstance(shares, Mapping) or not isinstance(denominators, Mapping) \
+                or sorted(shares) != list(QUALIFICATION_WORLDS) \
+                or sorted(denominators) != list(QUALIFICATION_WORLDS):
+            raise EvidenceError("reserve calibration rate ladder worlds differ")
+        readings = {
+            world: _audit_number(
+                shares[world], f"reserve calibration ladder margin share {world}",
+                low=float("-inf"),
+            )
+            for world in QUALIFICATION_WORLDS
+        }
+        for world in QUALIFICATION_WORLDS:
+            _audit_number(
+                denominators[world],
+                f"reserve calibration ladder skill denominator {world}",
+                low=float("-inf"),
+            )
+        worst_world = min(QUALIFICATION_WORLDS, key=lambda name: readings[name])
+        worst = readings[worst_world]
+        rung_rate = _audit_number(
+            rung.get("rate_per_person_year"),
+            "reserve calibration ladder rate_per_person_year",
+            low=1e-300,
+        )
+        recorded_worst = _audit_number(
+            rung.get("worst_margin_share"),
+            "reserve calibration ladder worst_margin_share",
+            low=float("-inf"),
+        )
+        if not math.isclose(rung_rate, expected_rate, rel_tol=1e-12, abs_tol=1e-12) \
+                or not isinstance(rung.get("identified"), bool) \
+                or rung.get("worst_world") != worst_world \
+                or not math.isclose(recorded_worst, worst,
+                                    rel_tol=1e-12, abs_tol=1e-15) \
+                or rung["identified"] is not bool(worst >= margin_share):
+            raise EvidenceError(
+                "reserve calibration rate ladder does not recompute from its readings"
+            )
+        if rung["identified"]:
+            identified.append(rung_rate)
+        if math.isclose(rung_rate, rate, rel_tol=1e-12, abs_tol=1e-12):
+            shares_at_rate = readings
+    if not identified or not math.isclose(rate, max(identified),
+                                          rel_tol=1e-12, abs_tol=1e-12):
+        raise EvidenceError(
+            "reserve calibration rate is not the largest identified candidate rate"
+        )
+
+    chosen = ladder.get("chosen")
+    if not isinstance(chosen, Mapping) \
+            or set(chosen) != RESERVE_CALIBRATION_CHOSEN_KEYS:
+        raise EvidenceError("reserve calibration chosen-rate fields differ")
+    worlds = chosen.get("worlds")
+    if not isinstance(worlds, Mapping) \
+            or sorted(worlds) != list(QUALIFICATION_WORLDS):
+        raise EvidenceError("reserve calibration chosen-rate worlds differ")
+    chosen_shares: dict[str, float] = {}
+    for world in QUALIFICATION_WORLDS:
+        reading = worlds[world]
+        if not isinstance(reading, Mapping) \
+                or set(reading) != RESERVE_CALIBRATION_CHOSEN_WORLD_KEYS:
+            raise EvidenceError("reserve calibration chosen-rate world fields differ")
+        j_baseline = _audit_number(
+            reading.get("j_baseline"), f"reserve calibration j_baseline {world}",
+            low=float("-inf"),
+        )
+        j_oracle = _audit_number(
+            reading.get("j_oracle"), f"reserve calibration j_oracle {world}",
+            low=float("-inf"),
+        )
+        denominator = _audit_number(
+            reading.get("skill_denominator"),
+            f"reserve calibration skill denominator {world}", low=float("-inf"),
+        )
+        share = _audit_number(
+            reading.get("margin_share"), f"reserve calibration margin share {world}",
+            low=float("-inf"),
+        )
+        sealed = _audit_number(
+            reading.get("sealed_mean_total_liability"),
+            f"reserve calibration sealed mean total liability {world}", low=1e-300,
+        )
+        world_total = _audit_number(
+            reading.get("reserve_total"), f"reserve calibration world total {world}"
+        )
+        if not math.isclose(denominator, j_baseline - j_oracle,
+                            rel_tol=1e-9, abs_tol=1e-6) \
+                or not math.isclose(share, denominator / sealed,
+                                    rel_tol=1e-9, abs_tol=1e-12) \
+                or not math.isclose(share, shares_at_rate.get(world, float("nan")),
+                                    rel_tol=1e-12, abs_tol=1e-15) \
+                or not math.isclose(world_total, world_totals[world],
+                                    rel_tol=1e-12, abs_tol=1e-9):
+            raise EvidenceError(
+                "reserve calibration chosen-rate reading does not recompute"
+            )
+        chosen_shares[world] = share
+    worst_world = min(QUALIFICATION_WORLDS, key=lambda name: chosen_shares[name])
+    chosen_rate = _audit_number(
+        chosen.get("rate_per_person_year"),
+        "reserve calibration chosen rate_per_person_year", low=1e-300,
+    )
+    recorded_worst = _audit_number(
+        chosen.get("worst_margin_share"),
+        "reserve calibration chosen worst_margin_share", low=float("-inf"),
+    )
+    if not math.isclose(chosen_rate, rate, rel_tol=1e-12, abs_tol=1e-12) \
+            or chosen.get("worst_world") != worst_world \
+            or not math.isclose(recorded_worst, chosen_shares[worst_world],
+                                rel_tol=1e-12, abs_tol=1e-15) \
+            or chosen_shares[worst_world] < margin_share:
+        raise EvidenceError(
+            "reserve calibration chosen rate is not identified on every world"
+        )
+
+
 def _validate_reserve_calibration_candidate(
     audit: Mapping[str, Any] | None,
     references: Sequence[Mapping[str, Any]],
@@ -1386,8 +1582,9 @@ def _validate_reserve_calibration_candidate(
             != list(RESERVE_CALIBRATION_PENDING_BLOCKERS) \
             or normalized.get("reference_lines") != list(REFERENCE_LINES) \
             or normalized.get("qualification_worlds") != list(QUALIFICATION_WORLDS) \
-            or normalized.get("target_rule") \
-            != "sum(q95) + tail_slack_share * sum(ES95 - q95)":
+            or normalized.get("target_rule") != RESERVE_CALIBRATION_TARGET_RULE \
+            or normalized.get("identification_rule") \
+            != RESERVE_CALIBRATION_IDENTIFICATION_RULE:
         raise EvidenceError(
             "reserve calibration input must be the canonical unaccepted candidate"
         )
@@ -1399,15 +1596,16 @@ def _validate_reserve_calibration_candidate(
     grid = _audit_number(
         normalized.get("rate_grid"), "reserve calibration rate_grid", low=1e-300
     )
-    slack = _audit_number(
-        normalized.get("tail_slack_share"),
-        "reserve calibration tail_slack_share",
-        low=0.0,
+    margin_share = _audit_number(
+        normalized.get("identification_margin_share"),
+        "reserve calibration identification_margin_share",
+        low=1e-300,
         high=1.0,
     )
-    if grid != 1.0 or slack != 0.25:
+    if grid != 1.0 or margin_share != RESERVE_IDENTIFICATION_MARGIN_SHARE:
         raise EvidenceError(
-            "reserve calibration must use RATE_GRID=1.0 and TAIL_SLACK_SHARE=0.25"
+            "reserve calibration must use RATE_GRID=1.0 and "
+            "IDENTIFICATION_MARGIN_SHARE=0.01"
         )
     rows = normalized.get("evidence")
     if not isinstance(rows, list) or len(rows) != REFERENCE_REPORT_COUNT:
@@ -1416,7 +1614,8 @@ def _validate_reserve_calibration_candidate(
         (row["reference_line"], row["world"]): row for row in references
     }
     observed: dict[tuple[str, str], Mapping[str, Any]] = {}
-    required_rates: list[float] = []
+    candidate_rates: set[float] = set()
+    world_totals: dict[str, float] = {}
     rounding_units: set[float] = set()
     for row in rows:
         if not isinstance(row, Mapping) or set(row) != RESERVE_CALIBRATION_EVIDENCE_KEYS:
@@ -1461,17 +1660,44 @@ def _validate_reserve_calibration_candidate(
             abs_tol=1e-9,
         ):
             raise EvidenceError("reserve calibration q95 sum differs from the verifier")
+        # The published total is a rate applied to public exposure. Under the means-based
+        # rule it is not a floor over the filed q95 sum, so the margin it leaves against
+        # the target is signed and a negative reading is a fact about the world rather
+        # than an invalid candidate.
         margin = _audit_number(
-            row.get("candidate_margin"), "reserve calibration candidate_margin"
+            row.get("candidate_margin"), "reserve calibration candidate_margin",
+            low=float("-inf"),
         )
         es95_sum = _audit_number(
             row.get("submitted_es95_sum"), "reserve calibration submitted_es95_sum"
+        )
+        mean_sum = _audit_number(
+            row.get("submitted_liability_mean_sum"),
+            "reserve calibration submitted_liability_mean_sum",
+            low=1e-300,
+        )
+        elder = reference["binding"].get("elder_reference_evidence")
+        if not isinstance(elder, Mapping):
+            raise EvidenceError(
+                "reserve calibration cannot authenticate a submitted mean liability sum"
+            )
+        authenticated_mean_sum = math.fsum(
+            float(item["submitted"]) for item in elder["liability_mean_by_region"]
+        )
+        if not math.isclose(
+            mean_sum, authenticated_mean_sum, rel_tol=1e-12, abs_tol=1e-9
+        ):
+            raise EvidenceError(
+                "reserve calibration mean liability sum differs from the verifier"
+            )
+        candidate_rate = _audit_number(
+            row.get("candidate_rate"), "reserve calibration candidate_rate", low=1e-300
         )
         candidate_total = _audit_number(
             row.get("candidate_reserve_total"),
             "reserve calibration candidate_reserve_total",
         )
-        target = q95_sum + slack * (es95_sum - q95_sum)
+        target = mean_sum
         recorded_target = _audit_number(
             row.get("target_reserve_before_rounding"),
             "reserve calibration target_reserve_before_rounding",
@@ -1483,8 +1709,10 @@ def _validate_reserve_calibration_candidate(
         reserve_rule = _reserve_rule_evidence(reference["report"])
         tail_evidence = _reserve_tail_evidence(reference["report"])
         if es95_sum < q95_sum \
-                or candidate_total + 1e-9 < q95_sum \
-                or margin < 0.0 \
+                or not math.isclose(
+                    candidate_rate, math.ceil(required_rate / grid) * grid,
+                    rel_tol=1e-12, abs_tol=1e-12,
+                ) \
                 or experience_digest != reserve_rule["experience_sha256"] \
                 or reserve_digest != tail_evidence["reserve_submission_sha256"] \
                 or not math.isclose(
@@ -1531,7 +1759,13 @@ def _validate_reserve_calibration_candidate(
                 ):
             raise EvidenceError("reserve calibration candidate is infeasible")
         observed[key] = row
-        required_rates.append(required_rate)
+        candidate_rates.add(candidate_rate)
+        recorded_total = world_totals.setdefault(world, candidate_total)
+        if not math.isclose(recorded_total, candidate_total,
+                            rel_tol=1e-12, abs_tol=1e-9):
+            raise EvidenceError(
+                "reserve calibration reports two published totals for one world"
+            )
         rounding_units.add(rounding_unit)
     if set(observed) != set(expected):
         raise EvidenceError("reserve calibration evidence pairs are incomplete")
@@ -1539,10 +1773,19 @@ def _validate_reserve_calibration_candidate(
         raise EvidenceError(
             "qualification reference reports do not share one reserve rounding unit"
         )
-    expected_rate = math.ceil(max(required_rates) / grid) * grid
-    if not math.isclose(rate, expected_rate, rel_tol=1e-12, abs_tol=1e-12):
+    _validate_reserve_rate_identification(
+        normalized, rate, margin_share, candidate_rates, world_totals
+    )
+    binding_rows = sorted(
+        (row for row in rows
+         if math.isclose(float(row["candidate_rate"]), rate,
+                         rel_tol=1e-12, abs_tol=1e-12)),
+        key=lambda row: (row["reference_line"], row["world"]),
+    )
+    if not binding_rows \
+            or normalized.get("binding_reference") != binding_rows[0]["evidence_id"]:
         raise EvidenceError(
-            "reserve calibration rate is not the smallest registered feasible rate"
+            "reserve calibration binding reference is not the first reference at the rate"
         )
 
     reserve_ceilings = {
@@ -1621,6 +1864,14 @@ def _promote_reserve_calibration_candidate(
         "candidate_source_digest_sha256": candidate_digest,
         "measurement_contract_digest_sha256": measurement_contract_digest,
         "acceptance_evidence": {
+            "rate_rule": {
+                "target_rule": candidate["target_rule"],
+                "identification_rule": candidate["identification_rule"],
+                "identification_margin_share": candidate[
+                    "identification_margin_share"
+                ],
+                "binding_reference_evidence_id": candidate["binding_reference"],
+            },
             "reserve_skill_component_ceilings": ceilings,
             "reference_evidence_ids": sorted(
                 row["evidence_id"] for row in references

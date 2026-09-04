@@ -218,3 +218,46 @@ def test_script_help_runs_from_outside_the_repository(tmp_path):
     )
     assert completed.returncode == 0, completed.stderr
     assert "--evidence" in completed.stdout and "--out" in completed.stdout
+
+
+def test_the_freeze_contract_matches_what_this_calibrator_emits(tmp_path):
+    """The freezer and the verifier accept exactly this candidate, field for field."""
+    import importlib.util
+
+    from meridia import verify
+
+    from scripts.calibrate_reserve_rate import (IDENTIFICATION_MARGIN_SHARE,
+                                                IDENTIFICATION_RULE, RATE_GRID, SCHEMA)
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "freeze_v4_bars.py"
+    spec = importlib.util.spec_from_file_location("freeze_v4_bars_contract", path)
+    freeze = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(freeze)
+
+    entries = _evidence(tmp_path, worlds=6)
+    emitted = calibrate(entries)
+    assert emitted["candidate"] is True
+
+    assert set(emitted) == freeze.RESERVE_CALIBRATION_CANDIDATE_KEYS
+    assert all(set(row) == freeze.RESERVE_CALIBRATION_EVIDENCE_KEYS
+               for row in emitted["evidence"])
+    assert set(emitted["identification"]) \
+        == freeze.RESERVE_CALIBRATION_IDENTIFICATION_KEYS
+    assert set(emitted["identification"]["chosen"]) \
+        == freeze.RESERVE_CALIBRATION_CHOSEN_KEYS
+    assert all(set(reading) == freeze.RESERVE_CALIBRATION_CHOSEN_WORLD_KEYS
+               for reading in emitted["identification"]["chosen"]["worlds"].values())
+    assert all(set(rung) == freeze.RESERVE_CALIBRATION_LADDER_KEYS
+               for rung in emitted["identification"]["candidates"])
+
+    assert SCHEMA == freeze.RESERVE_CALIBRATION_SCHEMA \
+        == verify.RESERVE_CALIBRATION_SCHEMA
+    assert TARGET_RULE == freeze.RESERVE_CALIBRATION_TARGET_RULE \
+        == verify.RESERVE_CALIBRATION_TARGET_RULE
+    assert IDENTIFICATION_RULE == freeze.RESERVE_CALIBRATION_IDENTIFICATION_RULE \
+        == verify.RESERVE_CALIBRATION_IDENTIFICATION_RULE
+    assert IDENTIFICATION_MARGIN_SHARE == freeze.RESERVE_IDENTIFICATION_MARGIN_SHARE \
+        == verify.RESERVE_IDENTIFICATION_MARGIN_SHARE
+    assert RATE_GRID == 1.0
+    assert list(PENDING_BLOCKERS) == list(freeze.RESERVE_CALIBRATION_PENDING_BLOCKERS)

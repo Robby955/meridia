@@ -224,8 +224,8 @@ def _report(world: str, submission_label: str, offset: float = 0.0,
         "liability_mean_by_region": [
             {
                 "region": region,
-                "submitted": 950.0 if after else 900.0,
-                "sealed": 1_000.0,
+                "submitted": 16.0 if after else 15.0,
+                "sealed": 20.0,
             }
             for region in range(6)
         ],
@@ -388,8 +388,8 @@ def _elder_audit(freeze, references: list[dict], *, before_level: float = 110.0,
                 for state in range(6)
             ],
             "liability_mean_by_region": [
-                {"region": region, "submitted_before": 900.0,
-                 "submitted_after": 950.0, "sealed": 1_000.0}
+                {"region": region, "submitted_before": 15.0,
+                 "submitted_after": 16.0, "sealed": 20.0}
                 for region in range(6)
             ],
             "pooled_exceedance_deviation": {
@@ -640,6 +640,51 @@ def _digest_bound(freeze, payload: dict) -> dict:
 
 def _reserve_audits(freeze, references: list[dict], controls: list[dict],
                     diagnostics: list[dict]):
+    def _mean_sum(row: dict) -> float:
+        """The submitted regional mean liabilities the published rate rule targets."""
+        return math.fsum(
+            item["submitted"] for item
+            in row["report"]["elder_reference_evidence"]["liability_mean_by_region"]
+        )
+
+    calibration_rows = sorted(
+        (
+            {
+                "reference_line": row["reference_line"],
+                "world": row["world"],
+                "evidence_id": row["evidence_id"],
+                "exposure_person_years": 100.0,
+                "rounding_unit": 10.0,
+                "submitted_liability_mean_sum": _mean_sum(row),
+                "submitted_q95_sum": 60.0,
+                "submitted_es95_sum": 80.0,
+                "target_reserve_before_rounding": _mean_sum(row),
+                "required_rate": _mean_sum(row) / 100.0,
+                "candidate_rate": float(math.ceil(_mean_sum(row) / 100.0)),
+                "experience_sha256": row["report"]["reserve_rule_evidence"]
+                ["experience_sha256"],
+                "reserve_submission_sha256": row["report"]["evidence"]
+                ["submission_file_sha256"]["reserve.csv"],
+                "candidate_reserve_total": 100.0,
+                "candidate_margin": 100.0 - _mean_sum(row),
+            }
+            for row in references
+        ),
+        key=lambda row: (row["reference_line"], row["world"]),
+    )
+    identification_worlds = {
+        world: {
+            "reserve_total": 100.0,
+            "j_baseline": 25.0 + index,
+            "j_oracle": 5.0,
+            "skill_denominator": 20.0 + index,
+            "margin_share": (20.0 + index) / 1_000.0,
+            "sealed_mean_total_liability": 1_000.0,
+        }
+        for index, world in enumerate(freeze.QUALIFICATION_WORLDS)
+    }
+    worst_world = min(identification_worlds,
+                      key=lambda name: identification_worlds[name]["margin_share"])
     calibration = {
         "schema": freeze.RESERVE_CALIBRATION_SCHEMA,
         "candidate": True,
@@ -647,30 +692,41 @@ def _reserve_audits(freeze, references: list[dict], controls: list[dict],
         "blockers": list(freeze.RESERVE_CALIBRATION_PENDING_BLOCKERS),
         "rate_per_person_year": 1.0,
         "rate_grid": 1.0,
-        "tail_slack_share": 0.25,
-        "target_rule": "sum(q95) + tail_slack_share * sum(ES95 - q95)",
+        "identification_margin_share": freeze.RESERVE_IDENTIFICATION_MARGIN_SHARE,
+        "target_rule": freeze.RESERVE_CALIBRATION_TARGET_RULE,
+        "identification_rule": freeze.RESERVE_CALIBRATION_IDENTIFICATION_RULE,
+        "binding_reference": calibration_rows[0]["evidence_id"],
+        "identification": {
+            "chosen": {
+                "rate_per_person_year": 1.0,
+                "worst_margin_share": identification_worlds[worst_world][
+                    "margin_share"
+                ],
+                "worst_world": worst_world,
+                "worlds": identification_worlds,
+            },
+            "candidates": [
+                {
+                    "rate_per_person_year": 1.0,
+                    "identified": True,
+                    "worst_margin_share": identification_worlds[worst_world][
+                        "margin_share"
+                    ],
+                    "worst_world": worst_world,
+                    "margin_share": {
+                        world: reading["margin_share"]
+                        for world, reading in identification_worlds.items()
+                    },
+                    "skill_denominator": {
+                        world: reading["skill_denominator"]
+                        for world, reading in identification_worlds.items()
+                    },
+                }
+            ],
+        },
         "reference_lines": list(freeze.REFERENCE_LINES),
         "qualification_worlds": list(freeze.QUALIFICATION_WORLDS),
-        "evidence": [
-            {
-                "reference_line": row["reference_line"],
-                "world": row["world"],
-                "evidence_id": row["evidence_id"],
-                "exposure_person_years": 100.0,
-                "rounding_unit": 10.0,
-                "submitted_q95_sum": 60.0,
-                "submitted_es95_sum": 80.0,
-                "target_reserve_before_rounding": 65.0,
-                "required_rate": 0.65,
-                "experience_sha256": row["report"]["reserve_rule_evidence"]
-                ["experience_sha256"],
-                "reserve_submission_sha256": row["report"]["evidence"]
-                ["submission_file_sha256"]["reserve.csv"],
-                "candidate_reserve_total": 100.0,
-                "candidate_margin": 35.0,
-            }
-            for row in references
-        ],
+        "evidence": calibration_rows,
     }
     def packet_inputs(entries: list[dict], worlds: tuple[str, ...]) -> list[dict]:
         return [
@@ -973,7 +1029,7 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
             in document
         assert "absolute 65+ exposure error 10.0% before, 5.0% after" in document
         assert "pooled exceedance deviation 0.04 before, 0.04 after" in document
-        assert "region 0 liability mean: 900.0 before, 950.0 after, 1000.0 sealed" \
+        assert "region 0 liability mean: 15.0 before, 16.0 after, 20.0 sealed" \
             in document
         assert (
             "target marginal product over nine components and three graded worlds: "
@@ -2110,7 +2166,7 @@ def test_valid_reserve_candidate_is_promoted_and_qualification_is_generated():
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("rate_grid", 0.5), ("tail_slack_share", 0.0)],
+    [("rate_grid", 0.5), ("identification_margin_share", 0.02)],
 )
 def test_reserve_candidate_cannot_change_registered_calibration_constants(field, value):
     freeze = _freeze()
@@ -2130,13 +2186,9 @@ def test_reserve_candidate_es95_must_match_authenticated_tail_evidence():
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
     kwargs = _calibration_kwargs(freeze, references, controls)
-    row = kwargs["reserve_calibration_audit"]["evidence"][0]
-    row.update({
-        "submitted_es95_sum": 100.0,
-        "target_reserve_before_rounding": 70.0,
-        "required_rate": 0.7,
-        "candidate_margin": 30.0,
-    })
+    kwargs["reserve_calibration_audit"]["evidence"][0][
+        "submitted_es95_sum"
+    ] = 100.0
 
     bars = freeze.calibrate_composite_bars(
         references, replicates, controls, **kwargs
@@ -2918,3 +2970,91 @@ def test_the_verifier_takes_an_unpublished_bar_only_where_the_profile_agrees():
         "calibrated_value"] = 0.1
     assert any("does not recompute" in error
                for error in verifier._bar_schema_errors(forged))
+
+
+def test_the_freeze_takes_the_means_based_candidate_and_refuses_the_older_shape():
+    """Both directions of the reserve candidate contract, on one set of evidence."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    candidate = deepcopy(kwargs["reserve_calibration_audit"])
+
+    accepted = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert accepted["frozen"] is True
+    promoted = accepted["reserve_audits"]["calibration"]
+    assert promoted["target_rule"] == freeze.RESERVE_CALIBRATION_TARGET_RULE
+    assert promoted["identification_rule"] \
+        == freeze.RESERVE_CALIBRATION_IDENTIFICATION_RULE
+    assert promoted["acceptance_evidence"]["rate_rule"] == {
+        "target_rule": freeze.RESERVE_CALIBRATION_TARGET_RULE,
+        "identification_rule": freeze.RESERVE_CALIBRATION_IDENTIFICATION_RULE,
+        "identification_margin_share": freeze.RESERVE_IDENTIFICATION_MARGIN_SHARE,
+        "binding_reference_evidence_id": candidate["binding_reference"],
+    }
+    from meridia.verify import _bar_schema_errors
+    assert _bar_schema_errors(accepted) == []
+
+    # The earlier candidate: a q95-plus-tail-slack target, a tail_slack_share key, and
+    # neither an identification rule nor a ladder.
+    older = deepcopy(candidate)
+    older["target_rule"] = "sum(q95) + tail_slack_share * sum(ES95 - q95)"
+    older["tail_slack_share"] = 0.25
+    for field in ("identification_rule", "identification_margin_share",
+                  "identification", "binding_reference"):
+        older.pop(field)
+    for row in older["evidence"]:
+        row["target_reserve_before_rounding"] = 65.0
+        row["required_rate"] = 0.65
+        row["candidate_margin"] = 35.0
+        row.pop("submitted_liability_mean_sum")
+        row.pop("candidate_rate")
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["reserve_calibration_audit"] = older
+    refused = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+    assert refused["frozen"] is False
+    assert any("canonical unaccepted candidate" in blocker
+               for blocker in refused["blockers"])
+    assert "reserve_audits" not in refused
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["mean_sum", "candidate_rate", "ladder_rung", "not_largest_identified",
+     "chosen_reading", "binding_reference"],
+)
+def test_the_means_based_candidate_must_recompute_from_its_own_readings(mutation):
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    candidate = kwargs["reserve_calibration_audit"]
+    ladder = candidate["identification"]
+    if mutation == "mean_sum":
+        candidate["evidence"][0]["submitted_liability_mean_sum"] += 1.0
+        candidate["evidence"][0]["target_reserve_before_rounding"] += 1.0
+        expected = "mean liability sum differs from the verifier"
+    elif mutation == "candidate_rate":
+        candidate["evidence"][0]["candidate_rate"] = 2.0
+        expected = "candidate is infeasible"
+    elif mutation == "ladder_rung":
+        ladder["candidates"][0]["worst_world"] = "qual-5"
+        expected = "ladder does not recompute from its readings"
+    elif mutation == "not_largest_identified":
+        ladder["candidates"][0]["identified"] = False
+        expected = "ladder does not recompute from its readings"
+    elif mutation == "chosen_reading":
+        ladder["chosen"]["worlds"]["qual-0"]["j_baseline"] += 1.0
+        expected = "chosen-rate reading does not recompute"
+    else:
+        candidate["binding_reference"] = candidate["evidence"][1]["evidence_id"]
+        expected = "binding reference is not the first reference at the rate"
+
+    bars = freeze.calibrate_composite_bars(
+        references, replicates, controls, **kwargs
+    )
+
+    assert bars["frozen"] is False
+    assert any(expected in blocker for blocker in bars["blockers"])

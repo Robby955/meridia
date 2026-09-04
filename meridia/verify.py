@@ -127,6 +127,19 @@ DEVELOPMENT_DIAGNOSTIC_REPORT_COUNT = (
 )
 RESERVE_QUALIFICATION_SCHEMA = "meridia.v4.reserve-qualification-audit.v1"
 RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v2"
+# The published reserve rate rule. A reference contributes the sum of its submitted
+# regional mean liabilities over the packet public exposure, rounded up to the rate
+# grid, and the published rate is the largest such candidate that still leaves the
+# reserve decision identified on every qualification world.
+RESERVE_CALIBRATION_TARGET_RULE = (
+    "sum(submitted regional liability_mean) / public exposure"
+)
+RESERVE_CALIBRATION_IDENTIFICATION_RULE = (
+    "largest candidate rate whose baseline-minus-oracle expected uncovered obligation "
+    "is at least identification_margin_share of the sealed mean total liability on "
+    "every qualification world"
+)
+RESERVE_IDENTIFICATION_MARGIN_SHARE = 0.01
 RESERVE_RED_TEAM_SCHEMA = "meridia.reserve-total-red-team.v1"
 COMPOSITE_GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": ("p95_relative_error",),
@@ -1881,6 +1894,113 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         recorded = unsigned.pop("digest_sha256")
         return canonical_digest(unsigned) == recorded
 
+    def valid_rate_identification(ladder: object, rate: float, margin_share: float,
+                                  candidate_rates: set[float],
+                                  world_totals: dict[str, float]) -> bool:
+        """Check the published rate against the ladder it was chosen from.
+
+        The per-world readings come from the retained continuation ensemble and are not
+        recomputable here. What is recomputable is that the ladder covers exactly the
+        candidate rates the reference evidence produces, that every rung's worst world
+        and worst share are the minimum of its own readings, that a rung is marked
+        identified exactly when that minimum reaches the registered share, and that the
+        published rate is the largest rung that is.
+        """
+        if not isinstance(ladder, dict) or set(ladder) != {"chosen", "candidates"}:
+            return False
+        rungs = ladder.get("candidates")
+        expected_rates = sorted(candidate_rates, reverse=True)
+        if not isinstance(rungs, list) or len(rungs) != len(expected_rates):
+            return False
+        identified: list[float] = []
+        shares_at_rate: dict[str, float] = {}
+        for rung, expected_rate in zip(rungs, expected_rates):
+            if not isinstance(rung, dict) or set(rung) != {
+                "rate_per_person_year", "identified", "worst_margin_share",
+                "worst_world", "margin_share", "skill_denominator",
+            }:
+                return False
+            shares = rung.get("margin_share")
+            denominators = rung.get("skill_denominator")
+            if not isinstance(shares, dict) or not isinstance(denominators, dict) \
+                    or sorted(shares) != list(QUALIFICATION_WORLD_NAMES) \
+                    or sorted(denominators) != list(QUALIFICATION_WORLD_NAMES) \
+                    or not all(finite_number(shares[world])
+                               and finite_number(denominators[world])
+                               for world in QUALIFICATION_WORLD_NAMES) \
+                    or not finite_number(rung.get("rate_per_person_year")) \
+                    or not finite_number(rung.get("worst_margin_share")) \
+                    or not isinstance(rung.get("identified"), bool):
+                return False
+            readings = {world: float(shares[world])
+                        for world in QUALIFICATION_WORLD_NAMES}
+            worst_world = min(QUALIFICATION_WORLD_NAMES,
+                              key=lambda name: readings[name])
+            rung_rate = float(rung["rate_per_person_year"])
+            if not math.isclose(rung_rate, expected_rate,
+                                rel_tol=1e-12, abs_tol=1e-12) \
+                    or rung.get("worst_world") != worst_world \
+                    or not math.isclose(float(rung["worst_margin_share"]),
+                                        readings[worst_world],
+                                        rel_tol=1e-12, abs_tol=1e-15) \
+                    or rung["identified"] is not bool(
+                        readings[worst_world] >= margin_share):
+                return False
+            if rung["identified"]:
+                identified.append(rung_rate)
+            if math.isclose(rung_rate, rate, rel_tol=1e-12, abs_tol=1e-12):
+                shares_at_rate = readings
+        if not identified or not math.isclose(rate, max(identified),
+                                              rel_tol=1e-12, abs_tol=1e-12):
+            return False
+        chosen = ladder.get("chosen")
+        if not isinstance(chosen, dict) or set(chosen) != {
+            "rate_per_person_year", "worst_margin_share", "worst_world", "worlds",
+        }:
+            return False
+        worlds = chosen.get("worlds")
+        if not isinstance(worlds, dict) \
+                or sorted(worlds) != list(QUALIFICATION_WORLD_NAMES):
+            return False
+        chosen_shares: dict[str, float] = {}
+        for world in QUALIFICATION_WORLD_NAMES:
+            reading = worlds[world]
+            if not isinstance(reading, dict) or set(reading) != {
+                "reserve_total", "j_baseline", "j_oracle", "skill_denominator",
+                "margin_share", "sealed_mean_total_liability",
+            } or not all(finite_number(reading[field]) for field in reading):
+                return False
+            sealed = float(reading["sealed_mean_total_liability"])
+            denominator = float(reading["skill_denominator"])
+            share = float(reading["margin_share"])
+            if sealed <= 0.0 \
+                    or not math.isclose(
+                        denominator,
+                        float(reading["j_baseline"]) - float(reading["j_oracle"]),
+                        rel_tol=1e-9, abs_tol=1e-6,
+                    ) \
+                    or not math.isclose(share, denominator / sealed,
+                                        rel_tol=1e-9, abs_tol=1e-12) \
+                    or not math.isclose(share,
+                                        shares_at_rate.get(world, float("nan")),
+                                        rel_tol=1e-12, abs_tol=1e-15) \
+                    or not math.isclose(float(reading["reserve_total"]),
+                                        world_totals[world],
+                                        rel_tol=1e-12, abs_tol=1e-9):
+                return False
+            chosen_shares[world] = share
+        worst_world = min(QUALIFICATION_WORLD_NAMES,
+                          key=lambda name: chosen_shares[name])
+        return finite_number(chosen.get("rate_per_person_year")) \
+            and finite_number(chosen.get("worst_margin_share")) \
+            and math.isclose(float(chosen["rate_per_person_year"]), rate,
+                             rel_tol=1e-12, abs_tol=1e-12) \
+            and chosen.get("worst_world") == worst_world \
+            and math.isclose(float(chosen["worst_margin_share"]),
+                             chosen_shares[worst_world],
+                             rel_tol=1e-12, abs_tol=1e-15) \
+            and chosen_shares[worst_world] >= margin_share
+
     reserve_audits = bars.get("reserve_audits")
     reserve_audits_ok = isinstance(reserve_audits, dict) \
         and set(reserve_audits) == {"qualification", "calibration", "red_team"}
@@ -1909,13 +2029,25 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             and calibration_audit.get("qualification_worlds") \
             == list(QUALIFICATION_WORLD_NAMES) \
             and calibration_audit.get("target_rule") \
-            == "sum(q95) + tail_slack_share * sum(ES95 - q95)" \
+            == RESERVE_CALIBRATION_TARGET_RULE \
+            and calibration_audit.get("identification_rule") \
+            == RESERVE_CALIBRATION_IDENTIFICATION_RULE \
             and finite_number(calibration_audit.get("rate_per_person_year")) \
             and float(calibration_audit["rate_per_person_year"]) > 0.0 \
             and finite_number(calibration_audit.get("rate_grid")) \
             and float(calibration_audit["rate_grid"]) == 1.0 \
-            and finite_number(calibration_audit.get("tail_slack_share")) \
-            and float(calibration_audit["tail_slack_share"]) == 0.25 \
+            and finite_number(calibration_audit.get("identification_margin_share")) \
+            and float(calibration_audit["identification_margin_share"]) \
+            == RESERVE_IDENTIFICATION_MARGIN_SHARE \
+            and isinstance(calibration_audit.get("acceptance_evidence"), dict) \
+            and calibration_audit["acceptance_evidence"].get("rate_rule") == { \
+                "target_rule": RESERVE_CALIBRATION_TARGET_RULE, \
+                "identification_rule": RESERVE_CALIBRATION_IDENTIFICATION_RULE, \
+                "identification_margin_share": \
+                    RESERVE_IDENTIFICATION_MARGIN_SHARE, \
+                "binding_reference_evidence_id": \
+                    calibration_audit.get("binding_reference"), \
+            } \
             and red_team_audit.get("independent_unit") == "world" \
             and red_team_audit.get("world_counts") \
             == {"development": 12, "qualification": 6, "total": 18} \
@@ -2014,10 +2146,13 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             and len(calibration_by_pair) == len(calibration_rows) \
             and set(calibration_by_pair) == set(reference_bindings)
         if reserve_audits_ok:
-            slack = float(calibration_audit["tail_slack_share"])
             rate = float(calibration_audit["rate_per_person_year"])
             grid = float(calibration_audit["rate_grid"])
-            required_rates: list[float] = []
+            margin_share = float(
+                calibration_audit["identification_margin_share"]
+            )
+            candidate_rates: set[float] = set()
+            world_totals: dict[str, float] = {}
             rounding_units: set[float] = set()
             for pair, result in qualification_by_pair.items():
                 binding = reference_bindings[pair]
@@ -2034,20 +2169,30 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 }
                 q95 = calibration.get("submitted_q95_sum")
                 es95 = calibration.get("submitted_es95_sum")
+                mean_sum = calibration.get("submitted_liability_mean_sum")
                 candidate_total = calibration.get("candidate_reserve_total")
                 candidate_margin = calibration.get("candidate_margin")
+                candidate_rate = calibration.get("candidate_rate")
                 exposure = calibration.get("exposure_person_years")
                 rounding_unit = calibration.get("rounding_unit")
                 recorded_target = calibration.get("target_reserve_before_rounding")
                 required_rate = calibration.get("required_rate")
+                elder = binding.get("elder_reference_evidence")
                 numeric = all(finite_number(value) for value in (
-                    q95, es95, candidate_total, candidate_margin, exposure,
-                    rounding_unit, recorded_target, required_rate,
-                ))
+                    q95, es95, mean_sum, candidate_total, candidate_margin,
+                    candidate_rate, exposure, rounding_unit, recorded_target,
+                    required_rate,
+                )) and isinstance(elder, dict)
                 if not numeric:
                     reserve_audits_ok = False
                     break
-                target = float(q95) + slack * (float(es95) - float(q95))
+                # The rate targets the submitted regional mean liabilities, and the
+                # sum it targets is read back off the authenticated reference report.
+                target = float(mean_sum)
+                authenticated_mean_sum = math.fsum(
+                    float(item["submitted"])
+                    for item in elder["liability_mean_by_region"]
+                )
                 if result["evidence_id"] != binding["evidence_id"] \
                         or calibration.get("evidence_id") != binding["evidence_id"] \
                         or not isinstance(tail, dict) \
@@ -2080,8 +2225,16 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         or float(exposure) <= 0.0 \
                         or float(rounding_unit) <= 0.0 \
                         or float(es95) < float(q95) \
-                        or float(candidate_total) < float(q95) \
-                        or float(candidate_margin) < 0.0 \
+                        or float(mean_sum) <= 0.0 \
+                        or not math.isclose(
+                            float(mean_sum), authenticated_mean_sum,
+                            rel_tol=1e-12, abs_tol=1e-9,
+                        ) \
+                        or not math.isclose(
+                            float(candidate_rate),
+                            math.ceil(float(required_rate) / grid) * grid,
+                            rel_tol=1e-12, abs_tol=1e-12,
+                        ) \
                         or not math.isclose(
                             float(recorded_target), target,
                             rel_tol=1e-12, abs_tol=1e-9,
@@ -2101,13 +2254,28 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         ):
                     reserve_audits_ok = False
                     break
-                required_rates.append(float(required_rate))
+                candidate_rates.add(float(candidate_rate))
+                world_totals.setdefault(pair[1], float(candidate_total))
+                if not math.isclose(world_totals[pair[1]], float(candidate_total),
+                                    rel_tol=1e-12, abs_tol=1e-9):
+                    reserve_audits_ok = False
+                    break
                 rounding_units.add(float(rounding_unit))
             if reserve_audits_ok:
-                expected_rate = math.ceil(max(required_rates) / grid) * grid
-                reserve_audits_ok = len(rounding_units) == 1 and math.isclose(
-                    rate, expected_rate, rel_tol=1e-12, abs_tol=1e-12
+                binding_rows = sorted(
+                    (row for row in calibration_rows
+                     if math.isclose(float(row["candidate_rate"]), rate,
+                                     rel_tol=1e-12, abs_tol=1e-12)),
+                    key=lambda row: (row["reference_line"], row["world"]),
                 )
+                reserve_audits_ok = len(rounding_units) == 1 \
+                    and bool(binding_rows) \
+                    and calibration_audit.get("binding_reference") \
+                    == binding_rows[0]["evidence_id"] \
+                    and valid_rate_identification(
+                        calibration_audit.get("identification"), rate, margin_share,
+                        candidate_rates, world_totals,
+                    )
         if reserve_audits_ok:
             for pair, result in proportional_by_pair.items():
                 binding = proportional_bindings[pair]
