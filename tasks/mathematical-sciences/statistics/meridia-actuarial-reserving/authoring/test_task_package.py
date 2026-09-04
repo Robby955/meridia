@@ -211,11 +211,21 @@ class TaskPackageTests(unittest.TestCase):
         self.assertFalse((TASK_ROOT / "tests" / "meridia").exists())
 
     def test_no_packet_or_asset_archive_is_committed(self) -> None:
-        """No packet is embedded. Every archive is staged at build time."""
-        tracked = subprocess.check_output(
-            ["git", "-C", str(REPOSITORY_ROOT), "ls-files", str(TASK_ROOT)],
-            text=True,
-        ).split()
+        """No packet is embedded. Every archive is staged at build time.
+
+        This asks what the repository tracks, not what is on disk, because a packaging
+        run leaves all four archives sitting in the tree and they belong there. An export
+        has no repository to ask, and there the question is answered by construction:
+        nothing untracked reaches it.
+        """
+        try:
+            tracked = subprocess.check_output(
+                ["git", "-C", str(REPOSITORY_ROOT), "ls-files", str(TASK_ROOT)],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).split()
+        except (OSError, subprocess.CalledProcessError):
+            raise unittest.SkipTest(f"{REPOSITORY_ROOT} is not a git checkout")
         offenders = [name for name in tracked if name.endswith((".tar.gz", ".npz"))]
         self.assertEqual(offenders, [])
 
