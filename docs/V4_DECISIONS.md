@@ -2595,3 +2595,84 @@ Alongside them the freeze refuses any bar that lands on the top of its component
 attainable range, within floating-point rounding of it. Such a bar is not a bar, and a
 receipt carrying one is rejected by the verifier on the same rule rather than read as a
 pass.
+
+### What ran at the close, and what the morning needs
+
+The evidence runner was invoked against the P4 world tree with the new rate rule in place:
+
+    scripts/build_v4_freeze_evidence.py --references-only
+
+It ran the three fixed-seed reference lines over the six qualification worlds and stopped
+on this line:
+
+    error: reserve candidate 3769 differs from compiled PacketParams 4600; rebuild policy before running the full battery
+
+That stop is the registered behaviour and it is the only outcome available from this
+working copy. `meridia/packet.py` holds the compiled rate and is not this lane's file, so
+the rate the rule selects cannot be compiled here. The candidate record the run wrote
+carries the same rate, the same eighteen candidates and the same per-world margins as the
+measurement above, which is the check that the rule reproduces from the repository rather
+than from a scratch driver.
+
+No world was rebuilt, no bar was calibrated, and neither `bars/national-v11-full` nor
+`bars/national-v11-lite` exists. Nothing was sealed, no graded world was minted, no seed
+was derived, and the task package was not repinned.
+
+Two blockers now stand between this tree and a freeze, and both are independent of each
+other.
+
+The first is the compiled rate. It is one line in a file this lane does not hold, and the
+request is stated above.
+
+The second is hidden-regime identifiability. Two of the four anchored axes do not reach
+0.4 within the six hidden worlds, mortality improvement at -0.086 and migration at +0.257.
+The freeze refuses on that, at either rate and under either profile. It is a property of
+the world set and its seeds, not of the reserve rule, so it does not resolve by rebuilding
+at 3769. Either the anchors for those two axes are strengthened, or the hidden draws for
+them move inside a range the current anchors can read, or the world set changes. That is a
+generator decision and it belongs with the same lane that holds the rate.
+
+The commands for the morning, in order, once
+`reserve_rate_per_person_year` reads 3769.0 in `meridia/packet.py`:
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 -m pytest tests -q
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development --family development --world-workers 12 --cache /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/ensemble-cache
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification --family qualification --world-workers 6 --cache /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/ensemble-cache
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/identifiability_v4.py --packets /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-00 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-01 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-02 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-03 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-04 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-05 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-06 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-07 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-08 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-09 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-10 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-11 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-0 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-1 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-2 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-3 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-4 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-5 --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/identifiability-p5.txt --receipt /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/identifiability-p5.json
+```
+
+The identifiability run is placed before the evidence pass on purpose. The evidence pass
+mints its own copy of that receipt and embeds it in the manifest, so the freeze commands
+below take no separate audit path. The point of running it first is the last line of its
+text report: while that line still reads HIDDEN-REGIME SHORTFALL, the freeze will refuse
+on it and the hours the evidence pass costs buy nothing. Read that line before starting
+the pass.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development --qualification-root /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+```
