@@ -3230,3 +3230,89 @@ computes the attained value the same way the verifier does, asserts it snaps to 
 registered ceiling, and asserts that a value a thousandth outside the range on either side
 still raises. The separate rule that refuses a calibrated bar sitting at the top of its
 component's attainable range is untouched, and its test still passes.
+
+### Where this pass leaves the freeze, and the commands the next one needs
+
+Three things stand between here and a graded mint, in the order a pass meets them.
+
+The elder audit is first, and it is a science decision rather than a threshold to move.
+Either the third line reads the elder level better than the first on these six worlds, which
+means changing what that line does, or the registered requirement is the wrong one and the
+audit is rewritten to say what the third line is actually for. Neither is taken here.
+
+The reserve block is second. The joint rate rule finds no rate on the ladder that keeps the
+reserve decision identified while holding every reference line's worst-region shortfall
+probability at or below the registered ceiling. At the compiled 3769 the shortfall reads one
+on all eighteen references, and a bar calibrated on that component would sit at the top of
+its attainable range, which the freeze refuses. That is a rule decision about which of the
+two readings the reserve block measures, and it is not taken here either.
+
+The two example seeds in `tests/test_mechanisms.py` and `tests/test_survey.py` are third.
+They are the last places in the tree that carry the qualification values, and the next mint
+replaces them with unrelated seeds.
+
+The evidence tree this pass built stands and does not need rebuilding, so a next pass starts
+at the freeze itself. The output directory binds the digests of its own sources at the first
+write and refuses a resume whose sources have moved, so a rerun after any tree change needs
+a directory that has not been written before.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 -m pytest tests -q
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/sweep_reserve_rate_joint.py --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --stage /Users/robsneiderman/Desktop/meridia-p5/sweep/stage --out /Users/robsneiderman/Desktop/meridia-p5/sweep/reserve_rate_joint_sweep.json --low 3769 --high 6321
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+```
+
+### The morning commands, gated on a profile that froze
+
+None of what follows is to be run now. Every one of them waits on `freeze_report.txt` in the
+chosen bars directory reading `RESULT: FROZEN`, and the freeze writes
+`reserve_calibration_accepted.json` beside the bars only when it froze, so the presence of
+that file is the gate. Neither directory holds it today. Replace `PROFILE` with `full` or
+`lite`, the same one throughout.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+```
+
+The graded build takes no cache. Its seeds are new, so every ensemble is computed, and three
+worlds at the committed size on a free machine is the single-world figure times one rather
+than the eighteen-at-once figure. No seed is printed and none reaches a participant tree.
+
+Between the graded build and the repin, one file is written by hand,
+`seals/meridia-v4-worlds-confirmation.md`, in the shape the version two and version three
+confirmations under `seals/` already have. The asset builder reads it and refuses unless the
+text contains the sha256 of the graded packet's `manifest.json`, so that digest is what the
+record has to carry.
+
+The repin then runs from the task package worktree, with the twelve development packets given
+one at a time and the graded world given once. `SEAL_INDEX` is the index of the graded world
+being packaged and `GRADED` is that world's directory under
+`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
+PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden GRADED --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-PROFILE/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index SEAL_INDEX --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+```
+
+Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the
+task package was not repinned, because all three still wait on a profile that froze.
