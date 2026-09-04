@@ -98,8 +98,10 @@ class PacketParams:
     experience_lag_months: int = 12  # publication lag of that file behind the snapshot
     ensemble_members: int = 2048     # committed continuations behind the tail truth
     reserve_weight_spread: float = 4.0   # highest regional shortfall weight over lowest
-    # Provisional execution value. Qualification must replace and record it before freeze.
-    reserve_rate_per_person_year: float = 4_600.0
+    # Selected by the calibrated rate rule on the six qualification worlds and recorded in
+    # the decisions record: the largest of the eighteen submitted-mean candidates that keeps
+    # the reserve decision identified on every one of them.
+    reserve_rate_per_person_year: float = 3_769.0
     shock_annual_rate: float = ANNUAL_SHOCK_RATE   # published shock years per year
 
 
