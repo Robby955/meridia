@@ -752,6 +752,13 @@ def _hard_pass(report: Mapping[str, Any]) -> bool:
     return False
 
 
+def _snap_to_endpoint(number: float, endpoint: float) -> float:
+    """Return the endpoint when a reading differs from it only by rounding."""
+    if math.isclose(number, endpoint, rel_tol=1e-12, abs_tol=1e-12):
+        return float(endpoint)
+    return number
+
+
 def _number(value: Any, gate: str, component: str) -> float:
     if isinstance(value, Mapping):
         value = value.get("value")
@@ -764,6 +771,17 @@ def _number(value: Any, gate: str, component: str) -> float:
     if not math.isfinite(number):
         raise EvidenceError(f"{gate}/{component} is non-finite")
     low, high = COMPONENT_RANGES[(gate, component)]
+    # A component may sit exactly on an endpoint of its range, and several do. Pooled
+    # exceedance deviation is the mean over regions of the distance from the submitted
+    # quantile's exceedance to the nominal five percent, so a submission whose q95 every
+    # continuation clears reads exactly one minus that level. In binary floating point
+    # that subtraction lands one unit in the last place above the endpoint, and the range
+    # check refused the reading rather than the method. A value within rounding of an
+    # endpoint is that endpoint and is recorded as it; a value genuinely outside the range
+    # still refuses.
+    number = _snap_to_endpoint(number, low)
+    if high is not None:
+        number = _snap_to_endpoint(number, high)
     if number < low or (high is not None and number > high):
         raise EvidenceError(
             f"{gate}/{component}={number} is outside its range [{low}, {high}]"

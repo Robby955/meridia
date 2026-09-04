@@ -3140,3 +3140,93 @@ no build state and no sealed file, following the rule the contract itself carrie
 were checked. Each reproduces its published vector exactly: 4,683 register elders split six
 ways on the first, 8,280 on the second. A register county outside the published geography
 would have raised, and neither tree held one.
+
+### Both profiles refuse, and the reserve block is not what stops them
+
+The full battery ran to completion for the first time. The evidence at
+`/Users/robsneiderman/Desktop/meridia-p5/evidence-p5` carries the registered design exactly:
+18 final reference reports, 306 paired replicate reports at 17 resamples per line and world,
+132 qualification control reports, and 24 development diagnostics. The reference stage
+reproduces the earlier one report for report: the composite metric surface of all eighteen
+references is byte-identical to the surface the reference-only pass wrote into a separate
+tree, which is a determinism receipt across two independent evidence directories.
+
+Neither profile froze. Both stop on one blocker, and it is the same blocker, because the
+check that raises it runs before any bar is calibrated and does not read the profile:
+
+    profile   verdict      blocker
+    full      NOT FROZEN   third line does not improve median elder exposure error
+    lite      NOT FROZEN   third line does not improve median elder exposure error
+
+The elder reconstruction audit compares the third reference line against the first on the
+absolute elder exposure error, which is 100 times the sum over states of the absolute
+difference between submitted and sealed 65-and-over person-years, divided by the sum of the
+sealed ones. The registered requirement has two halves. The third line's median has to be
+single digit, and it has to be below the first line's median. The first half passes and the
+second fails:
+
+    world    first line   third line   direction
+    qual-0     1.3343       1.6535      worse
+    qual-1     2.4531       2.0895      better
+    qual-2     2.0247       4.5317      worse
+    qual-3     2.4281       6.1390      worse
+    qual-4     1.7001       2.4582      worse
+    qual-5     2.9762       2.9557      better
+
+    median     2.226383     2.706953
+
+The third line is better on two of the six worlds and worse on four, and its median is
+0.48 points above the first line's. Nothing was loosened to get past this. The requirement
+is the reason the third line exists: it advances the elder stock over the publication lag
+and reconciles the county split between the linked register and the survey, and it is
+registered on the claim that doing so reads the elder level better than the design-based
+line does. On this world set it does not.
+
+This is not a regression introduced here. The reading the previous pass recorded at the old
+rate, median absolute elder exposure error by world for the first and third lines, was 1.43
+against 1.97, 2.26 against 2.37, 0.76 against 4.09, 2.99 against 4.78, 1.88 against 2.06,
+and 2.85 against 3.00. That is the third line behind the first on all six. This pass is the
+first to run the audit that measures it to a verdict, so the finding is newly enforced
+rather than newly true.
+
+Because the audit raises before calibration, neither profile produced any of what a frozen
+profile carries. There are no bars and so no attainable ranges to report, no per-line
+false-fail products, no control separation matrix and no deletion candidates, and no
+ungated reference failures. `bars/national-v11-full` and `bars/national-v11-lite` each hold
+a fail-closed `bars.json` naming the single blocker, a `freeze_report.txt` reading
+`RESULT: NOT FROZEN`, and a provenance file. Neither directory holds
+`reserve_calibration_accepted.json`, which is the gate on everything the graded mint needs,
+so nothing downstream of the freeze was run.
+
+The reserve block's saturated shortfall probability, which the previous pass predicted would
+refuse a bar, was not reached. It remains the next blocker in line and the joint rate rule
+above says the present world set does not admit a rate that clears it while keeping the
+decision identified.
+
+### A range check that refused an attainable reading
+
+The first attempt at the full profile stopped earlier, on a different blocker:
+
+    tail_calibration/pooled_exceedance_deviation=0.9500000000000001 is outside its range
+    [0.0, 0.95]
+
+Pooled exceedance deviation is the mean over regions of the distance between the sealed
+exceedance of a submitted q95 and the nominal five percent. A submission whose q95 every
+continuation clears has an exceedance of one in every region, so the reading is one minus
+the level, which is 0.95, the top of the registered range. In binary floating point that
+subtraction returns 0.9500000000000001, one unit in the last place above the endpoint, and
+the range check refused the report rather than the method.
+
+Eight reports carried it, all of them controls, five from the control that files the
+experience history on its own and three from the version-three recipe. Those are
+deliberately wrong methods whose submitted tails are far too narrow, so reaching the top of
+that range is the control working.
+
+`_number` in `scripts/freeze_v4_bars.py` now snaps a reading that differs from an endpoint
+only by rounding onto that endpoint before the comparison, and records it as the endpoint. A
+value genuinely outside the range still refuses, and the endpoints themselves do not move.
+`tests/test_freeze_v4_composites.py::test_a_reading_one_rounding_step_past_an_endpoint_is_that_endpoint`
+computes the attained value the same way the verifier does, asserts it snaps to the
+registered ceiling, and asserts that a value a thousandth outside the range on either side
+still raises. The separate rule that refuses a calibrated bar sitting at the top of its
+component's attainable range is untouched, and its test still passes.

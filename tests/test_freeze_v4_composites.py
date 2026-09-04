@@ -10,6 +10,7 @@ from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -2697,3 +2698,29 @@ def test_bar_schema_handles_malformed_gate_and_audit_shapes_without_raising():
             qualification["calibration_audit_digest_sha256"] = audit["digest_sha256"]
             _digest_bound(freeze, qualification)
         assert _bar_schema_errors(changed)
+
+
+def test_a_reading_one_rounding_step_past_an_endpoint_is_that_endpoint():
+    """A component that attains its range endpoint must not be refused by rounding.
+
+    Pooled exceedance deviation is the mean over regions of the distance from the
+    submitted quantile's exceedance to the nominal level. A submission every continuation
+    clears reads one minus that level, which is the top of the registered range, and in
+    binary floating point the subtraction lands one unit in the last place above it. The
+    reading is the endpoint and is recorded as the endpoint.
+    """
+    freeze = _freeze()
+    low, high = freeze.COMPONENT_RANGES[
+        ("tail_calibration", "pooled_exceedance_deviation")]
+    attained = float(np.mean(np.abs(np.ones(6) - 0.05)))
+    assert attained > high
+    assert freeze._number(
+        attained, "tail_calibration", "pooled_exceedance_deviation") == high
+    assert freeze._number(
+        low - 1e-15, "tail_calibration", "pooled_exceedance_deviation") == low
+    with pytest.raises(freeze.EvidenceError):
+        freeze._number(high + 1e-3, "tail_calibration",
+                       "pooled_exceedance_deviation")
+    with pytest.raises(freeze.EvidenceError):
+        freeze._number(low - 1e-3, "tail_calibration",
+                       "pooled_exceedance_deviation")
