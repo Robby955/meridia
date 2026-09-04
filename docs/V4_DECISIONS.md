@@ -3316,3 +3316,87 @@ PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build
 
 Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the
 task package was not repinned, because all three still wait on a profile that froze.
+
+## P5 pass four, 2026-09-04
+
+### The elder audit comparison is reported and no longer stops the freeze
+
+The elder reconstruction audit refused any freeze whose third reference line did not read
+the median absolute 65-and-over exposure error below the first line's. On this world set
+it does not, at 2.71 percent against 2.23, and that refusal ended three passes before a
+single bar was calibrated. What the condition asserts is a claim about an ablation: that
+advancing the elder stock over the publication lag and reconciling the county split
+between the linked register and the survey reads the elder level better than the
+design-based line does. Whether it does is a result, not a property of the surface a
+submission is scored on, so it belongs in the record and not in a gate.
+
+`median_exposure_error_comparison` now travels in the audit with both medians, the verdict
+on the comparison, and the direction world by world. Freeze report and provenance file
+print all of it beneath a heading saying that nothing reads it to decide. The verifier
+recomputes the two medians from the audit rows and refuses a receipt whose arithmetic does
+not hold; it no longer refuses one whose comparison runs the wrong way.
+
+Single-digit remains a gate on the third line's own median. A line out by ten percent or
+more on the elder level is not measuring what the audit says it measures, and no other
+number in the audit would mean anything under such a reading.
+
+### No rate this task can publish makes the shortfall a tail event
+
+Pass three swept every integer rate from 3769 to 6321 and found two windows that do not
+meet. Identification holds from 3769 to 3783. Shortfall falls to the registered 0.20
+ceiling only from 5322 upward. Compiling 5322 looked like the next move, so that the filed
+reserve quantities would describe a tail event instead of a certainty. It is not available,
+and the obstruction lies in the rate rule rather than in the distance between the windows.
+
+Rates are not a free parameter here. `docs/SUBMISSION_FORMAT.md` publishes the
+construction: each of the eighteen qualification references contributes one candidate,
+being the sum of its filed regional `liability_mean` over that packet's public exposure,
+rounded up to the grid, and what gets published is one of those eighteen. Measured on the
+P5 world set they run from 3602 to 4140. Nothing in that set reaches 5322, because no
+reference estimates a mean liability anywhere near that large.
+
+`scripts/sweep_reserve_rate_joint.py` ran again across the entire candidate ladder, every
+integer from 3602 to 4140, against the six qualification packets and the eighteen recorded
+allocations. Its output sits at `sweep/reserve_rate_candidate_ladder_sweep.json`. Across
+all 539 rates the shortfall probability of the worst region takes exactly one value,
+1.000000. None of them is under the ceiling. Per candidate, that probability beside the
+identification margin the same rate leaves:
+
+    rate    worst shortfall   worst margin   identified
+    3602       1.000000         0.010250        yes
+    3616       1.000000         0.010428        yes
+    3671       1.000000         0.011456        yes
+    3707       1.000000         0.011995        yes
+    3735       1.000000         0.011702        yes
+    3769       1.000000         0.010723        yes
+    3832       1.000000         0.006410        no
+    3847       1.000000         0.005768        no
+    3857       1.000000         0.005461        no
+    3876       1.000000         0.005117        no
+    3911       1.000000         0.005144        no
+    3952       1.000000         0.004983        no
+    3983       1.000000         0.004544        no
+    3988       1.000000         0.004179        no
+    3998       1.000000         0.003515        no
+    4043       1.000000         0.001510        no
+    4050       1.000000         0.001317        no
+    4140       1.000000         0.000239        no
+
+Across the wider swept range the reading first drops below one at 4595, which stands 455
+points above the ladder's top. It first reaches the ceiling at 5322, a further 727 points
+on. Long before either, identification is gone: the skill denominator on qual-1 vanishes at
+4566, and by 5322 that denominator is exactly zero on three worlds, qual-0, qual-1 and
+qual-5, leaving the skill score undefined on nine of the eighteen final reports.
+
+So the finding is sharper than the disjoint windows pass three wrote down. Both readings of
+this block fail for one reason. Covering a region on four continuations in five needs a
+total far above what any reference believes the mean liability to be, and at that size
+neither the proportional baseline nor a perfect-information allocation leaves anything
+uncovered, which is what kills the denominator. Since candidates are the references' own
+estimates, the whole ladder lies inside the region where shortfall is certain, and the
+block has no publishable rate at which either component grades.
+
+3769 stays compiled. It is the largest candidate keeping the decision identified and the
+rate the eighteen worlds under `worlds-p5` already carry. This measurement moves no
+published value. Rewriting the rule to reach a rate it could never produce would change
+what the published total means to a participant, and that decision is left open.

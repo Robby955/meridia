@@ -105,6 +105,15 @@ perfect-information allocation of the same total by at least one percent of that
 mean total liability. Submitted q95 and ES95 values do not enter the rate. The published
 total is not an estimate of the liability and is not guaranteed to cover it.
 
+Because the candidates are the references' own mean-liability estimates, every rate the
+rule can select is close to the mean of the liability being reserved against, and at such a
+total at least one region is short on every continuation. Measured over the whole candidate
+ladder on the current qualification world set, the worst-region shortfall probability of
+every reference allocation is exactly one at every candidate. The reserve block's regional
+shortfall probability is therefore reported rather than given a ceiling anything could
+exceed, and the reserve total should be read as a spending rule rather than as a level the
+liability is expected to stay under.
+
 The 0.95 truth quantile is the order statistic at one-based rank
 `ceiling(0.95 * M)` among the `M` continuation liabilities. Truth ES95 is the mean of all
 members at or above that order statistic, including every tie.
