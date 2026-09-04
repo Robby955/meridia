@@ -16,7 +16,7 @@ judged.
   replicates and zero control reports. No composite gate exists in this tree, so no
   submission of any kind can be called a pass or a fail against a frozen bar.
 - Worlds. Eighteen packets at the committed 2,048-member ensemble, twelve development
-  worlds at seeds 1101 to 1112 and six qualification worlds at seeds 2101 to 2106, built
+  worlds at seeds 1101 to 1112 and six qualification worlds at the sealed qualification seeds, built
   into a scratch tree outside the repository as `worlds-p4`, with a second tree beside it
   at the candidate reserve rate 6321 as `worlds-p4-rate6321`. Neither tree is committed;
   the repository holds the builder, not the worlds.
