@@ -4,14 +4,18 @@
 # Interface assumptions of the version-four package
 
 Worked top to bottom against `meridia-v4-integration-p4` at commit `d39d94e` on
-2026-09-03, then carried forward to `d33531f`, the commit the four staged archives were
-exported from. On `meridia/verify.py` that step is additive: it adds the gate profile
-and changes nothing else, so every verdict recorded here reads the same at both. The
-package was originally written against base commit `7a4ccfd` on branch
-`v4-task-package`. Every item below carries the file and symbol it reads and one
-verdict: resolved, meaning the item is settled against `d33531f` and needs no further
-repin, or still open, meaning something in the package or in another lane has to change
-before the item is settled.
+2026-09-03, then carried forward to `d33531f`, and carried forward again on 2026-09-04 to
+`50485d1`, whose `meridia` tree is `1d893f37` and is the tree the four staged archives are
+now exported from. That second step is the standard-profile freeze. It rewrites
+`meridia/verify.py` around the gate profile and moves one of the twenty pinned reference
+modules, `meridia/methods/controls.py`; `meridia/actuarial.py` and every module line A
+imports for its own work are byte for byte unchanged. The items reworked at `50485d1` are
+18, 19, 20, 25 and 28, which are the ones the freeze and the repin settle; the rest were
+reread and their verdicts stand. The package was originally written against base commit
+`7a4ccfd` on branch `v4-task-package`. Every item below carries the file and symbol it
+reads and one verdict: resolved, meaning the item is settled and needs no further repin,
+or still open, meaning something in the package or in another lane has to change before
+the item is settled.
 
 The largest change since `7a4ccfd` is the submission surface. It is three files, not
 four. The protected detailed table is not part of version four at all: it survives only
@@ -120,10 +124,9 @@ the derivation now has a single source rather than two that could drift.
 16. The published total is `contract["reserve"]["total"]`, produced by `reserve_total`
     and rounded up to `ActuarialThresholds.reserve_rounding_unit`, still 1000.0, so it is
     an exact integer. The verifier recomputes it from the participant bytes and fails the
-    submission on mismatch. `authoring/build_assets.py` renders it into the instruction
-    and refuses a total that is not integral; until it runs, `instruction.md` commits the
-    token `RESERVE_TOTAL` between the bold markers. **Still open**, and blocked on the
-    freeze, since substituting the figure needs a sealed packet.
+    submission on mismatch. `authoring/build_assets.py` reads it for the asset manifest,
+    refuses a total that is not integral, and writes nothing into `instruction.md`, which
+    sends the solver to `reserve.total` rather than restating the figure. **Resolved.**
 17. The skill baseline is `proportional_baseline_allocation` over
     `contract["reserve"]["baseline_share"]` and the oracle is
     `perfect_information_allocation`. Both are published rules that never read the
@@ -141,21 +144,21 @@ the derivation now has a single source rather than two that could drift.
     `_contract_submission_errors` opens the header of every one of the fourteen entries
     of `PARTICIPANT_CSV_FILES`, on top of `participant/contract.json` in
     `verify_submission` and `participant/geography.csv` in `admin_from_packet`.
-    **Still open**, in the packaging lane: `authoring/build_assets.py` packages the older
-    seven and `tests/Dockerfile` asserts the older names, so a submission would fail on
-    the missing participant files and on the missing redraw file.
-19. The participant bar keys the package withholds no longer exist. `bars.json` at
-    `bars/national-v10` carries `schema`, `frozen`, `blockers`, `caveats`, `quantile`,
-    `target_false_fail_rate`, `qualification_world_count`, `graded_world_count`, `gates`,
-    `mortality_identification_evidence`, and four achieved-rate fields. None of the eight
-    keys in `PARTICIPANT_BAR_KEYS` appears. **Still open**, in the packaging lane: the
-    key list in `authoring/build_assets.py` has to be reclassified against the composite
-    bar schema before any set is shipped, and each new key marked shipped or withheld.
-20. The current bar set is `bars/national-v10/bars.json`. It records `frozen: false`, one
-    blocker, and an empty `gates` object, so it carries no ceilings at all.
-    `authoring/build_assets.py` refuses to build from it, and `verify_submission` refuses
-    to gate with it. There is still no way to ship the present set. **Still open**, and it
-    is the item every other one waits on.
+    **Resolved.** `authoring/build_assets.py` stages the graded participant tree whole
+    and adds the five retained files by name, `tests/Dockerfile` asserts every one of
+    them, and the reference line scored 1 against that image on the graded world.
+19. The participant projection is written against the composite schema rather than the
+    old key list. `_participant_bars` in `authoring/build_assets.py` ships the profile
+    that decides, the ceiling of every scored component and the design constants, and
+    withholds every achieved rate, world name and reference reading. The shipped file
+    carries `frozen`, `gate_profile`, `gate_profile_selection`, `gates`,
+    `graded_world_count` and the design constants beside them. **Resolved.**
+20. The current bar set is `bars/national-v14-standard/bars.json`. It records
+    `frozen: true`, an empty blocker list, and ceilings on the four deciding blocks, with
+    both reserve-skill components published at no ceiling. The frozen verifier's own
+    schema check returns no error on it, `authoring/build_assets.py` builds from it, and
+    `verify_submission` gates with it under the profile the file names. **Resolved**, and
+    it is the item every other one was waiting on.
 21. The participant packet carries `experience_history.csv` with the columns in
     `packet.EXPERIENCE_COLUMNS`, and that file is the first entry of
     `PARTICIPANT_CSV_FILES`. The builder rejects a packet without it and both Dockerfiles
@@ -173,12 +176,14 @@ the derivation now has a single source rather than two that could drift.
     written under the read-only `/data`. **Resolved, unchanged.**
 24. The reference archive withholds `scoring.py` and `verify.py` and keeps `actuarial.py`,
     because `methods/actuarial_reference.py` imports the obligation and the scoring
-    primitives from it. That import graph is unchanged at `d33531f`. **Resolved.**
+    primitives from it. That import graph is unchanged at `50485d1`. **Resolved.** The
+    verifier archive carries one file that is not part of the package,
+    `scripts/red_team_reserve_total.py`, because the frozen verifier hashes it beside its
+    own package directory to bind the red-team receipt; it reaches the scoring image only.
 25. `environment/requirements.lock` is the version-three runtime closure: numpy 2.1.3,
     pandas 2.2.3, scipy and their dependencies, hash-pinned for Linux AMD64 on CPython
-    3.11. The actuarial layer adds no import outside it. **Still open**: the reference has
-    not been run against the lock since the repin, and it cannot be until the freeze
-    completes and assets build.
+    3.11. The actuarial layer adds no import outside it. **Resolved.** The reference line ran
+    end to end against that lock on 2026-09-04, on the graded world, and scored 1.
 26. `tests/requirements.lock` pins pytest 8.4.1 and pytest-json-ctrf 0.3.5 and bakes them
     into the verifier image. **Resolved, unchanged.**
 27. Both images stage their archives from a build argument and embed no packet:
@@ -186,10 +191,11 @@ the derivation now has a single source rather than two that could drift.
     `MERIDIA_VERIFIER_SOURCE` in `tests/Dockerfile`. **Resolved** as a mechanism. The
     upload of the staged archive to the suite's own dataset, pinned by immutable revision
     and checksum, is **still open** and is a pre-submission step, not a repin.
-28. `authoring/evidence/asset_manifest.json` still does not exist, so
-    `test_sealed_asset_manifest_matches_the_recorded_pins` still skips. **Still open**, and
-    blocked on the freeze. When it stops skipping, the pins it checks have to be the
-    three-file surface rather than four.
+28. `authoring/evidence/asset_manifest.json` exists and is committed, so
+    `test_sealed_asset_manifest_matches_the_recorded_pins` no longer skips. **Resolved.**
+    It checks the three-file surface, the twelve development packets, the freeze report
+    digest, the sealed world index, and that the instruction still points at the reserve
+    total rather than typing it.
 
 ## The instruction text
 

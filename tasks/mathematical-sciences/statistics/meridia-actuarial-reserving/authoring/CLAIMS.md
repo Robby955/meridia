@@ -5,11 +5,12 @@
 
 Every quantity the shipped package states, the file that states it, and the file the
 value is read from. A source path with no package prefix belongs to
-`meridia-v4-integration-p4`, at commit `d33531f`. A number that no other file can settle
+`meridia-v4-integration-p4`, at commit `50485d1`. A number that no other file can settle
 is marked a declaration, meaning it is a packaging decision and not a reading.
 
-Nothing here is a measured result. No bar set has frozen, so no ceiling, no separation and
-no achieved rate has a value to record. `authoring/evidence/PROVENANCE.md` states what is
+Nothing here is a measured result. The bar set the package ships has frozen, and the
+ceilings, achieved rates and separation readings behind it belong to the freeze report and
+the bar provenance in the code lane, not to this file. `authoring/evidence/PROVENANCE.md` states what is
 sealed and what is not.
 
 ## The task file
@@ -40,7 +41,7 @@ sealed and what is not.
 - 2,048 committed continuations, which is `DEFAULT_ENSEMBLE_SIZE` in the actuarial
   module.
 - Three graded worlds. Read from `GRADED_WORLD_COUNT` in `scripts/freeze_v4_bars.py`, and
-  restated as `graded_world_count` in `bars/national-v10/bars.json`.
+  restated as `graded_world_count` in `bars/national-v14-standard/bars.json`.
 - Five gates, which is the length of `COMPOSITE_GATE_COMPONENTS`.
 - Three reference lines. Read from `REFERENCE_LINES`, which `scripts/freeze_v4_bars.py`
   and the verifier share.
@@ -108,7 +109,7 @@ asserts them to the solver.
 - Twelve development packets calibrated in `solution/solve.py`, the same twelve as above.
 - Twenty pinned reference modules in `solution/reference_pin.json`, the import closure of
   `meridia.methods.design_based` and `meridia.methods.actuarial_reference`.
-- Commit `d33531f` and tree `f0eac15` in that pin and in the three `SHA256SUMS` files.
+- Commit `50485d1` and tree `1d893f37` in that pin and in the three `SHA256SUMS` files.
   Read from the code lane at the commit the staged archives were exported from.
 
 ## The authoring side
@@ -119,8 +120,8 @@ asserts them to the solver.
   `RETAINED_VERIFIER_FILES`, all in the same builder and all matching the verifier.
 - Thirty interface items in `authoring/INTERFACE_ASSUMPTIONS.md`, with a resolved or
   still-open verdict recorded against each.
-- Ten superseded bar sets, `national-v0` through `national-v9`, and one current set,
-  `national-v10`, in `authoring/evidence/PROVENANCE.md`. The `bars/` directory holds
+- The superseded bar sets and the one current set, `national-v14-standard`, in
+  `authoring/evidence/PROVENANCE.md`. The `bars/` directory in the code lane holds
   them all.
 - A similarity ceiling of 0.80 in `authoring/test_instruction_similarity.py`.
   Declaration, taken from the suite's own threshold.

@@ -34,11 +34,12 @@ prices that region's obligation wrong as well. The world it works on is sealed: 
 population structure, source quality, survey behaviour, and future shocks are all
 undisclosed.
 
-Three sealed worlds decide the verdict, and a submission has to clear all five gates on
-each of them. The reserve block is the exception to single-future scoring: it is scored
-against the 2,048 committed continuations held in the verifier image, so a submission
-cannot be rescued or condemned by which one future was realized. Restraint is therefore
-not a strategy, and a tail set at the mean fails on width rather than on level.
+Three sealed worlds carry the verdict and the package seals one of them. A submission has
+to clear every gate the shipped profile decides on. The reserve block is the exception to
+single-future scoring: it is scored against the 2,048 committed continuations held in the
+verifier image, so a submission cannot be rescued or condemned by which one future was
+realized. Restraint is therefore not a strategy, and a tail set at the mean fails on
+width rather than on level.
 
 The rate block gates mortality and incidence on the broad bands the obligation is made
 of, at region level, and gates exposure at county level. The oldest bands are where a
@@ -63,10 +64,13 @@ posterior draws and keeps the same actuarial layer. Line C is a third independen
 reconstruction. Lines B and C live in the authoring repository and are not staged in
 this package; only line A ships here.
 
-No bar set has frozen, and the package says so rather than implying otherwise. The most
-recent set records a completed freeze as false, carries one blocker, and holds no gate
-ceilings at all. `authoring/build_assets.py` refuses to build assets from a set that
-does not record a completed freeze, so packaging is blocked on a freeze that completes.
+The shipped bar set has frozen under the profile it names, which is `standard`. It
+records a completed freeze, an empty blocker list, and a ceiling on each component of the
+four blocks that decide: exposures and rates, release accuracy, interval quality, and tail
+calibration. Reserve skill is measured and reported with no ceiling on either component,
+so it decides nothing under this profile. `authoring/build_assets.py` refuses to build
+assets from a set that does not record a completed freeze, and the verifier refuses to
+gate with one.
 
 ## Verification
 
@@ -85,7 +89,8 @@ every composite is returned unevaluated.
 Tier two is the five composites, and it gates only when tier one holds and a completed
 freeze receipt is supplied: exposures and rates, release accuracy, interval quality,
 tail calibration, and reserve skill. A gate fails when any of its components exceeds its
-frozen ceiling. Supplied with no bars the report states that no receipt was given and
+frozen ceiling, and a component published with no ceiling is reported without deciding.
+The receipt names the profile in force and the components that profile decides on. Supplied with no bars the report states that no receipt was given and
 can never return a pass, which is how freeze measurements read raw component values
 without becoming a lighter pass standard.
 
