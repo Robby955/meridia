@@ -3103,3 +3103,40 @@ two the block is meant to measure is a rule decision that is not taken here.
 
 The compiled rate therefore stays at 3769, the largest rate that satisfies the identification
 condition. Nothing about the sweep moves a published value.
+
+### Nothing is recompiled, and the world set is already where it needs to be
+
+No rate satisfies the joint condition, so no new rate is compiled.
+`PacketParams.reserve_rate_per_person_year` stays at 3769, which is both the value pass two
+compiled and the largest rate that satisfies the identification condition on all six
+qualification worlds. The eighteen worlds under `worlds-p5` were built at the merged tree at
+that rate, and every one of the eighteen contracts publishes
+`reserve.total_rule.rate_per_person_year` as 3769 with a rounding unit of 1000, so the
+rebuild that a moved rate would have required is not one this pass owes. Nothing in the tree
+that a world reads has changed since that build.
+
+All nine gate component normalizers were read again from the eighteen reference reports
+built at 3769. Each is the median of its component over those reports, and every one
+reproduces the value `scripts/freeze_v4_bars.py` registers:
+
+    median     registered   gate and component
+    0.945509     1.0000      exposures_and_rates p95_relative_error
+    0.624498     1.0000      release_accuracy p95_relative_error
+    0.520000     0.5200      interval_quality coverage_deviation
+    1.452311     1.4523      interval_quality mean_interval_score
+    0.050000     0.0500      tail_calibration pooled_exceedance_deviation
+    3.714905     3.7149      tail_calibration q95_width_relative_error
+    4.373467     4.3735      tail_calibration es95_width_relative_error
+    1.250698     1.2507      reserve_skill skill_loss
+    1.000000     1.0000      reserve_skill worst_regional_shortfall_probability
+
+The first two are the single-component gates, where the normalizer divides out of the order
+statistic and multiplies back into the bar, so they are registered at one and their published
+bar is the order statistic itself. The last one carries no spread at all: its minimum and its
+maximum over the eighteen are both exactly one.
+
+The published `reserve.baseline_share` was rebuilt again from participant bytes alone, with
+no build state and no sealed file, following the rule the contract itself carries. Two worlds
+were checked. Each reproduces its published vector exactly: 4,683 register elders split six
+ways on the first, 8,280 on the second. A register county outside the published geography
+would have raised, and neither tree held one.
