@@ -1,0 +1,74 @@
+{
+ "continuation_source_law_sha256": "d168a6878238a6b812a02d78dd9f094c17a2d3a4792a045e3a8eea6ef3547cf5",
+ "freeze_receipts": {
+  "bars_sha256": "892505b85c3e45178c7434673f6e0959253d3180fe07c7af19082d958e21a20a",
+  "reserve_calibration_sha256": "179e2d50fd97f7076c601a9c43c335fd8f0e9b1fe9a133bc5ed72e5905b3aaf7"
+ },
+ "generator_source_law_sha256": "d4516de92731d9dc7b16437754702eb6309abaf68e846add209c0e8a8a6fcf1e",
+ "kdf_context_sha256": "31bc9682752a4dfd011879949ba47ad89e99263a274b118b5ec2c41e063f07df",
+ "kdf_schema": "meridia.v4.kdf.hmac-sha256.v1",
+ "n_worlds": 3,
+ "packet_class": "graded",
+ "packet_params": {
+  "budget_fraction": 0.9,
+  "design_cell": null,
+  "disclosure_threshold": 10,
+  "ensemble_members": 2048,
+  "experience_lag_months": 12,
+  "experience_years": 5,
+  "grid": [
+   96,
+   128
+  ],
+  "horizon_months": 60,
+  "max_shocks": 2,
+  "n_settlements": 8,
+  "n_states": 6,
+  "observed_months": 120,
+  "preliminary_lag": 6,
+  "regime": "hidden",
+  "reserve_rate_per_person_year": 3769.0,
+  "reserve_weight_spread": 4.0,
+  "shock_annual_rate": 0.2,
+  "total": 60000
+ },
+ "packet_params_sha256": "dfcbda0165a50876c553f217f59740f3acb0193bf51b0b44fd651564e7103ebf",
+ "runtime_law": {
+  "dependencies": {
+   "numpy": "2.4.4",
+   "pandas": "3.0.3"
+  },
+  "platform": {
+   "machine": "arm64",
+   "system": "Darwin"
+  },
+  "python": {
+   "byteorder": "little",
+   "cache_tag": "cpython-313",
+   "implementation": "CPython",
+   "version": [
+    3,
+    13,
+    13
+   ]
+  },
+  "schema": "meridia.v4.runtime-law.v1"
+ },
+ "runtime_law_sha256": "59b1d1671e281c0ce458e7b10643e26b2a19e28d6ffe1ae0c22d0497ae59b2a2",
+ "schema": "meridia.sealed-packet.v4",
+ "seal_nonce": "8c5892af7d2ec2a24681d0203a2d90ff73e39c694b2326324d2e2297ec310ba5",
+ "worlds": [
+  {
+   "commitment": "94cbac42e06575705300902aa745062d34beeb964e8f61139f964ca8a2ed0923",
+   "index": 0
+  },
+  {
+   "commitment": "380766bb25a2d6ad638f91d47bfd29a8a674247db438a03c308a559e629e774c",
+   "index": 1
+  },
+  {
+   "commitment": "b36e38df4053cf2b18169a029de6d856b103f33230456ab52b2cb6e8cc7f63c0",
+   "index": 2
+  }
+ ]
+}
