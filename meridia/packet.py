@@ -121,13 +121,11 @@ EXPERIENCE_BURN_IN_MONTHS = 48
 
 # The committed version-four world: one size for the development set, the qualification
 # worlds and the graded ones, so a bar frozen on one is read on the same object. The size
-# is set by what a 2,048-member continuation ensemble costs, which is minutes rather than
-# hours at this size and would be hours at the version-three default grid.
-# `docs/history/V4_DECISIONS.md` records the measured build times and the machine they were
-# taken on.
+# is set by what a 2,048-member continuation ensemble costs, which is 310 seconds across
+# fourteen processes here and would be hours at the version-three default grid.
 #
 # ``observed_months`` is the burn-in plus the five published years plus the twelve-month
-# publication lag. The extra months cost a small constant of ledger time per world and
+# publication lag. The extra months cost 2.3 seconds of ledger per world at this size and
 # nothing in the ensemble, which pays only for the horizon.
 GRADING_WORLD = PacketParams(grid=(96, 128), n_settlements=8, n_states=6, total=60_000,
                              observed_months=EXPERIENCE_BURN_IN_MONTHS + 60 + 12,

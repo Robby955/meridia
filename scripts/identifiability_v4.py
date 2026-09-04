@@ -64,8 +64,9 @@ STATISTIC = {"mortality_improvement": "experience file mortality drift within ce
 # archive observes the included, and inclusion rises with latent burden, so a stronger
 # dependence on frailty raises the archive's admission rate above the population rate the
 # anchor estimates. The axis carries that one mechanism and nothing else: item
-# missingness on money carries its own published slope, because one coefficient loading
-# two mechanisms leaves the statistic's sign reversing between regimes.
+# missingness on money moved to its own published slope in version four's second pass,
+# after one coefficient loading two mechanisms left the statistic's sign reversing
+# between regimes.
 EXPECTED_SIGN = {"mortality_improvement": +1, "migration_age_pattern": +1,
                  "age_reporting_error": +1, "linkage_urban_gradient": -1,
                  "administrative_completeness": +1,

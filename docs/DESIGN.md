@@ -78,7 +78,7 @@ evidence. A receipt frozen under one profile cannot decide under another.
 
 `standard` ships. It is the only version-four set recording `"frozen": true`, with an
 empty `blockers` list. `full` and `lite` are the same freeze run read under the other two
-profiles; both record `"frozen": false`, and `bars/national-v14-full/PROVENANCE.md`
+profiles; both record `"frozen": false`, and `bars/history/national-v14-full/PROVENANCE.md`
 records that the full profile refused before evidence was compiled, so it carries no bars.
 Their reports are kept under `bars/`.
 
