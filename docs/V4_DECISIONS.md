@@ -2373,3 +2373,11 @@ Four files outside this lane still carry the same six values and are the remaini
 `scripts/identifiability_v4.py` registers them at `EXPECTED_WORLD_SEEDS`,
 `tests/test_identifiability_v4_receipt.py` asserts against them,
 and `tests/test_mechanisms.py` and `tests/test_survey.py` use them as example seeds.
+
+One test fails on this branch as a result.
+`test_identifiability_receipt_requires_exact_registered_world_family` reads
+`builder.QUALIFICATION_SEEDS`, which no longer exists, and raises an attribute error. The
+edit that closes it and the registered literals together is one change in the lane that owns
+the identifiability audit: read the qualification half of `EXPECTED_WORLD_SEEDS` from
+`build_v4_worlds.qualification_seeds()` where the audit needs it, and have the test compare
+against that call. It is not taken here because that script is running under the freeze.
