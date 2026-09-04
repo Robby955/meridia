@@ -515,6 +515,7 @@ def _regime_audit(freeze) -> dict:
                 freeze.REALIZED_MECHANISM_ENVELOPES[axis].items()
             },
             "anchor_correlation_qualified": correlations[axis] > 0.4,
+            "hidden_regime_correlation_qualified": True,
             "disposition": (
                 "constrained_to_development_range" if constrained
                 else "participant_anchor"
@@ -525,9 +526,15 @@ def _regime_audit(freeze) -> dict:
             ),
             "hidden_out_of_band_allowed": not constrained,
         }
+    binding = min(correlations, key=lambda axis: correlations[axis])
     audit = {
         "schema": freeze.REGIME_IDENTIFIABILITY_SCHEMA,
         "anchor_correlation_threshold": 0.4,
+        "binding_axis": {
+            "axis": binding,
+            "signed_rank_correlation": correlations[binding],
+        },
+        "hidden_regime_correlation_shortfalls": [],
         "world_count": 18,
         "world_bindings": bindings,
         "measurement_rows_digest_sha256": _digest("identifiability-measurements"),
@@ -913,11 +920,19 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
         assert "Regime-axis identifiability" in document
         assert (
             "administrative_completeness: signed rank correlation 0.067; "
+            "hidden regime 0.5, qualified True; "
             "disposition constrained_to_development_range"
         ) in document
         assert (
             "missingness_target_dependence: signed rank correlation -0.018; "
+            "hidden regime 0.5, qualified True; "
             "disposition constrained_to_development_range"
+        ) in document
+        assert (
+            "- binding axis on the pooled rule: missingness_target_dependence at -0.018"
+        ) in document
+        assert (
+            "- anchored axes below the threshold within the six hidden worlds: none"
         ) in document
         assert "Control separation" in document
         assert "Authenticated evidence design" in document
@@ -1171,6 +1186,78 @@ def test_verifier_rejects_malformed_mortality_years_without_raising():
 
     from meridia.verify import _bar_schema_errors
     assert "mortality identification evidence is invalid" in _bar_schema_errors(bars)
+
+
+def _rebind_regime_audit(freeze, audit):
+    audit["digest_sha256"] = freeze._canonical_digest({
+        key: value for key, value in audit.items() if key != "digest_sha256"
+    })
+    return audit
+
+
+def test_freeze_refuses_an_axis_with_no_trace_inside_the_hidden_regime():
+    """A pooled trace carried by the twelve development worlds is not enough.
+
+    A submission is scored on the six hidden worlds. An axis whose pooled correlation
+    clears the threshold while its hidden within-regime correlation does not is readable
+    where it is not used and unreadable where it is.
+    """
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    audit = _regime_audit(freeze)
+    audit["axes"]["mortality_improvement"][
+        "within_regime_signed_rank_correlation"]["hidden"] = -0.086
+    audit["axes"]["mortality_improvement"][
+        "hidden_regime_correlation_qualified"] = False
+    audit["hidden_regime_correlation_shortfalls"] = ["mortality_improvement"]
+    _rebind_regime_audit(freeze, audit)
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["regime_identifiability_audit"] = audit
+    bars = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
+
+    assert bars["frozen"] is False
+    assert any("hidden-regime identifiability is below 0.4" in blocker
+               and "mortality_improvement -0.086" in blocker
+               for blocker in bars["blockers"])
+
+
+def test_a_hidden_regime_shortfall_cannot_be_hidden_by_dropping_it_from_the_list():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    audit = _regime_audit(freeze)
+    audit["axes"]["migration_age_pattern"][
+        "within_regime_signed_rank_correlation"]["hidden"] = 0.257
+    audit["axes"]["migration_age_pattern"][
+        "hidden_regime_correlation_qualified"] = True
+    _rebind_regime_audit(freeze, audit)
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["regime_identifiability_audit"] = audit
+    bars = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
+
+    assert bars["frozen"] is False
+    assert any("hidden-regime correlation qualification does not match" in blocker
+               for blocker in bars["blockers"])
+
+
+def test_the_receipt_has_to_name_the_axis_that_binds_the_pooled_rule():
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    audit = _regime_audit(freeze)
+    assert audit["binding_axis"] == {
+        "axis": "missingness_target_dependence", "signed_rank_correlation": -0.018}
+    audit["binding_axis"] = {
+        "axis": "migration_age_pattern", "signed_rank_correlation": 0.53}
+    _rebind_regime_audit(freeze, audit)
+
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    kwargs["regime_identifiability_audit"] = audit
+    bars = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
+
+    assert bars["frozen"] is False
+    assert any("does not name the axis that binds the pooled rule" in blocker
+               for blocker in bars["blockers"])
 
 
 def test_freeze_requires_unidentified_axes_to_stay_inside_the_development_range():

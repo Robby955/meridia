@@ -39,7 +39,7 @@ EVIDENCE_BINDING_SCHEMA = "meridia.v4.freeze-evidence-binding.v3"
 PROVENANCE_SCHEMA = "meridia.v4.freeze-provenance.v1"
 DEVELOPMENT_DIAGNOSTIC_SCHEMA = "meridia.v4.development-diagnostics.v1"
 ELDER_AUDIT_SCHEMA = "meridia.methods.elder_reconstruction_audit.v1"
-REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v2"
+REGIME_IDENTIFIABILITY_SCHEMA = "meridia.v4.regime-identifiability-audit.v3"
 MORTALITY_IDENTIFICATION_AUDIT_SCHEMA = (
     "meridia.v4.mortality-identification-audit.v1"
 )
@@ -2390,11 +2390,12 @@ def _validate_regime_identifiability_audit(
     except (TypeError, ValueError) as exc:
         raise EvidenceError("regime identifiability audit must be finite JSON") from exc
     if set(normalized) != {
-        "schema", "anchor_correlation_threshold", "world_count", "world_bindings",
+        "schema", "anchor_correlation_threshold", "binding_axis",
+        "hidden_regime_correlation_shortfalls", "world_count", "world_bindings",
         "measurement_rows_digest_sha256", "generator_source_digest_sha256",
         "generator_policy", "axes", "digest_sha256",
     }:
-        raise EvidenceError("regime identifiability audit fields differ from schema v2")
+        raise EvidenceError("regime identifiability audit fields differ from schema v3")
     recorded_digest = normalized.pop("digest_sha256", None)
     if not isinstance(recorded_digest, str) \
             or recorded_digest != _canonical_digest(normalized):
@@ -2461,7 +2462,8 @@ def _validate_regime_identifiability_audit(
             "realized_mechanism_definition", "axis_intensity_range_observed",
             "realized_mechanism_range_observed",
             "registered_realized_mechanism_envelopes",
-            "anchor_correlation_qualified", "disposition", "development_range",
+            "anchor_correlation_qualified", "hidden_regime_correlation_qualified",
+            "disposition", "development_range",
             "hidden_generation_range", "hidden_out_of_band_allowed",
         }:
             raise EvidenceError(f"{axis}: identifiability record must be an object")
@@ -2482,6 +2484,11 @@ def _validate_regime_identifiability_audit(
             raise EvidenceError(f"{axis}: identifiability measurement is invalid")
         for regime, value in within.items():
             correlation(value, f"{axis}: {regime} signed rank correlation")
+        hidden_qualified = float(within["hidden"]) > ANCHOR_CORRELATION_THRESHOLD
+        if record.get("hidden_regime_correlation_qualified") is not hidden_qualified:
+            raise EvidenceError(
+                f"{axis}: hidden-regime correlation qualification does not match its value"
+            )
         axis_intensity_ranges = observed_ranges(
             record.get("axis_intensity_range_observed"),
             f"{axis}: raw axis intensity",
@@ -2552,6 +2559,42 @@ def _validate_regime_identifiability_audit(
                 REALIZED_MECHANISM_ENVELOPES[axis]["public"],
                 f"{axis}: hidden realized mechanism",
             )
+
+    # The pooled correlation runs over twelve development worlds and six hidden ones, so
+    # an axis can clear it on the development block alone while carrying no trace in the
+    # six worlds a submission is scored on. Both are thresholded, and the receipt has to
+    # name the axis that binds rather than leaving a reader to find it.
+    binding = min(
+        REGIME_AXES,
+        key=lambda name: float(axes[name]["signed_rank_correlation"]),
+    )
+    recorded_binding = normalized.get("binding_axis")
+    if not isinstance(recorded_binding, Mapping) \
+            or set(recorded_binding) != {"axis", "signed_rank_correlation"} \
+            or recorded_binding.get("axis") != binding \
+            or float(recorded_binding.get("signed_rank_correlation")) \
+            != float(axes[binding]["signed_rank_correlation"]):
+        raise EvidenceError(
+            "regime identifiability audit does not name the axis that binds the pooled rule"
+        )
+    shortfalls = sorted(
+        axis for axis in HIDDEN_EXTRAPOLATION_AXES
+        if axes[axis]["hidden_regime_correlation_qualified"] is not True
+    )
+    if normalized.get("hidden_regime_correlation_shortfalls") != shortfalls:
+        raise EvidenceError(
+            "regime identifiability audit does not record its hidden-regime shortfalls"
+        )
+    if shortfalls:
+        detail = ", ".join(
+            f"{axis} {float(axes[axis]['within_regime_signed_rank_correlation']['hidden']):+.3f}"
+            for axis in shortfalls
+        )
+        raise EvidenceError(
+            "hidden-regime identifiability is below "
+            f"{ANCHOR_CORRELATION_THRESHOLD} on {len(shortfalls)} anchored axis or axes "
+            f"within the six hidden worlds: {detail}"
+        )
     normalized["digest_sha256"] = recorded_digest
     return normalized
 
@@ -3884,7 +3927,13 @@ def _append_regime_identifiability(lines: list[str], bars: Mapping[str, Any]) ->
         "## Regime-axis identifiability",
         "",
         f"- participant-anchor threshold: signed rank correlation greater than "
-        f"{audit.get('anchor_correlation_threshold')}",
+        f"{audit.get('anchor_correlation_threshold')}, pooled and within the hidden "
+        f"regime",
+        f"- binding axis on the pooled rule: "
+        f"{(audit.get('binding_axis') or {}).get('axis')} at "
+        f"{(audit.get('binding_axis') or {}).get('signed_rank_correlation')}",
+        "- anchored axes below the threshold within the six hidden worlds: "
+        + (", ".join(audit.get("hidden_regime_correlation_shortfalls") or []) or "none"),
         "- axes eligible to leave the development band: "
         + ", ".join(policy.get("eligible_for_outside_development_band", [])),
         "- axes held inside the development band: "
@@ -3900,7 +3949,10 @@ def _append_regime_identifiability(lines: list[str], bars: Mapping[str, Any]) ->
                 continue
             lines.append(
                 f"- {axis}: signed rank correlation "
-                f"{record.get('signed_rank_correlation')}; disposition "
+                f"{record.get('signed_rank_correlation')}; hidden regime "
+                f"{(record.get('within_regime_signed_rank_correlation') or {}).get('hidden')}"
+                f", qualified {record.get('hidden_regime_correlation_qualified')}"
+                f"; disposition "
                 f"{record.get('disposition')}; development range "
                 f"{record.get('development_range')}; hidden generation range "
                 f"{record.get('hidden_generation_range')}; raw axis observed "

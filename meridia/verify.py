@@ -2442,12 +2442,13 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     regime_audit = bars.get("regime_identifiability_audit")
     regime_ok = isinstance(regime_audit, dict) \
         and set(regime_audit) == {
-            "schema", "anchor_correlation_threshold", "world_count",
+            "schema", "anchor_correlation_threshold", "binding_axis",
+            "hidden_regime_correlation_shortfalls", "world_count",
             "world_bindings", "measurement_rows_digest_sha256",
             "generator_source_digest_sha256", "generator_policy", "axes",
             "digest_sha256",
         } \
-        and regime_audit.get("schema") == "meridia.v4.regime-identifiability-audit.v2" \
+        and regime_audit.get("schema") == "meridia.v4.regime-identifiability-audit.v3" \
         and is_sha256(regime_audit.get("digest_sha256"))
     if regime_ok:
         unsigned = dict(regime_audit)
@@ -2496,7 +2497,8 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 "realized_mechanism_definition", "axis_intensity_range_observed",
                 "realized_mechanism_range_observed",
                 "registered_realized_mechanism_envelopes",
-                "anchor_correlation_qualified", "disposition", "development_range",
+                "anchor_correlation_qualified", "hidden_regime_correlation_qualified",
+                "disposition", "development_range",
                 "hidden_generation_range", "hidden_out_of_band_allowed",
             }
             for axis in REGIME_AXES:
@@ -2531,6 +2533,11 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                     and record.get("registered_realized_mechanism_envelopes") \
                     == REALIZED_MECHANISM_ENVELOPES[axis] \
                     and record.get("anchor_correlation_qualified") is qualified \
+                    and record.get("hidden_regime_correlation_qualified") is (
+                        isinstance(within, dict)
+                        and finite_number(within.get("hidden"))
+                        and float(within["hidden"]) > 0.4
+                    ) \
                     and record.get("development_range") == DEVELOPMENT_AXIS_RANGES[axis] \
                     and range_inside(
                         raw_ranges["development"], DEVELOPMENT_AXIS_RANGES[axis]
@@ -2574,6 +2581,24 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 if not base_ok:
                     regime_ok = False
                     break
+        if regime_ok:
+            binding = min(
+                REGIME_AXES,
+                key=lambda name: float(axes[name]["signed_rank_correlation"]),
+            )
+            shortfalls = sorted(
+                axis for axis in HIDDEN_EXTRAPOLATION_AXES
+                if axes[axis]["hidden_regime_correlation_qualified"] is not True
+            )
+            recorded_binding = unsigned.get("binding_axis")
+            regime_ok = isinstance(recorded_binding, dict) \
+                and set(recorded_binding) == {"axis", "signed_rank_correlation"} \
+                and recorded_binding.get("axis") == binding \
+                and finite_number(recorded_binding.get("signed_rank_correlation")) \
+                and float(recorded_binding["signed_rank_correlation"]) \
+                == float(axes[binding]["signed_rank_correlation"]) \
+                and unsigned.get("hidden_regime_correlation_shortfalls") == shortfalls \
+                and not shortfalls
     if not regime_ok:
         errors.append("regime identifiability and hidden-axis constraint evidence is invalid")
 

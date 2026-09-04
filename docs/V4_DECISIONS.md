@@ -2495,3 +2495,33 @@ reported rather than blocking.
 The freeze refuses a bar calibrated on such a report. `extract_composite_metrics` reads a
 null component as missing and raises, which is the behaviour it already had for a
 non-finite number.
+
+### The identifiability rule now reads the hidden regime, and names what binds it
+
+Two defects in the identifiability gate are fixed and the receipt schema moves to v3.
+
+The 0.4 rule was applied to the pooled signed rank correlation alone. The pooled figure is
+taken over eighteen worlds, twelve development and six hidden, so an axis can clear it on
+the development block while carrying no trace in the six worlds a submission is scored on.
+The hidden within-regime correlation is now held to the same threshold for every anchored
+axis, and the receipt carries the qualification per axis.
+
+The report also named the wrong axis as the tightest. The P4 record called migration the
+binding axis at +0.474 with a margin of 0.074. The smallest pooled correlation on the same
+receipt is missingness_target_dependence at +0.401, a margin of 0.001. That axis is held to
+development-range draws so its value changes no disposition, but it is still the axis that
+binds the pooled rule and the receipt now names it, with the freeze recomputing the name
+and refusing a receipt that names a different one.
+
+On the P4 world set the hidden-regime rule does not pass. Anchored axes and their hidden
+within-regime correlations: mortality improvement -0.086, migration +0.257, age reporting
++0.886, the linkage gradient +0.771. Two of the four are below 0.4, and mortality is the
+wrong sign. The audit report says so in a line of its own and the freeze refuses with a
+blocker naming both axes and both values. The pooled readings for those two, +0.441 and
++0.474, are carried by the development block: development-only readings are +0.503 and
++0.252, so migration is weak in both blocks and only reaches the pooled threshold through
+the spread between them.
+
+This is a second blocker on the P4 world set, independent of the reserve rate. It is
+recorded rather than worked around. Nothing in the threshold moved, and no axis was
+reclassified to avoid it.

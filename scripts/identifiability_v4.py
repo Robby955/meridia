@@ -71,7 +71,7 @@ EXPECTED_SIGN = {"mortality_improvement": +1, "migration_age_pattern": +1,
                  "administrative_completeness": +1,
                  "missingness_target_dependence": +1}
 ANCHOR_CORRELATION_THRESHOLD = 0.4
-RECEIPT_SCHEMA = "meridia.v4.regime-identifiability-audit.v2"
+RECEIPT_SCHEMA = "meridia.v4.regime-identifiability-audit.v3"
 PACKET_MANIFEST_SCHEMA = "meridia.packet.manifest.v1"
 REFERENCE_MORTALITY_AGE_SLOPE = 0.105
 REGISTERED_GOMPERTZ_B_RANGE = (0.092, 0.121)
@@ -741,6 +741,15 @@ def main() -> None:
                          f"{truth.max() - truth.min():.4f}")
         constrained = axis in HIDDEN_IN_BAND_AXES
         qualified = signed > ANCHOR_CORRELATION_THRESHOLD
+        # The pooled correlation is taken over twelve development worlds and six hidden
+        # ones, so a trace can be carried entirely by the development block while the six
+        # worlds a submission is actually scored on hold no trace at all. The hidden
+        # within-regime correlation is thresholded on the same rule, and it is what says
+        # whether the axis is readable where it is used.
+        hidden_signed = within_values.get("hidden", float("nan"))
+        hidden_qualified = bool(
+            math.isfinite(hidden_signed) and hidden_signed > ANCHOR_CORRELATION_THRESHOLD
+        )
         axis_receipts[axis] = {
             "statistic": STATISTIC[axis],
             "expected_sign": EXPECTED_SIGN[axis],
@@ -748,6 +757,7 @@ def main() -> None:
             "within_regime_signed_rank_correlation": within_values,
             **range_record,
             "anchor_correlation_qualified": qualified,
+            "hidden_regime_correlation_qualified": hidden_qualified,
             "disposition": (
                 "constrained_to_development_range" if constrained
                 else "participant_anchor"
@@ -758,6 +768,31 @@ def main() -> None:
             ),
             "hidden_out_of_band_allowed": not constrained,
         }
+    binding_axis = min(
+        AXES, key=lambda axis: axis_receipts[axis]["signed_rank_correlation"])
+    binding_value = axis_receipts[binding_axis]["signed_rank_correlation"]
+    shortfalls = sorted(
+        axis for axis in HIDDEN_EXTRAPOLATION_AXES
+        if not axis_receipts[axis]["hidden_regime_correlation_qualified"]
+    )
+    lines.append("")
+    lines.append(
+        f"- binding axis on the pooled rule: {binding_axis} at {binding_value:+.3f} "
+        f"against a threshold of {ANCHOR_CORRELATION_THRESHOLD}"
+    )
+    if shortfalls:
+        detail = ", ".join(
+            f"{axis} {axis_receipts[axis]['within_regime_signed_rank_correlation']['hidden']:+.3f}"
+            for axis in shortfalls
+        )
+        lines.append(
+            f"- HIDDEN-REGIME SHORTFALL: {len(shortfalls)} anchored axis or axes do not "
+            f"reach {ANCHOR_CORRELATION_THRESHOLD} within the six hidden worlds: {detail}"
+        )
+    else:
+        lines.append(
+            "- every anchored axis reaches the threshold within the six hidden worlds"
+        )
     text = "\n".join(lines) + "\n"
     print(text)
     if args.out:
@@ -794,6 +829,11 @@ def main() -> None:
         receipt = {
             "schema": RECEIPT_SCHEMA,
             "anchor_correlation_threshold": ANCHOR_CORRELATION_THRESHOLD,
+            "binding_axis": {
+                "axis": binding_axis,
+                "signed_rank_correlation": binding_value,
+            },
+            "hidden_regime_correlation_shortfalls": shortfalls,
             "world_count": len(frame),
             "world_bindings": sorted(bindings, key=lambda row: row["world"]),
             "measurement_rows_digest_sha256": _canonical_digest(measurement_rows),
