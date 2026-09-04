@@ -7,7 +7,13 @@ them.
   the development source regime. These are the worlds a method may tune on, and their
   seeds are committed here.
 - ``qualification``: six worlds under the hidden source regime, minted before any graded
-  world. Thresholds are frozen on these and on nothing else.
+  world. Thresholds are frozen on these and on nothing else, so a seed written here is
+  the whole world a bar was measured on written here. ``qualification_seeds`` reads them
+  from a sealed JSON file outside the repository, at
+  ``~/.config/meridia/v4_qualification_seeds.json`` or wherever
+  ``MERIDIA_QUALIFICATION_SEED_FILE`` points, and refuses a missing, malformed, short or
+  repeating file by name. The world count stays here because the freeze design publishes
+  it; only the values are sealed.
 - ``graded``: independent worlds under the hidden source regime, minted after the
   thresholds are frozen and never read back into them. Their seeds are derived from a
   keyed V4 seal only after the frozen-bar and reserve-rate receipts authenticate both the
@@ -37,6 +43,8 @@ measured on the committed size.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -59,7 +67,71 @@ from meridia.sealing import (V4PublicationAuthorization, V4WorldAuthorization,
 WORLD = GRADING_WORLD
 
 DEVELOPMENT_SEEDS = tuple(1101 + i for i in range(len(DEVELOPMENT_DESIGN)))
-QUALIFICATION_SEEDS = (2101, 2102, 2103, 2104, 2105, 2106)
+QUALIFICATION_WORLD_COUNT = 6
+QUALIFICATION_SEED_FILE_ENV = "MERIDIA_QUALIFICATION_SEED_FILE"
+QUALIFICATION_SEED_KEY = "qualification_seeds"
+def default_qualification_seed_file() -> Path:
+    """Where the sealed qualification seeds live when the environment names nothing."""
+    return Path.home() / ".config" / "meridia" / "v4_qualification_seeds.json"
+
+
+def qualification_seed_file() -> Path:
+    """The sealed file this run reads, from the environment or the default path."""
+    named = os.environ.get(QUALIFICATION_SEED_FILE_ENV)
+    return Path(named) if named else default_qualification_seed_file()
+
+
+def qualification_seeds(path: Path | None = None) -> tuple[int, ...]:
+    """The six qualification seeds, read from a sealed file outside the repository.
+
+    A world's whole configuration follows from its seed, so the qualification seeds in
+    the tree are the six worlds every bar is frozen on written into the tree. They are
+    read the way a sealed input is read: from a JSON object outside the repository, at
+    the path ``MERIDIA_QUALIFICATION_SEED_FILE`` names or at
+    ``~/.config/meridia/v4_qualification_seeds.json``, under the single key
+    ``qualification_seeds``.
+
+    Every refusal names the file and the fault and carries no seed value. The world count
+    stays in the tree because it is published in the freeze design; only the values are
+    sealed.
+    """
+    source = Path(path) if path is not None else qualification_seed_file()
+    try:
+        raw = source.read_text()
+    except OSError as exc:
+        raise ValueError(
+            f"sealed qualification seed file {source} could not be read"
+        ) from exc
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"sealed qualification seed file {source} is not valid JSON"
+        ) from exc
+    if not isinstance(document, dict) or set(document) != {QUALIFICATION_SEED_KEY}:
+        raise ValueError(
+            f"sealed qualification seed file {source} must hold one object with the "
+            f"single key {QUALIFICATION_SEED_KEY!r}"
+        )
+    values = document[QUALIFICATION_SEED_KEY]
+    if not isinstance(values, list) or len(values) != QUALIFICATION_WORLD_COUNT:
+        raise ValueError(
+            f"sealed qualification seed file {source} must hold "
+            f"{QUALIFICATION_WORLD_COUNT} qualification seeds"
+        )
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0
+           for value in values):
+        raise ValueError(
+            f"sealed qualification seed file {source} holds a seed that is not a "
+            "positive integer"
+        )
+    if len(set(values)) != len(values):
+        raise ValueError(
+            f"sealed qualification seed file {source} repeats a seed"
+        )
+    return tuple(int(value) for value in values)
+
+
 GRADED_AUTHORIZATION_FIELDS = {
     "bars_path",
     "reserve_calibration_path",
@@ -109,7 +181,7 @@ def family_plan(
                  "params": PacketParams(**{**WORLD.__dict__, "regime": "hidden",
                                            **size}),
                  "development": False, "public_seed": False}
-                for i, seed in enumerate(QUALIFICATION_SEEDS)]
+                for i, seed in enumerate(qualification_seeds())]
     if family == "graded":
         if any(path is None for path in (
             bars_path,

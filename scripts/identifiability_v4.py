@@ -47,6 +47,7 @@ from meridia.mechanisms import (
     N_HIDDEN_OUTSIDE_AXES,
     PUBLIC_ENVELOPE,
 )
+from scripts import build_v4_worlds as builder
 
 AXES = ("mortality_improvement", "migration_age_pattern", "age_reporting_error",
         "linkage_urban_gradient", "administrative_completeness",
@@ -89,10 +90,25 @@ EXPECTED_WORLD_PACKET_CLASSES = {
     world: ("development" if regime == "development" else "qualification")
     for world, regime in EXPECTED_WORLD_REGIMES.items()
 }
-EXPECTED_WORLD_SEEDS = {
-    **{f"dev-{index:02d}": 1101 + index for index in range(12)},
-    **{f"qual-{index}": 2101 + index for index in range(6)},
+EXPECTED_DEVELOPMENT_WORLD_SEEDS = {
+    f"dev-{index:02d}": 1101 + index for index in range(12)
 }
+
+
+def expected_world_seed(name: str) -> int:
+    """The registered seed of one audited world.
+
+    Development seeds are committed, so they are registered here and a builder change
+    that moved them would fail this audit rather than pass quietly. Qualification seeds
+    are sealed outside the repository, so the qualification half is read from the same
+    file the builder reads, through the builder, at the point the audit needs a value
+    rather than at import. No caller of this function puts its result in a message.
+    """
+    if name in EXPECTED_DEVELOPMENT_WORLD_SEEDS:
+        return EXPECTED_DEVELOPMENT_WORLD_SEEDS[name]
+    if name not in EXPECTED_WORLD_REGIMES:
+        raise KeyError(name)
+    return builder.qualification_seeds()[int(name.rsplit("-", 1)[1])]
 
 # These envelopes are registered independently of the generator's coefficient table.
 # The focused tests derive the same extrema from the published raw-axis and interaction
@@ -447,7 +463,7 @@ def _validate_world_record(packet: Path, world: object) -> tuple[dict, dict[str,
         raise ValueError(f"{name}: retained world family differs from the audit")
     seed = world.get("seed")
     if isinstance(seed, bool) or not isinstance(seed, int) \
-            or seed != EXPECTED_WORLD_SEEDS[name]:
+            or seed != expected_world_seed(name):
         raise ValueError(f"{name}: retained seed differs from the registered plan")
     params = world.get("params")
     mechanisms = world.get("mechanisms")

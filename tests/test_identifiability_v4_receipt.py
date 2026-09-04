@@ -213,10 +213,10 @@ def test_identifiability_receipt_requires_exact_registered_world_family() -> Non
 
     assert audit.ANCHOR_CORRELATION_THRESHOLD == 0.4
     assert audit.RECEIPT_SCHEMA == "meridia.v4.regime-identifiability-audit.v3"
-    assert [audit.EXPECTED_WORLD_SEEDS[f"dev-{index:02d}"] for index in range(12)] \
+    assert [audit.expected_world_seed(f"dev-{index:02d}") for index in range(12)] \
         == list(builder.DEVELOPMENT_SEEDS)
-    assert [audit.EXPECTED_WORLD_SEEDS[f"qual-{index}"] for index in range(6)] \
-        == list(builder.QUALIFICATION_SEEDS)
+    assert [audit.expected_world_seed(f"qual-{index}") for index in range(6)] \
+        == list(builder.qualification_seeds())
 
 
 def test_packet_preflight_rejects_wrong_family_before_retained_reads(tmp_path) -> None:
