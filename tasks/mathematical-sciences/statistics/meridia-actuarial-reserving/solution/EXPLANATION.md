@@ -3,14 +3,14 @@
 
 # What the reference solution does
 
-The packaging lane owns `solution_explanation` in `task.toml`. The block below is written
-to be lifted into that field without editing. The sections after it are notes for the
-packaging lane and are not part of the field.
+The next section is the text `task.toml` carries in `solution_explanation`, verbatim.
+The two are held identical by `authoring/test_task_package.py`, so edit them together.
+The sections after it are authoring notes and are not part of the field.
 
-## Lift this into `solution_explanation`
+## Carried in `solution_explanation`
 
 The reference solution is the design-based line, one of the three reference lines the bar
-set was frozen against. It runs in three stages and reads nothing outside the participant
+set is measured against. It runs in three stages and reads nothing outside the participant
 tree of each packet.
 
 Stage one reconstructs the population. The preliminary and revised population vintages
