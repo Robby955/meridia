@@ -2633,7 +2633,10 @@ them move inside a range the current anchors can read, or the world set changes.
 generator decision and it belongs with the same lane that holds the rate.
 
 The commands for the morning, in order, once
-`reserve_rate_per_person_year` reads 3769.0 in `meridia/packet.py`:
+`reserve_rate_per_person_year` reads 3769.0 in `meridia/packet.py`. They build into
+`/Users/robsneiderman/Desktop/meridia-p5`, where the continuation ensemble cache from the
+P4 build has already been copied, so the eighteen worlds recompile off it rather than
+regenerating their ensembles.
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
@@ -2642,17 +2645,17 @@ PYTHONPATH=$PWD python3 -m pytest tests -q
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development --family development --world-workers 12 --cache /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/ensemble-cache
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --family development --world-workers 12 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
 ```
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification --family qualification --world-workers 6 --cache /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/ensemble-cache
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --family qualification --world-workers 6 --cache /Users/robsneiderman/Desktop/meridia-p5/ensemble-cache
 ```
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/identifiability_v4.py --packets /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-00 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-01 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-02 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-03 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-04 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-05 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-06 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-07 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-08 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-09 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-10 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development/dev-11 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-0 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-1 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-2 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-3 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-4 /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification/qual-5 --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/identifiability-p5.txt --receipt /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/identifiability-p5.json
+PYTHONPATH=$PWD python3 scripts/identifiability_v4.py --packets /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-0 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-1 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-2 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-3 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-4 /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification/qual-5 --out /Users/robsneiderman/Desktop/meridia-p5/identifiability-p5.txt --receipt /Users/robsneiderman/Desktop/meridia-p5/identifiability-p5.json
 ```
 
 The identifiability run is placed before the evidence pass on purpose. The evidence pass
@@ -2664,15 +2667,15 @@ the pass.
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/development --qualification-root /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/worlds-p5/qualification --out /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5
+PYTHONPATH=$PWD python3 scripts/build_v4_freeze_evidence.py --development-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development --qualification-root /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/qualification --out /Users/robsneiderman/Desktop/meridia-p5/evidence-p5
 ```
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-full
 ```
 
 ```
 cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
-PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/.claude/jobs/d39fbe61/tmp/meridia-v4/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
+PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v11-lite
 ```
