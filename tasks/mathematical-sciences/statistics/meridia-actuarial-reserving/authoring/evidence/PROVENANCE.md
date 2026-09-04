@@ -3,7 +3,7 @@
 
 # Provenance of the version-four package
 
-Status as of 2026-09-03, read against `meridia-v4-integration-p4` at commit `d39d94e`.
+Status as of 2026-09-03, read against `meridia-v4-integration-p4` at commit `d33531f`.
 
 NOT SEALED. NO BAR SET HAS FROZEN. NO ASSET ARCHIVE EXISTS. NO TRIAL IS AUTHORIZED.
 
@@ -73,7 +73,7 @@ Everything below is a step that has not happened. None of it is a claim about th
   and no nop receipt, so nothing here establishes that the reference passes or that an
   empty submission fails.
 - The package is not repinned end to end. `authoring/INTERFACE_ASSUMPTIONS.md` records
-  which of the thirty interface items are resolved against `d39d94e` and which are still
+  which of the thirty interface items are resolved against `d33531f` and which are still
   open, together with the lane that owns each open one.
 
 ## How the worlds are named

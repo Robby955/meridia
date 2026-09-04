@@ -75,6 +75,6 @@ blocks are measured and reported without deciding: `tail_calibration`, which rea
 exceedance and how far `q95` and `es95` land from the sealed ones in units of the
 ensemble's tail width, and the worst region's shortfall probability inside
 `reserve_skill`. If the `/data/bars.json` shipped with this container names the full
-profile rather than the lite one, `tail_calibration` decides as well.
+profile rather than the lite one, both of those decide too.
 
 You have 28800 seconds to complete this task. Do not cheat by using online solutions or hints specific to this task.

@@ -89,8 +89,13 @@ from, the `meridia` tree hash at that commit, and a SHA-256 for each of the twen
 modules line A imports. `solve.py` checks every one of them against the extracted export
 before its first import and exits with the offending path when one differs. Pinned at:
 
-    source_commit  d39d94e787982d09c1584c415b5169df9f5eeaed
-    source_tree    a655cfcb413e5a03179ec9b276fe97bb753d000c
+    source_commit  d33531f17c4ce59cc991e387ee80dc4186e89462
+    source_tree    f0eac15639e4628e40f653f3121df88194d91056
+
+That is the commit the three `SHA256SUMS` files name, so the pin and the staged archives
+now record one commit rather than two. The pin was first written at `d39d94e`, one
+commit earlier, where all twenty files are byte for byte the same; the step between them
+adds the gate profile to `meridia/verify.py`, which line A does not import.
 
 The twenty modules are the transitive import closure of `meridia.methods.design_based`
 and `meridia.methods.actuarial_reference`, lazy imports inside function bodies included,
@@ -98,6 +103,10 @@ which is why `meridia/methods/controls.py` is in the set: the calibration step i
 three fitting helpers from it. The export archive that `build_assets.py` stages carries
 more modules than the pin covers. That is fine and deliberate: the pin binds what line A
 executes, not what the archive happens to hold.
+
+The pin is behind the head of the code lane by one file. At `e389e85`,
+`meridia/methods/controls.py` differs from the recorded digest and the other nineteen
+match, so an export taken at that head fails the check until the pin is regenerated.
 
 To regenerate the pin after a deliberate move to a newer reference commit, walk the
 import closure from those two modules over a clean `meridia` checkout, take
