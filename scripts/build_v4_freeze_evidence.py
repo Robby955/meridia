@@ -61,6 +61,14 @@ EXPECTED_COUNTS = {
     "development_diagnostic_reports": 24,
 }
 MORTALITY_AUDIT_SCHEMA = "meridia.v4.mortality-identification-audit.v1"
+# The three base report kinds and the manifest list each one lands in. A decomposition
+# control is a development diagnostic, and the manifest and the expected counts both call
+# its list development_diagnostic_reports rather than naming it after the kind.
+BASE_REPORT_GROUPS = {
+    "reference": "reference_reports",
+    "control": "control_reports",
+    "diagnostic": "development_diagnostic_reports",
+}
 
 
 class EvidenceBuildError(ValueError):
@@ -467,9 +475,7 @@ def _collect_base_entries(
     contract_digest: str,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
     groups: dict[str, list[dict[str, Any]]] = {
-        "reference_reports": [],
-        "control_reports": [],
-        "development_diagnostic_reports": [],
+        name: [] for name in BASE_REPORT_GROUPS.values()
     }
     specs: dict[str, dict[str, Any]] = {}
 
@@ -479,6 +485,7 @@ def _collect_base_entries(
             "control": "control",
             "diagnostic": "diagnostic",
         }[kind]
+        group = BASE_REPORT_GROUPS[kind]
         submission = _base_submission_path(phase_out, packet.name, kind, identity)
         receipt, receipt_path = _phase_receipt(phase_out, submission)
         run_spec = receipt["run_spec"]
@@ -499,7 +506,7 @@ def _collect_base_entries(
             contract=contract,
             contract_digest=contract_digest,
         )
-        groups[f"{kind}_reports"].append(entry)
+        groups[group].append(entry)
 
     for line in REFERENCE_LINES:
         for packet in qualification:

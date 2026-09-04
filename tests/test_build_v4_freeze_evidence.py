@@ -764,3 +764,21 @@ def test_references_only_mode_never_starts_full_battery(monkeypatch, tmp_path):
 
     assert result["reference_report_count"] == 18
     assert result["full_battery_authorized"] is True
+
+
+def test_base_report_kinds_land_in_the_manifest_lists_they_are_counted_under():
+    """A decomposition control is counted as a development diagnostic.
+
+    The base collector routes three kinds into three manifest lists, and only one of
+    them is named after its kind. Deriving the list name from the kind put every
+    development diagnostic into a list that does not exist, which the first full battery
+    found after the whole measurement stage had already been paid for.
+    """
+    runner = _runner()
+
+    assert set(runner.BASE_REPORT_GROUPS) == {"reference", "control", "diagnostic"}
+    assert runner.BASE_REPORT_GROUPS["diagnostic"] == "development_diagnostic_reports"
+    for kind, group in runner.BASE_REPORT_GROUPS.items():
+        assert group in runner.EXPECTED_COUNTS, kind
+    assert set(runner.BASE_REPORT_GROUPS.values()) \
+        == set(runner.EXPECTED_COUNTS) - {"replicate_reports"}
