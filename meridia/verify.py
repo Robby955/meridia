@@ -241,6 +241,24 @@ GATE_PROFILE_UNPUBLISHED_COMPONENTS: dict[str, dict[str, str]] = {
     },
 }
 
+# Deciding blocks a profile registers as validity gates. Such a block does not need a
+# registered wrong method that fails it on every qualification world: the reference
+# passes it everywhere, nothing registered fails it everywhere, and at this world size it
+# rejects an empty or broken submission rather than telling two methods apart. Every
+# other deciding block with registered controls needs a separating control, and a receipt
+# that carries none for one of them is refused.
+GATE_PROFILE_VALIDITY_BLOCKS: dict[str, tuple[str, ...]] = {
+    "standard": (
+        "exposures_and_rates", "release_accuracy", "interval_quality",
+    ),
+}
+
+CONTROL_SEPARATION_REQUIREMENT = (
+    "every deciding composite gate the profile does not register as a validity gate has "
+    "at least one registered control that hard-passes structure and fails that gate on "
+    "every qualification world"
+)
+
 
 def gate_profile_selection(name: str) -> dict[str, tuple[str, ...]]:
     """Return the gates and components one profile decides on.
@@ -279,6 +297,14 @@ def gate_profile_unpublished_components(name: str) -> dict[str, str]:
     registered = GATE_PROFILE_UNPUBLISHED_COMPONENTS.get(name, {})
     return {label: reason for label, reason in registered.items()
             if label in reported_only and isinstance(reason, str) and reason}
+
+
+def gate_profile_validity_blocks(name: str) -> list[str]:
+    """Name the deciding blocks this profile registers as validity gates."""
+    selection = gate_profile_selection(name)
+    registered = tuple(GATE_PROFILE_VALIDITY_BLOCKS.get(name, ()))
+    return [gate for gate in COMPOSITE_GATE_COMPONENTS
+            if gate in registered and gate in selection]
 
 
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
@@ -2176,7 +2202,13 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 and row.get("control") == "proportional_reserve"
                 and row.get("world") in QUALIFICATION_WORLD_NAMES
                 and isinstance(row.get("q95_feasible"), bool)
-                and row.get("reserve_skill_pass") is False
+                and isinstance(row.get("reserve_skill_pass"), bool)
+                # The proportional baseline has to be separated from the reference only
+                # where the reserve block decides. Under a profile that reports the block
+                # and decides nothing on it, the baseline passes a block with no bar, and
+                # the control record names it as a deletion candidate instead.
+                and (row.get("reserve_skill_pass") is False
+                     or "reserve_skill" not in registered_selection)
                 and all(finite_number(row.get(field)) for field in (
                     "q95_sum", "allocation_sum", "reserve_total",
                     "total_minus_q95_sum",
@@ -3175,27 +3207,66 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         gate: list(names) for gate, names in SCIENTIFIC_CONTROLS_BY_GATE.items()
     }
     expected_controls = set(REQUIRED_SCIENTIFIC_CONTROLS)
+    profile_name = bars.get("gate_profile", DEFAULT_GATE_PROFILE)
+    try:
+        registered_validity_blocks = gate_profile_validity_blocks(profile_name)
+    except ValueError:
+        registered_validity_blocks = []
+    separating = support.get("separating_controls_by_gate") \
+        if isinstance(support, dict) else None
+    roles = support.get("block_roles") if isinstance(support, dict) else None
+    separating_ok = isinstance(separating, dict) \
+        and set(separating) == set(COMPOSITE_GATE_COMPONENTS) \
+        and all(isinstance(separating[gate], list)
+                and set(separating[gate]) <= set(expected_registry[gate])
+                for gate in COMPOSITE_GATE_COMPONENTS)
+    roles_ok = isinstance(roles, dict) \
+        and set(roles) == set(COMPOSITE_GATE_COMPONENTS)
+    if separating_ok and roles_ok:
+        for gate in COMPOSITE_GATE_COMPONENTS:
+            role = roles[gate]
+            decides = gate in registered_selection
+            expected_role = "reported" if not decides else (
+                "discriminating" if separating[gate] else "validity gate"
+            )
+            if not isinstance(role, dict) \
+                    or role.get("decides") is not decides \
+                    or role.get("separating_controls") != separating[gate] \
+                    or role.get("registered_controls") != expected_registry[gate] \
+                    or role.get("registered_validity_gate") \
+                    is not (gate in registered_validity_blocks) \
+                    or role.get("role") != expected_role:
+                roles_ok = False
+                break
+            # A deciding block that no registered wrong method fails on every world may
+            # only stand as a validity gate the profile registered, and only where every
+            # final reference passes it.
+            if decides and not separating[gate] and (
+                gate not in registered_validity_blocks
+                or role.get("reference_passes_every_world") is not True
+            ):
+                roles_ok = False
+                break
     control_surface_ok = provenance_ok \
         and isinstance(support, dict) \
-        and support.get("requirement") == (
-            "every registered control hard-passes structure and fails its primary "
-            "composite gate on every qualification world"
-        ) \
+        and support.get("requirement") == CONTROL_SEPARATION_REQUIREMENT \
         and support.get("registered_controls") == sorted(expected_controls) \
         and support.get("registered_controls_by_gate") == expected_registry \
-        and support.get("separated_controls_by_gate") == expected_registry \
         and support.get("required_control_count") == len(expected_controls) \
         and support.get("required_report_count") == len(expected_controls) * 6 \
-        and support.get("complete_gate_count") == len(COMPOSITE_GATE_COMPONENTS) \
-        and support.get("full_separation") is True \
         and support.get("unexpected_controls") == [] \
-        and support.get("deletion_candidates") == [] \
+        and support.get("unseparated_blocks") == [] \
+        and support.get("registered_validity_gate_blocks") \
+        == registered_validity_blocks \
+        and separating_ok and roles_ok \
         and isinstance(registered, dict) \
         and isinstance(separated, dict) \
         and isinstance(matrix, dict) \
         and set(matrix) == expected_controls
     if not control_surface_ok:
-        errors.append("freeze receipt lacks all-control all-world gate separation")
+        errors.append(
+            "freeze receipt lacks a separating control for a deciding gate"
+        )
     else:
         raw_gate_bars = bars.get("gates")
         gate_bars = raw_gate_bars if isinstance(raw_gate_bars, dict) else {}
@@ -3232,6 +3303,8 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                     and set(result["per_world"]) == set(worlds)
                 failed_worlds: list[str] = []
                 passed_worlds: list[str] = []
+                deciding_failed_worlds: list[str] = []
+                judged = registered_selection.get(gate) or list(expected_components)
                 if result_ok:
                     for world in worlds:
                         row = result["per_world"][world]
@@ -3253,6 +3326,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                             result_ok = False
                             break
                         has_exceedance = False
+                        deciding_exceedance = False
                         for component, comparison in comparisons.items():
                             gate_bar = gate_bars.get(gate)
                             component_bars = gate_bar.get("components") \
@@ -3281,6 +3355,8 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                                 result_ok = False
                                 break
                             has_exceedance = has_exceedance or exceeds
+                            if component in judged:
+                                deciding_exceedance = deciding_exceedance or exceeds
                         expected_outcome = "fail" if has_exceedance else "pass"
                         if not result_ok \
                                 or row.get("failed") is not has_exceedance \
@@ -3288,12 +3364,23 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                             result_ok = False
                             break
                         (failed_worlds if has_exceedance else passed_worlds).append(world)
+                        if deciding_exceedance:
+                            deciding_failed_worlds.append(world)
                 separates = result_ok and failed_worlds == worlds
+                # A control separates its gate under this profile when it fails one of
+                # the components the profile decides that gate on, on every qualification
+                # world. A control that does not is a deletion candidate, and the receipt
+                # has to name it as one rather than counting it as support.
+                separates_under_profile = result_ok \
+                    and deciding_failed_worlds == worlds
                 result_ok = result_ok \
                     and result.get("failed_worlds") == failed_worlds \
                     and result.get("passed_worlds") == passed_worlds \
                     and result.get("separates_all_worlds") is separates \
-                    and (gate != primary_gate or separates)
+                    and isinstance(separated, dict) \
+                    and (control in separated.get(gate, [])) is separates \
+                    and separating_ok \
+                    and (control in separating[gate]) is separates_under_profile
                 if not result_ok:
                     errors.append(f"{gate}/{control}: separation receipt is incomplete")
 
@@ -3523,10 +3610,10 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 errors.append(f"{gate}/{component}: qualification worlds differ")
             if lines and record.get("witnesses") != lines:
                 errors.append(f"{gate}/{component}: reference witnesses differ")
+            expected_supporting = separating[gate] if separating_ok else None
             if not isinstance(record.get("supporting_controls"), list) \
-                    or not record["supporting_controls"] \
-                    or (isinstance(separated, dict)
-                        and record["supporting_controls"] != separated[gate]):
+                    or expected_supporting is None \
+                    or record["supporting_controls"] != expected_supporting:
                 errors.append(f"{gate}/{component}: supporting controls are missing")
             witnesses = record.get("reference_witnesses")
             expected_pairs = {(line, world) for line in lines for world in worlds}

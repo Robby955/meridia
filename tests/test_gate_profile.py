@@ -410,8 +410,94 @@ def test_standard_reports_the_whole_reserve_block_with_no_bar():
         assert "reserve_skill (reported, decides nothing)" in text
         assert "value: no bar published" in text
 
-    # The reserve controls can fail nothing once the block carries no bar, so the
-    # registered per-gate battery is the next thing to stop this freeze. Pass seven takes
-    # that requirement up.
-    assert any("control separation is incomplete" in blocker
-               and "reserve_skill" in blocker for blocker in bars["blockers"])
+    # The reserve block reports and decides nothing, so its three registered wrong
+    # methods separate nothing under this profile and are named rather than blocking.
+    assert bars["blockers"] == []
+    assert bars["frozen"] is True
+    support = bars["control_support"]
+    assert support["separating_controls_by_gate"]["reserve_skill"] == []
+    assert support["block_roles"]["reserve_skill"]["role"] == "reported"
+    assert support["block_roles"]["reserve_skill"]["deletion_candidate_controls"] == \
+        list(freeze.SCIENTIFIC_CONTROLS_BY_GATE["reserve_skill"])
+    assert support["unseparated_blocks"] == []
+
+    from meridia.verify import _bar_schema_errors
+    assert _bar_schema_errors(bars) == []
+
+
+def test_standard_registers_three_deciding_blocks_as_validity_gates():
+    """A deciding block with no separating control stands only where it is registered."""
+    from meridia.verify import gate_profile_validity_blocks
+
+    freeze = _freeze()
+    assert gate_profile_validity_blocks("standard") == [
+        "exposures_and_rates", "release_accuracy", "interval_quality"]
+    assert gate_profile_validity_blocks("standard") \
+        == freeze.gate_profile_validity_blocks("standard")
+    assert gate_profile_validity_blocks("full") == []
+    assert gate_profile_validity_blocks("lite") == []
+    for name in GATE_PROFILES:
+        assert set(gate_profile_validity_blocks(name)) \
+            <= set(gate_profile_selection(name))
+    freeze.GATE_PROFILE_VALIDITY_BLOCKS["lite"] = ("tail_calibration",)
+    try:
+        with pytest.raises(freeze.EvidenceError):
+            freeze.gate_profile_validity_blocks("lite")
+    finally:
+        del freeze.GATE_PROFILE_VALIDITY_BLOCKS["lite"]
+
+    bars = _standard_bars()
+    support = bars["control_support"]
+    assert support["registered_validity_gate_blocks"] == [
+        "exposures_and_rates", "release_accuracy", "interval_quality"]
+    # On this evidence every registered wrong method still fails its own block on every
+    # world, so all four deciding blocks read as discriminating and none leans on the
+    # registration.
+    assert support["discriminating_blocks"] == [
+        "exposures_and_rates", "release_accuracy", "interval_quality",
+        "tail_calibration"]
+    assert support["validity_gate_blocks"] == []
+    assert support["requirement"] == freeze.CONTROL_SEPARATION_REQUIREMENT
+
+
+def test_standard_scores_four_blocks_and_reports_the_reserve_block(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    bars = _standard_bars()
+    report = verify_submission(packet, submission, bars, gate_profile="standard")
+
+    assert report["gate_profile"] == "standard"
+    assert report["reported_only_components"] == [
+        "reserve_skill/skill_loss",
+        "reserve_skill/worst_regional_shortfall_probability"]
+    reserve = report["gate_results"]["reserve_skill"]
+    assert reserve["gated"] is False and reserve["pass"] is None
+    assert reserve["gated_components"] == [] and reserve["reasons"] == []
+    # Neither reserve component carries a bar, so neither can pass nor fail and neither
+    # reaches the reasons or the ungated failures.
+    assert reserve["ungated_failures"] == []
+    for component in ("skill_loss", "worst_regional_shortfall_probability"):
+        assert component in report["composite_metrics"]["reserve_skill"]
+    # The tail block decides under standard, so this submission fails on it.
+    assert report["pass"] is False
+    assert [reason.split(":")[0] for reason in report["reasons"]] == \
+        ["tail_calibration"]
+
+
+def test_a_standard_receipt_cannot_decide_under_another_profile(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    bars = _standard_bars()
+    for other in ("full", "lite"):
+        report = verify_submission(packet, submission, bars, gate_profile=other)
+        assert report["pass"] is False and report["hard_pass"] is False
+        assert any("the receipt froze the 'standard' gate profile" in reason
+                   for reason in report["reasons"])
+    renamed = deepcopy(bars)
+    renamed["gate_profile"] = "full"
+    renamed["gate_profile_selection"] = {
+        gate: list(components)
+        for gate, components in gate_profile_selection("full").items()
+    }
+    from meridia.verify import _bar_schema_errors
+    errors = _bar_schema_errors(renamed)
+    assert any("must carry a published bar" in error for error in errors)
+    assert any("reported-only components differ" in error for error in errors)

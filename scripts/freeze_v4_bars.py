@@ -341,6 +341,26 @@ GATE_PROFILE_UNPUBLISHED_COMPONENTS: dict[str, dict[str, str]] = {
     },
 }
 
+
+# A deciding block does one of two jobs. Either it carries discriminating science, and a
+# registered wrong method has to fail it on every qualification world, or it is a
+# validity gate: the reference passes it everywhere, no registered wrong method fails it
+# everywhere, and it is there to reject an empty or broken submission rather than to tell
+# two methods apart at this world size. A profile names the blocks it decides that hold
+# the second role, and the freeze requires a separating control of every other deciding
+# block that has any registered control.
+#
+# Under standard the tail block carries the science, on the pooled exceedance component.
+# The exposure and rate block, the release accuracy block and the interval block are
+# validity gates: their registered wrong methods sit under the bars on most or all of the
+# six worlds, so at this world size they check that a submission is present and coherent
+# rather than that its method is right.
+GATE_PROFILE_VALIDITY_BLOCKS: dict[str, tuple[str, ...]] = {
+    "standard": (
+        "exposures_and_rates", "release_accuracy", "interval_quality",
+    ),
+}
+
 # Every component is a dimensionless loss with zero as its ideal value, but the components
 # inside one gate are not on one scale. Pooled exceedance deviation lives in a band 0.95
 # wide while the q95 and ES95 width errors on the same block run past ten. Interval
@@ -538,6 +558,24 @@ def gate_profile_unpublished_components(name: Any) -> dict[str, str]:
                 f"gate profile {name!r} publishes no bar for {label} and gives no reason"
             )
     return dict(registered)
+
+
+def gate_profile_validity_blocks(name: Any) -> list[str]:
+    """Name the deciding blocks this profile registers as validity gates.
+
+    A block can hold that role only where the profile decides it, so the registration can
+    never excuse a block the profile reports and never reaches a verdict.
+    """
+
+    selection = gate_profile_selection(name)
+    registered = tuple(GATE_PROFILE_VALIDITY_BLOCKS.get(name, ()))
+    for gate in registered:
+        if gate not in selection:
+            raise EvidenceError(
+                f"gate profile {name!r} registers {gate} as a validity gate without "
+                f"deciding on it"
+            )
+    return [gate for gate in GATE_COMPONENTS if gate in registered]
 
 
 def _canonical_digest(value: Any) -> str:
@@ -3737,35 +3775,87 @@ def _profile_separation(
     }
 
 
+CONTROL_SEPARATION_REQUIREMENT = (
+    "every deciding composite gate the profile does not register as a validity gate has "
+    "at least one registered control that hard-passes structure and fails that gate on "
+    "every qualification world"
+)
+
+
 def _attach_control_separation(
     gates: dict[str, Any],
     controls: list[dict[str, Any]],
     registry: Mapping[str, Sequence[str]],
     worlds: Sequence[str],
     profile: str = DEFAULT_GATE_PROFILE,
+    reference_failing_gates: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Attach the all-controls-by-all-worlds separation requirement."""
+    """Attach the separating-control requirement and the deletion record behind it.
+
+    A registered control that hard-passes structure and fails its own block on every
+    qualification world separates that block: it is a wrong method the block rejects
+    everywhere, so a submission that clears the block cleared something. A registered
+    control that does not separate is a deletion candidate. Its per-world readings are
+    recorded, it leaves the required battery for this profile, and it stops nothing: at
+    six worlds a wrong method that the block catches on five of them is evidence about
+    the world set, not a reason to refuse the freeze.
+
+    Each deciding block then holds one of two roles. A block with a separating control
+    carries discriminating science. A block the profile registers as a validity gate does
+    not have to have one: the reference passes it on every world and no registered wrong
+    method fails it on every world, so at this world size it rejects an empty or broken
+    submission rather than telling two methods apart. Any other deciding block with
+    registered controls has to have a separating control, and the freeze refuses when it
+    does not.
+    """
 
     primary_gate = _validated_control_registry(registry)
     matrix = _control_matrix(controls, gates, registry, worlds)
+    selection = gate_profile_selection(profile)
+    validity_blocks = gate_profile_validity_blocks(profile)
     registered_by_gate = {
         gate: list(registry[gate]) for gate in GATE_COMPONENTS
     }
+
+    def separates(name: str, gate: str, components: Sequence[str]) -> bool:
+        record = matrix[name]
+        if record["coverage_complete"] is not True:
+            return False
+        per_world = record["gates"][gate]["per_world"]
+        for world in worlds:
+            row = per_world.get(world)
+            if not isinstance(row, Mapping) \
+                    or row.get("hard_structure_pass") is not True \
+                    or not any(row["components"][component]["exceeds"]
+                               for component in components):
+                return False
+        return True
+
     separated_by_gate: dict[str, list[str]] = {}
+    separating_by_gate: dict[str, list[str]] = {}
     deletion_candidates: list[dict[str, Any]] = []
+    block_roles: dict[str, Any] = {}
+    unseparated_blocks: list[str] = []
     for gate, names in registered_by_gate.items():
+        decides = gate in selection
+        judged_components = list(selection.get(gate, GATE_COMPONENTS[gate]))
         separated = [
             name for name in names
             if matrix[name]["gates"][gate]["separates_all_worlds"] is True
         ]
+        separating = [
+            name for name in names if separates(name, gate, judged_components)
+        ]
         separated_by_gate[gate] = separated
+        separating_by_gate[gate] = separating
         nonseparating = []
         for name in names:
-            result = matrix[name]["gates"][gate]
-            if result["separates_all_worlds"]:
+            if name in separating:
                 continue
+            result = matrix[name]["gates"][gate]
             nonseparating.append({
                 "control": name,
+                "judged_components": judged_components,
                 "failed_worlds": result["failed_worlds"],
                 "passed_worlds": result["passed_worlds"],
                 "hard_invalid_worlds": result["hard_invalid_worlds"],
@@ -3778,18 +3868,44 @@ def _attach_control_separation(
             deletion_candidates.append({
                 "gate": gate,
                 "reason": (
-                    "at least one registered wrong method does not fail this gate "
-                    "on every qualification world"
+                    "this registered wrong method does not fail the gate on every "
+                    "qualification world, so it leaves the required battery for this "
+                    "profile"
                 ),
                 "registered_controls": names,
                 "nonseparating_controls": nonseparating,
             })
-        gates[gate]["supporting_controls"] = separated
+        registered_validity = gate in validity_blocks
+        reference_passes = gate not in set(reference_failing_gates)
+        if not decides:
+            role = "reported"
+        elif separating:
+            role = "discriminating"
+        elif registered_validity and reference_passes:
+            role = "validity gate"
+        else:
+            role = "unseparated"
+            unseparated_blocks.append(gate)
+        block_roles[gate] = {
+            "gate": gate,
+            "decides": decides,
+            "role": role,
+            "registered_validity_gate": registered_validity,
+            "reference_passes_every_world": reference_passes,
+            "judged_components": judged_components,
+            "registered_controls": names,
+            "separating_controls": separating,
+            "deletion_candidate_controls": [
+                record["control"] for record in nonseparating
+            ],
+        }
+        supporting = separating
+        gates[gate]["supporting_controls"] = supporting
         for component in GATE_COMPONENTS[gate]:
             record = gates[gate]["components"][component]
-            record["supporting_controls"] = separated
+            record["supporting_controls"] = supporting
             record["component_exceedance_controls"] = [
-                name for name in separated
+                name for name in supporting
                 if all(
                     matrix[name]["gates"][gate]["per_world"][world]
                     ["components"][component]["exceeds"]
@@ -3801,16 +3917,29 @@ def _attach_control_separation(
     )
     return {
         "gate_profile": _profile_separation(
-            matrix, primary_gate, worlds, profile, gate_profile_selection(profile)
+            matrix, primary_gate, worlds, profile, selection
         ),
-        "requirement": (
-            "every registered control hard-passes structure and fails its primary "
-            "composite gate on every qualification world"
-        ),
+        "requirement": CONTROL_SEPARATION_REQUIREMENT,
         "registered_controls": sorted(matrix_name for matrix_name in matrix
                                        if matrix[matrix_name]["registered"]),
         "registered_controls_by_gate": registered_by_gate,
         "separated_controls_by_gate": separated_by_gate,
+        "separating_controls_by_gate": separating_by_gate,
+        "required_battery_by_gate": {
+            gate: (separating_by_gate[gate] if gate in selection else [])
+            for gate in GATE_COMPONENTS
+        },
+        "block_roles": block_roles,
+        "registered_validity_gate_blocks": validity_blocks,
+        "validity_gate_blocks": [
+            gate for gate in GATE_COMPONENTS
+            if block_roles[gate]["role"] == "validity gate"
+        ],
+        "discriminating_blocks": [
+            gate for gate in GATE_COMPONENTS
+            if block_roles[gate]["role"] == "discriminating"
+        ],
+        "unseparated_blocks": unseparated_blocks,
         "required_control_count": len(primary_gate),
         "required_report_count": len(primary_gate) * len(worlds),
         "complete_gate_count": sum(
@@ -3901,6 +4030,8 @@ def calibrate_composite_bars(
 
     try:
         profile_selection = gate_profile_selection(gate_profile)
+        gate_profile_unpublished_components(gate_profile)
+        gate_profile_validity_blocks(gate_profile)
     except EvidenceError as exc:
         return _empty_result(
             [str(exc)],
@@ -4034,19 +4165,18 @@ def calibrate_composite_bars(
         )
 
     control_support = _attach_control_separation(
-        gates, controls, control_registry, worlds, gate_profile
+        gates, controls, control_registry, worlds, gate_profile,
+        sorted({record["gate"] for record in reference_failures}),
     )
     if control_support["unexpected_controls"]:
         blockers.append(
             "unregistered control reports were supplied: "
             + ", ".join(control_support["unexpected_controls"])
         )
-    if control_support["deletion_candidates"]:
+    if control_support["unseparated_blocks"]:
         blockers.append(
-            "control separation is incomplete; deletion candidates: "
-            + ", ".join(
-                record["gate"] for record in control_support["deletion_candidates"]
-            )
+            "no registered control fails a deciding gate on every qualification world: "
+            + ", ".join(control_support["unseparated_blocks"])
         )
 
     component_rates_by_line = {
@@ -4442,13 +4572,38 @@ def _append_gate_profile(lines: list[str], bars: Mapping[str, Any]) -> None:
         and gates[gate]["components"][component].get("value") is None
     ]
     lines.append(
-        "- components published with no bar, because the calibrated value reaches the "
-        "top of the component's attainable range: "
+        "- components published with no bar: "
         + (", ".join(unpublished) if unpublished else "none")
     )
+    for label in unpublished:
+        gate, _, component = label.partition("/")
+        record = gates[gate]["components"][component].get("unpublishable")
+        if isinstance(record, Mapping):
+            lines.append(f"  - {label}: {record.get('reason')}")
     support = bars.get("control_support")
-    profile_support = support.get("gate_profile") \
-        if isinstance(support, Mapping) else None
+    support = support if isinstance(support, Mapping) else {}
+    roles = support.get("block_roles")
+    if isinstance(roles, Mapping):
+        lines.append("- separating controls, by deciding block:")
+        for gate in GATE_COMPONENTS:
+            role = roles.get(gate)
+            if not isinstance(role, Mapping) or not role.get("decides"):
+                continue
+            names = role.get("separating_controls") or []
+            lines.append(
+                f"  - {gate} ({role.get('role')}): "
+                + (", ".join(names) if names else "none")
+            )
+        lines.append(
+            "- blocks that decide as validity gates, where the reference passes and no "
+            "registered control fails on every qualification world: "
+            + (", ".join(support.get("validity_gate_blocks") or []) or "none")
+        )
+        lines.append(
+            "- blocks that decide and carry discriminating science: "
+            + (", ".join(support.get("discriminating_blocks") or []) or "none")
+        )
+    profile_support = support.get("gate_profile")
     if isinstance(profile_support, Mapping):
         candidates = profile_support.get("deletion_candidate_controls")
         lines.append(
@@ -4471,13 +4626,30 @@ def _append_control_separation(lines: list[str], bars: Mapping[str, Any]) -> Non
     lines.extend([
         "## Control separation",
         "",
-        "A gate is retained only when every control registered to that gate is a",
-        "hard-valid submission and fails the gate on every qualification world.",
-        "Every control is reported against every gate. The primary marker identifies",
-        "the registered deletion test; the component values and frozen ceilings are",
-        "the deletion-test numbers.",
+        "A registered control separates its own gate when it is a hard-valid submission",
+        "and fails that gate on every qualification world. A deciding gate needs one",
+        "such control unless the profile registers it as a validity gate. Every other",
+        "registered control is a deletion candidate: its per-world readings are kept and",
+        "it leaves the required battery for this profile. Every control is reported",
+        "against every gate. The primary marker identifies the registered deletion test;",
+        "the component values and frozen ceilings are the deletion-test numbers.",
         "",
+        "- requirement: " + str(support.get("requirement", "missing")),
     ])
+    roles = support.get("block_roles")
+    if isinstance(roles, Mapping):
+        for gate in GATE_COMPONENTS:
+            role = roles.get(gate)
+            if not isinstance(role, Mapping):
+                continue
+            names = role.get("separating_controls") or []
+            lines.append(
+                f"- {gate}: {role.get('role')}; separating controls "
+                + (", ".join(names) if names else "none")
+                + "; deletion candidates "
+                + (", ".join(role.get("deletion_candidate_controls") or []) or "none")
+            )
+    lines.append("")
     for gate in GATE_COMPONENTS:
         lines.append(f"- {gate}")
         registered_names = registry.get(gate, [])

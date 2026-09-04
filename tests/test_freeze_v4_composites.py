@@ -1602,12 +1602,12 @@ def test_eligible_cells_must_be_present_and_reference_independent():
 
 
 def test_a_control_must_pass_hard_structure_and_fail_its_registered_gate():
+    """A hard-invalid control separates nothing and leaves the required battery."""
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
     controls[0]["report"]["hard_pass"] = False
     _rebind(freeze, controls[0], "control")
     bars = _calibrate(freeze, references, replicates, controls)
-    assert bars["frozen"] is False
     assert "deterministic_linkage" not in \
         bars["gates"]["exposures_and_rates"]["supporting_controls"]
     candidate = next(
@@ -1619,6 +1619,15 @@ def test_a_control_must_pass_hard_structure_and_fail_its_registered_gate():
         if row["control"] == "deterministic_linkage"
     )
     assert failure["hard_invalid_worlds"] == ["qual-0"]
+    # Three other registered wrong methods still fail the block on every world, so the
+    # block keeps its separation and the freeze stands.
+    assert bars["control_support"]["separating_controls_by_gate"][
+        "exposures_and_rates"] == [
+        "ignore_health_selection", "informative_selection", "version_three_recipe"]
+    assert bars["control_support"]["block_roles"]["exposures_and_rates"]["role"] \
+        == "discriminating"
+    assert bars["control_support"]["unseparated_blocks"] == []
+    assert bars["frozen"] is True
 
     references, replicates, controls = _evidence(freeze)
     controls[:6] = [
@@ -1660,7 +1669,8 @@ def test_a_control_must_cover_each_qualification_world_exactly_once():
     assert any("run receipt was reused" in blocker for blocker in bars["blockers"])
 
 
-def test_one_control_pass_on_qual_two_makes_the_gate_a_deletion_candidate():
+def test_one_control_pass_on_qual_two_makes_that_control_a_deletion_candidate():
+    """One world short of separation deletes the control, and stops nothing."""
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
     row = next(
@@ -1673,7 +1683,6 @@ def test_one_control_pass_on_qual_two_makes_the_gate_a_deletion_candidate():
 
     bars = _calibrate(freeze, references, replicates, controls)
 
-    assert bars["frozen"] is False
     assert bars["control_support"]["full_separation"] is False
     candidate = next(
         item for item in bars["control_support"]["deletion_candidates"]
@@ -1693,6 +1702,81 @@ def test_one_control_pass_on_qual_two_makes_the_gate_a_deletion_candidate():
     assert comparison["ceiling"] == bars["gates"]["tail_calibration"] \
         ["components"]["pooled_exceedance_deviation"]["value"]
     assert comparison["exceeds"] is False
+    assert "normal_tail" not in \
+        bars["control_support"]["separating_controls_by_gate"]["tail_calibration"]
+    assert bars["control_support"]["block_roles"]["tail_calibration"][
+        "deletion_candidate_controls"] == ["normal_tail"]
+    assert bars["frozen"] is True
+
+
+def test_a_block_whose_controls_all_pass_refuses_the_freeze():
+    """A deciding block no registered wrong method fails everywhere stops the freeze."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bar = _calibrate(freeze, references, replicates, controls)["gates"][
+        "tail_calibration"]["components"]["pooled_exceedance_deviation"]["value"]
+    for entry in controls:
+        if entry["control"] in freeze.SCIENTIFIC_CONTROLS_BY_GATE["tail_calibration"]:
+            for component in freeze.GATE_COMPONENTS["tail_calibration"]:
+                entry["report"]["composite_metrics"]["tail_calibration"][component] = \
+                    0.5 * bar
+            _rebind(freeze, entry, "control")
+
+    bars = _calibrate(freeze, references, replicates, controls)
+
+    assert bars["frozen"] is False
+    assert bars["control_support"]["separating_controls_by_gate"][
+        "tail_calibration"] == []
+    assert bars["control_support"]["block_roles"]["tail_calibration"]["role"] \
+        == "unseparated"
+    assert bars["control_support"]["unseparated_blocks"] == ["tail_calibration"]
+    assert any(
+        "no registered control fails a deciding gate on every qualification world"
+        in blocker and "tail_calibration" in blocker
+        for blocker in bars["blockers"]
+    )
+    assert "reserve_audits" not in bars
+
+
+def test_one_separating_control_and_several_deletion_candidates_still_freezes():
+    """A block keeps its verdict on one wrong method, and the rest are listed."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    bar = _calibrate(freeze, references, replicates, controls)["gates"][
+        "tail_calibration"]["components"]["pooled_exceedance_deviation"]["value"]
+    deleted = [name for name in freeze.SCIENTIFIC_CONTROLS_BY_GATE["tail_calibration"]
+               if name != "mean_only_tail"]
+    for entry in controls:
+        if entry["control"] in deleted:
+            for component in freeze.GATE_COMPONENTS["tail_calibration"]:
+                entry["report"]["composite_metrics"]["tail_calibration"][component] = \
+                    0.5 * bar
+            _rebind(freeze, entry, "control")
+
+    bars = _calibrate(freeze, references, replicates, controls)
+
+    assert bars["frozen"] is True and bars["blockers"] == []
+    support = bars["control_support"]
+    assert support["separating_controls_by_gate"]["tail_calibration"] == [
+        "mean_only_tail"]
+    assert support["block_roles"]["tail_calibration"]["role"] == "discriminating"
+    assert support["block_roles"]["tail_calibration"][
+        "deletion_candidate_controls"] == sorted(
+            deleted, key=freeze.SCIENTIFIC_CONTROLS_BY_GATE[
+                "tail_calibration"].index)
+    assert support["unseparated_blocks"] == []
+    candidate = next(item for item in support["deletion_candidates"]
+                     if item["gate"] == "tail_calibration")
+    assert [item["control"] for item in candidate["nonseparating_controls"]] \
+        == support["block_roles"]["tail_calibration"]["deletion_candidate_controls"]
+    for item in candidate["nonseparating_controls"]:
+        assert set(item["per_world"]) == set(bars["qualification_worlds"])
+        assert item["failed_worlds"] == []
+    for text in (freeze.render_freeze_report(bars), freeze.render_provenance(bars)):
+        assert "tail_calibration: discriminating; separating controls mean_only_tail" \
+            in text
+        for name in deleted:
+            assert name in text
 
 
 def test_no_component_carries_the_bar_of_a_component_on_another_scale():
@@ -2280,9 +2364,12 @@ def test_late_freeze_blocker_prevents_reserve_audit_promotion():
         references, replicates, controls, **kwargs
     )
 
-    assert bars["frozen"] is False
-    assert "reserve_audits" not in bars
-    assert any("deletion candidates" in blocker for blocker in bars["blockers"])
+    # One world short of separation deletes that control from the battery. Three other
+    # registered wrong methods still fail the block everywhere, so the freeze stands.
+    assert bars["frozen"] is True
+    assert "reserve_audits" in bars
+    assert bars["control_support"]["block_roles"]["exposures_and_rates"][
+        "deletion_candidate_controls"] == ["deterministic_linkage"]
 
 
 def test_preaccepted_reserve_candidate_cannot_bypass_freeze_promotion():
