@@ -1,0 +1,22 @@
+{
+  "achieved_false_fail_rates": {},
+  "achieved_false_fail_rates_by_reference_line": {},
+  "achieved_marginal_rate_product": null,
+  "achieved_marginal_rate_product_by_reference_line": {},
+  "blockers": [
+    "replicate evidence missing; final verifier reports cannot be bootstrapped or resampled as replacement evidence"
+  ],
+  "caveats": [
+    "The marginal products assume independent gate and world failures. They are arithmetic summaries, not empirical pass probabilities; failures can be correlated.",
+    "Only six qualification worlds support this freeze. Replicate false-fail rates are conditional on those worlds and do not establish a one-percent rate on new worlds."
+  ],
+  "frozen": false,
+  "gates": {},
+  "graded_world_count": 3,
+  "mortality_identification_evidence": null,
+  "qualification_world_count": 6,
+  "quantile": 0.99,
+  "schema": "meridia.v4.composite-bars.v1",
+  "target_false_fail_rate": 0.01,
+  "target_marginal_product": 0.8600583546412884
+}

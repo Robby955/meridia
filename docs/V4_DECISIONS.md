@@ -2193,3 +2193,117 @@ megabytes and the ensemble cache 2.6 megabytes.
 
 Nothing else was built. Graded worlds wait on a completed freeze, which is what the seal
 and the derivation require before a seed exists at all.
+
+### The eighteen-reference rate preflight
+
+The evidence runner was invoked as
+`build_v4_freeze_evidence.py --references-only`. It ran the three fixed-seed reference
+lines over the six qualification worlds, eighteen final references in 104 seconds of wall
+time, and then stopped on this line:
+
+    error: reserve candidate 6321 differs from compiled PacketParams 4600; rebuild policy before running the full battery
+
+The published rate rule takes a reference's submitted regional q95 sum plus a quarter of
+the gap to its ES95 sum, divides by that world's published exposure, and rounds the largest
+of the eighteen results up to the grid of one. The binding report is line B on qual-2, at
+6320.494 per person-year. Line A ranges from 4495.46 on qual-0 to 5447.38 on qual-5 and
+line C from 4509.78 to 5269.15, while line B runs from 5587.47 to 6320.49. The Bayesian
+line files regional tails a third wider than the other two, and it alone sets the rate.
+
+Median absolute elder exposure error, in percent, by world and then by line A, B, and C:
+qual-0 1.43, 1.31, 1.97; qual-1 2.26, 2.84, 2.37; qual-2 0.76, 2.08, 4.09; qual-3 2.99,
+1.81, 4.78; qual-4 1.88, 3.10, 2.06; qual-5 2.85, 2.08, 3.00. The worst signed state error
+in each of those eighteen reports, same order: +3.48, +5.52, +6.60; -4.15, +4.76, -4.00;
++5.44, +7.58, +8.11; -6.67, -5.57, +24.19; -5.17, +5.13, -5.65; +4.05, +4.87, -7.89. One
+report carries a state 24 percent high, the third line on qual-3, and every other elder
+state cell in the set is inside nine percent.
+
+Submitted regional liability means against the sealed means, as a mean signed relative
+deviation over the regions, again by world and then by line: -7.84, -6.06, -7.46; +5.54,
++6.42, +4.74; -0.26, +1.90, -2.66; -2.56, -0.99, -2.21; +1.80, +2.96, -1.40; +8.58, +8.77,
++4.82. Worst signed region in each report: -16.31, -14.96, -17.27; +26.35, +27.49, +25.75;
++14.71, +17.93, -15.24; -24.24, -22.68, -24.75; +26.39, +27.53, +23.39; +26.69, +27.08,
++21.47. Regional level error near 27 percent on a single region is the largest thing in
+this table, and it appears on the same three worlds for all three lines, so it is a
+property of those worlds rather than of one reconstruction.
+
+Pooled exceedance deviation, world then line: qual-0 0.0387, 0.0488, 0.0817; qual-1 0.0500,
+0.0500, 0.0500; qual-2 0.0425, 0.0500, 0.0389; qual-3 0.0865, 0.0454, 0.0787; qual-4 0.0443,
+0.0499, 0.0376; qual-5 0.0500, 0.0500, 0.0500. A reading of exactly 0.0500 is the saturated
+value: no continuation member exceeds the submitted q95 in any region, so the observed
+exceedance is zero against a target of five percent. Seven of the eighteen reports sit
+there, which is the same over-wide tail the rate rule then reads.
+
+### What a rebuild at the candidate rate showed
+
+The registered response to that stop is to rebuild the packets at the candidate rate and
+run the evidence pass again. That was done. The compiled rate was set to 6321, all eighteen
+worlds were rebuilt from the ensemble cache in 29 seconds of wall time, and the preflight
+was rerun. The rate check then passed, because the submitted tails do not read the
+published total and the required rates are unchanged by it. The run stopped one step later,
+while writing the first verifier report:
+
+    ValueError: Out of range float values are not JSON compliant: nan
+
+The value is `reserve_skill/skill_loss`. Skill is `(J(A_B) - J(A)) / (J(A_B) - J(A*))`, and
+at that total both the published proportional baseline and the perfect-information oracle
+leave nothing uncovered on almost every world, so the denominator is zero. Fifteen of the
+eighteen reports have no defined skill at 6321. Only qual-2 keeps a positive denominator,
+where the baseline leaves 6,247 uncovered and the oracle zero.
+
+The same collapse is already present at the compiled 4600. On qual-1 the baseline and the
+oracle both cover everything, so all three lines report an undefined skill there, and the
+evidence pass would have halted on that world instead. Of the other fifteen reports at
+4600, skill is defined but negative on eight: the reference allocation is worse than the
+published proportional split, as far down as -10.77 for line B on qual-5.
+
+The compiled rate was returned to 4600 after the measurement. The tree at 6321 is not a
+better state to leave behind, and no rate the current rule can select leaves the reserve
+skill gate identified.
+
+### Where the skill denominator dies
+
+The quantity that fails is `J(A_B) - J(A*)`, the expected uncovered liability under the
+published baseline minus the same under perfect information, measured on the sealed
+continuation ensemble. It falls monotonically as the published total rises and reaches zero
+at a rate that differs by world: 5235.9 on qual-0, 4566.4 on qual-1, 6876.2 on qual-2,
+6149.6 on qual-3, 6296.3 on qual-4, and 4964.8 on qual-5. Above the smallest of those,
+4566.4, at least one qualification world can no longer separate any allocation from any
+other.
+
+For scale, sealed mean total liability runs from 221.6 to 233.8 million over the six worlds
+and the sealed q95 sum from 232.5 to 258.8 million. A rate of 4000 puts the published total
+at 224 to 252 million, which is the region where all six denominators are positive, the
+smallest being 751,752 on qual-1. The rate the current rule selects, 6321, puts the total
+at 354 to 399 million, between 1.55 and 1.80 times the sealed mean liability.
+
+### The freeze result
+
+`bars/national-v10` records `RESULT: NOT FROZEN` with zero reference reports, zero paired
+replicates, and zero control reports. That is not a battery that ran and failed. The
+evidence pass halted before it could write its first verifier report, so no bar was
+derived, no control was scored, and no bar was loosened. The receipt names the missing
+replicate evidence, and this section names why the evidence does not exist.
+
+The identifiability receipt was minted again on the full 2,048-member worlds and is
+byte-identical in every reported value to the one-member preflight, which is the check that
+the preflight shortcut is sound. Its migration reading remains +0.474.
+
+### The single next change
+
+The reserve rate rule and the reserve skill gate are inconsistent, and the rate rule is the
+part that has to move. It targets the submitted q95 sum plus a quarter of the ES95 gap,
+which was the right target while an allocation had to stand above its own submitted q95.
+Phase three removed that floor. What remains is a rule that sizes the public reserve from
+the widest reference's tail forecast, and the widest reference is over-wide: seven of the
+eighteen reports have zero exceedance against a five percent target.
+
+The change is to retarget the rate on the submitted regional liability means rather than
+the submitted tails, and to make a candidate rate acceptable only when
+`J(A_B) - J(A*)` is positive on every qualification world at that rate. The evidence for
+both halves is above: the denominator is positive on all six worlds at 4000 and gone on at
+least one from 4566.4 upward, while the tail-based target selects 6321. This is a change to
+how the reserve total is derived, not to any estimator, and no world needs to be larger.
+
+Nothing was sealed. No graded world was minted, no seed was derived, and the task package
+was not repinned, because all three wait on a completed freeze.

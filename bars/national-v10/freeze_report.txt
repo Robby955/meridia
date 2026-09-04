@@ -1,0 +1,30 @@
+# Version-four composite bar freeze report
+
+RESULT: NOT FROZEN
+
+## Blockers
+
+- replicate evidence missing; final verifier reports cannot be bootstrapped or resampled as replacement evidence
+
+## Authenticated evidence design
+
+- measurement contract digest: `missing`
+- common runner digest: `missing`
+- final reference reports: 0
+- paired replicate reports: 0; 0 resamples per world
+- qualification control reports: 0
+- development diagnostic reports: 0; these do not count as qualification controls
+- unique run receipts: 0
+
+## Empirical tail definition
+
+q95 is order statistic ceil(0.95 * M) of the M continuations.
+ES95 is the mean of all continuations tied at or above q95.
+
+## False-fail accounting
+
+- target per gate: 1.00%
+- target marginal product over five gates and three graded worlds: 0.860058
+- conservative achieved conditional marginal-rate product: unavailable
+- The marginal products assume independent gate and world failures. They are arithmetic summaries, not empirical pass probabilities; failures can be correlated.
+- Only six qualification worlds support this freeze. Replicate false-fail rates are conditional on those worlds and do not establish a one-percent rate on new worlds.
