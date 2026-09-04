@@ -1,0 +1,7 @@
+# Meridia version-four task assets, written by a development packaging run.
+# meridia source commit a18610cd8cb8578ac82b6bfb1d98be9b1c4063c0
+# meridia source tree a655cfcb413e5a03179ec9b276fe97bb753d000c
+# hidden packet manifest sha256 d5c73bdda8122ffbf0b68d83b0156191546ef9ff0277f24cc80ed5a71c648fd5
+# bar set sha256 01ec9d853030214df150cb4a6b15447a950ba629006b15dbf095a504af7cbac7
+90d044878215a43b0a0627512fd53487dc27b6266ac7e185840ff7da08c3461b  test_assets.tar.gz
+da1b1397dbd68e128f96cb15a56c91ef31b1a2293551b0a8295a0e33c7a8d02c  frozen_verifier_source.tar.gz
