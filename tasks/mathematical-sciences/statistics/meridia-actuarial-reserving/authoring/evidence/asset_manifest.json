@@ -9,8 +9,8 @@
    "sha256": "ac6941778abc997fb850b035e7251e00c06243929c5ccb44d31c2e35746403ec"
   },
   "tests/frozen_verifier_source.tar.gz": {
-   "bytes": 339430,
-   "sha256": "9f3e0f4d7ddef6aff5952d8c066361a8ae1506a511040ef51dd47a368a191fe9"
+   "bytes": 345713,
+   "sha256": "18c5235e722d276e5bf0b63643d686491302e664fd0f00d08d5d3fb99a7756a8"
   },
   "tests/test_assets.tar.gz": {
    "bytes": 17434583,

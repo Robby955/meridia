@@ -492,6 +492,8 @@ class TaskPackageTests(unittest.TestCase):
                    "def run(): pass\n")
             _write(meridia / "meridia" / "methods" / "actuarial_reference.py",
                    "def actuarial_submission(): pass\n")
+            _write(meridia / "scripts" / "red_team_reserve_total.py",
+                   "def measure(): pass\n")
             subprocess.run(["git", "init", "-q", str(meridia)], check=True)
             subprocess.run(["git", "-C", str(meridia), "add", "."], check=True)
             subprocess.run(
@@ -649,6 +651,21 @@ class TaskPackageTests(unittest.TestCase):
                 self.assertEqual(
                     frozen_verify.read(),
                     (meridia / "meridia" / "verify.py").read_bytes(),
+                )
+                # The verifier hashes this script beside its own package directory to
+                # bind the red-team measurement, so it travels with the verifier.
+                red_team = archive.extractfile("scripts/red_team_reserve_total.py")
+                assert red_team is not None
+                self.assertEqual(
+                    red_team.read(),
+                    (meridia / "scripts" / "red_team_reserve_total.py").read_bytes(),
+                )
+
+            with tarfile.open(
+                task / "solution" / "reference_source.tar.gz", "r:gz"
+            ) as archive:
+                self.assertNotIn(
+                    "scripts/red_team_reserve_total.py", archive.getnames()
                 )
 
             manifest = json.loads(

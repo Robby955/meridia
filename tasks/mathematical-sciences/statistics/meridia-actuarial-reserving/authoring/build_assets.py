@@ -73,6 +73,13 @@ SUBMISSION_SURFACE = ["release.csv", "projection.csv", "reserve.csv"]
 # registers worlds of a different packet class. Naming the version-four schema here is
 # what stops a version-three manifest from authorizing a version-four packaging run.
 SEAL_MANIFEST_SCHEMA = "meridia.sealed-packet.v4"
+# The frozen verifier binds the red-team reserve measurement to the script that produced
+# it, by hashing this path beside its own package directory and comparing the digest with
+# the one the bar receipt publishes. The verifier archive therefore has to carry the
+# script at that path, or the binding fails inside the image for want of a file rather
+# than because a receipt is wrong. It is staged into the scoring image only and never
+# into the agent image or the reference export.
+RED_TEAM_MEASUREMENT_SOURCE = "scripts/red_team_reserve_total.py"
 # The instruction points at the reserve total instead of stating it. The packet publishes
 # the figure at reserve.total in the participant contract, the verifier recomputes it from
 # the participant bytes and fails a submission on mismatch, and the solver reads the same
@@ -443,10 +450,19 @@ def main() -> int:
         [],
         _python_files(meridia_source, frozenset({"scoring.py", "verify.py"})),
     )
+    red_team_source = meridia_repository / RED_TEAM_MEASUREMENT_SOURCE
+    if red_team_source.is_symlink() or not red_team_source.is_file():
+        raise ValueError(
+            f"the frozen verifier binds {RED_TEAM_MEASUREMENT_SOURCE} and the source "
+            "tree does not carry it"
+        )
     _write_archive(
         verifier_source_archive,
         [],
-        _python_files(meridia_source, frozenset()),
+        [
+            *_python_files(meridia_source, frozenset()),
+            (red_team_source, Path(RED_TEAM_MEASUREMENT_SOURCE)),
+        ],
     )
 
     if _frozen_source_identity(meridia_repository) != source_identity:
