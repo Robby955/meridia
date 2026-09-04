@@ -1196,12 +1196,13 @@ def _rebind_regime_audit(freeze, audit):
     return audit
 
 
-def test_freeze_refuses_an_axis_with_no_trace_inside_the_hidden_regime():
-    """A pooled trace carried by the twelve development worlds is not enough.
+def test_a_hidden_regime_reading_below_the_threshold_is_reported_and_does_not_refuse():
+    """Six worlds is too few for a within-regime rank correlation to decide a freeze.
 
-    A submission is scored on the six hidden worlds. An axis whose pooled correlation
-    clears the threshold while its hidden within-regime correlation does not is readable
-    where it is not used and unreadable where it is.
+    The registered gate is the pooled eighteen-world correlation. The hidden block is
+    measured on the same number and carried into the freeze report beside the axis it
+    belongs to, so a reader sees where an anchor is weakest without a threshold being
+    applied to six points.
     """
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
@@ -1217,10 +1218,14 @@ def test_freeze_refuses_an_axis_with_no_trace_inside_the_hidden_regime():
     kwargs["regime_identifiability_audit"] = audit
     bars = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
 
-    assert bars["frozen"] is False
-    assert any("hidden-regime identifiability is below 0.4" in blocker
-               and "mortality_improvement -0.086" in blocker
-               for blocker in bars["blockers"])
+    assert not any("hidden-regime identifiability" in blocker
+                   for blocker in bars["blockers"])
+    assert bars["regime_identifiability_audit"][
+        "hidden_regime_correlation_shortfalls"] == ["mortality_improvement"]
+
+    report = freeze.render_freeze_report(bars)
+    assert "mortality_improvement -0.086" in report
+    assert "reported and do not decide" in report
 
 
 def test_a_hidden_regime_shortfall_cannot_be_hidden_by_dropping_it_from_the_list():

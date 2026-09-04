@@ -2629,8 +2629,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 and finite_number(recorded_binding.get("signed_rank_correlation")) \
                 and float(recorded_binding["signed_rank_correlation"]) \
                 == float(axes[binding]["signed_rank_correlation"]) \
-                and unsigned.get("hidden_regime_correlation_shortfalls") == shortfalls \
-                and not shortfalls
+                and unsigned.get("hidden_regime_correlation_shortfalls") == shortfalls
     if not regime_ok:
         errors.append("regime identifiability and hidden-axis constraint evidence is invalid")
 
