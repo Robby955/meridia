@@ -18,9 +18,10 @@ after it routes down the drainage tree.*
 ## Install
 
 CPython 3.13.13 with NumPy 2.4.4, pandas 3.0.3, SciPy 1.17.1, Matplotlib 3.10.9, Pillow
-12.2.0, and pytest 9.0.3, pinned in `requirements-lock.txt`. The pins are exact because
-the sealed manifests bind to them: `meridia/sealing.py` records the interpreter, the
-platform, and the NumPy and pandas versions into every seal, and confirmation at
+12.2.0, and pytest 9.0.3. The interpreter version is pinned in `.python-version` and the
+library versions in `requirements-lock.txt`. The pins are exact because the sealed
+manifests bind to them: `meridia/sealing.py` records the interpreter, the platform, and
+the NumPy and pandas versions into every seal, and confirmation at
 `meridia/sealing.py:632` refuses a world generated under any other runtime. A newer
 runtime runs the generator and the verifier but cannot confirm a seal.
 
@@ -142,6 +143,11 @@ registered wrong methods in `meridia/methods/controls.py` fails them on every qu
 world. Tail calibration is the one block that separates, and it separates two of the
 twenty-two. `freeze_report.txt` names which. That is the honest measure of what this bar
 set discriminates, and raising it is the open work.
+
+One of the seven deciding components carries a bar at the top of what it can measure. The
+interval-quality coverage deviation bar is 0.900000 and the metric cannot exceed 0.9 at the
+frozen alpha, so that component fails nothing; interval quality decides through its mean
+interval score alone.
 
 The reserve block is measured and reported whole and decides nothing. Its shortfall
 probability bar sits at the ceiling of its attainable range, so the component cannot fail,

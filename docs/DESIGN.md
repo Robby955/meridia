@@ -77,10 +77,13 @@ component, and never moves a ceiling. Three are registered in `GATE_PROFILES` in
 evidence. A receipt frozen under one profile cannot decide under another.
 
 `standard` ships. It is the only version-four set recording `"frozen": true`, with an
-empty `blockers` list. `full` and `lite` are the same freeze run read under the other two
-profiles; both record `"frozen": false`, and `bars/history/national-v14-full/PROVENANCE.md`
-records that the full profile refused before evidence was compiled, so it carries no bars.
-Their reports are kept under `bars/`.
+empty `blockers` list. `lite` is the shipping evidence read under its own profile and its
+report records the same 18 final reference reports, 132 control reports and 480 run
+receipts. `bars/history/national-v14-full/freeze_report.txt` records that the full profile
+refused on `reserve_skill/worst_regional_shortfall_probability` before evidence was
+compiled, so it carries no bars, and its own report records none of those counts. Neither
+carries a `bars.json`; both receipts were dropped, and the freeze reports and provenance
+remain as the record. Their reports are kept under `bars/history/`.
 
 ## 5. What decides
 
@@ -92,6 +95,15 @@ calibration at a pooled exceedance deviation of 0.192106, a q95 width relative e
 `calibrated_value` of its component in `gates` in `bars.json`. No final reference exceeds
 any published bar on any of the six qualification worlds: `reference_failures` and
 `ungated_reference_failures` are both empty.
+
+One of the seven does not discriminate. At the frozen alpha of 0.10 the coverage deviation
+of `meridia/verify.py:1078` cannot exceed 0.9, and the calibrated bar is 0.900000, so no
+submission can fail that component. The largest value any of the twenty-two registered
+controls reaches on it is 0.9, on `benchmark_only`, and the receipt records no exceedance
+on any of the 132 control reports. The attainable range at `meridia/verify.py:412` is
+declared as one wide rather than `1 - alpha` wide, which is why the ceiling guard at
+`scripts/freeze_v4_bars.py:3395` does not fire on it. Interval quality still decides
+through `mean_interval_score`.
 
 Of the four, tail calibration is the only one that separates a registered wrong method
 from the reference on every qualification world, and it separates two of the twenty-two
