@@ -8,6 +8,8 @@ case: a method may tune on those worlds, so their seeds are committed and printe
 """
 
 import importlib.util
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +22,23 @@ from meridia.graded_readiness import GradedReadiness
 import meridia.sealing as sealing
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_v4_worlds.py"
+TEST_QUALIFICATION_SEEDS = (7001, 7002, 7003, 7004, 7005, 7006)
+
+
+@pytest.fixture(autouse=True)
+def sealed_qualification_seeds(tmp_path_factory, monkeypatch):
+    """Give every test its own sealed qualification seed file.
+
+    The tree holds no qualification seed, so a test that plans that family has to bring
+    one. It brings its own rather than the operator's, because reading the real sealed
+    file would put those six values back into a test run and into whatever the run logs.
+    """
+    path = tmp_path_factory.mktemp("sealed") / "v4_qualification_seeds.json"
+    path.write_text(json.dumps(
+        {"qualification_seeds": list(TEST_QUALIFICATION_SEEDS)}
+    ))
+    monkeypatch.setenv("MERIDIA_QUALIFICATION_SEED_FILE", str(path))
+    return path
 
 
 def test_build_v4_worlds_cli_help_runs_from_repository_root():
@@ -125,11 +144,79 @@ def test_graded_family_has_no_raw_seed_file_path():
     assert not hasattr(module, "GRADED_SEEDS")
     assert not hasattr(module, "GRADED_SEED_FILE")
     assert not hasattr(module, "graded_seeds")
+    assert not hasattr(module, "QUALIFICATION_SEEDS")
     text = SCRIPT.read_text()
-    for name in ("DEVELOPMENT_SEEDS", "QUALIFICATION_SEEDS"):
-        assert name in text
+    assert "DEVELOPMENT_SEEDS" in text
+    assert "qualification_seeds" in text
     assert "--seal-manifest" in text
     assert "verify_and_derive_v4_seed" in text
+
+
+def test_no_qualification_seed_value_is_written_into_the_builder():
+    """The six worlds every bar stands on are named in the tree; their seeds are not."""
+    module = _module()
+    text = SCRIPT.read_text()
+    for entry in module.family_plan("qualification"):
+        assert str(entry["seed"]) not in text
+    written = {int(token) for token in re.findall(r"\b\d{4}\b", text)}
+    assert written <= set(module.DEVELOPMENT_SEEDS), (
+        "a four-digit literal in the builder that is not a development seed"
+    )
+    assert module.QUALIFICATION_WORLD_COUNT == 6
+    assert len(module.family_plan("qualification")) == 6
+
+
+@pytest.mark.parametrize("document, fault", [
+    ({"qualification_seeds": [1, 2, 3]}, "6 qualification seeds"),
+    ({"qualification_seeds": [1, 2, 3, 4, 5, 5]}, "repeats a seed"),
+    ({"qualification_seeds": [1, 2, 3, 4, 5, True]}, "positive integer"),
+    ({"qualification_seeds": [1, 2, 3, 4, 5, 0]}, "positive integer"),
+    ({"qualification_seeds": "123456"}, "6 qualification seeds"),
+    ({"seeds": [1, 2, 3, 4, 5, 6]}, "single key"),
+    ({"qualification_seeds": [1, 2, 3, 4, 5, 6], "extra": 1}, "single key"),
+    ([1, 2, 3, 4, 5, 6], "single key"),
+])
+def test_the_sealed_seed_reader_refuses_a_malformed_file(tmp_path, document, fault):
+    module = _module()
+    path = tmp_path / "sealed.json"
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match=fault):
+        module.qualification_seeds(path)
+
+
+def test_the_sealed_seed_reader_names_a_missing_or_unreadable_file(tmp_path):
+    module = _module()
+    with pytest.raises(ValueError, match="could not be read"):
+        module.qualification_seeds(tmp_path / "absent.json")
+    broken = tmp_path / "broken.json"
+    broken.write_text("{")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        module.qualification_seeds(broken)
+
+
+def test_a_refusal_never_carries_a_seed_value(tmp_path):
+    module = _module()
+    path = tmp_path / "sealed.json"
+    path.write_text(json.dumps(
+        {"qualification_seeds": [4242, 4242, 4243, 4244, 4245, 4246]}
+    ))
+    with pytest.raises(ValueError) as raised:
+        module.qualification_seeds(path)
+    assert "4242" not in str(raised.value)
+
+
+def test_the_environment_names_the_sealed_file_the_plan_reads(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "elsewhere.json"
+    seeds = [9101, 9102, 9103, 9104, 9105, 9106]
+    path.write_text(json.dumps({"qualification_seeds": seeds}))
+    monkeypatch.setenv(module.QUALIFICATION_SEED_FILE_ENV, str(path))
+    assert module.qualification_seed_file() == path
+    assert [entry["seed"] for entry in module.family_plan("qualification")] == seeds
+    monkeypatch.delenv(module.QUALIFICATION_SEED_FILE_ENV)
+    assert module.qualification_seed_file() == module.default_qualification_seed_file()
+    assert module.default_qualification_seed_file().name \
+        == "v4_qualification_seeds.json"
 
 
 def test_graded_plan_verifies_the_v4_seal_without_returning_seeds(tmp_path, monkeypatch):

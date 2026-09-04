@@ -501,7 +501,7 @@ Committed in `scripts/build_v4_worlds.py`, one world size for all three families
 
 - development, seeds 1101 to 1112, one per row of the committed twelve-run design, under
   the development source regime. A method may tune on these.
-- qualification, seeds 2101 to 2106, under the hidden source regime, minted before any
+- qualification, six sealed seeds, under the hidden source regime, minted before any
   graded world. Every threshold is frozen on these and on nothing else.
 - graded, seeds 3101 to 3103, under the hidden source regime, minted after the freeze and
   never read back into it.
@@ -670,7 +670,7 @@ about old-age mortality and still clear every rate ceiling. Person-years is the 
 invariant to hold constant across bands, because the same exposure buys two orders of
 magnitude more deaths at 85 than at 8, so the floors fall with age.
 
-Measured on qualification world qual-5, seed 2106, over the sixty-month window. State by
+Measured on qualification world qual-5 over the sixty-month window. State by
 sex cells, the level the rate gates read:
 
     band     exposure range        gated cells, flat floor   gated cells, per band
@@ -734,7 +734,7 @@ seven of them change what a world contains:
 
 - twelve development worlds, seeds 1101 to 1112, one per row of the committed design,
   shipping truth, the only worlds a method may tune on;
-- six qualification worlds, seeds 2101 to 2106, hidden regime, the only worlds a bar
+- six qualification worlds, sealed seeds, hidden regime, the only worlds a bar
   reads;
 - three graded worlds, seeds 3101 to 3103, hidden regime, built and left closed.
 
@@ -870,7 +870,7 @@ back, and the reference's weakest quantity is now scored.
 
 ### Determinism receipt
 
-`qual-0`, seed 2101, built twice at the committed size, once inside the four-process shard
+`qual-0` built twice at the committed size, once inside the four-process shard
 that produced the world set and once alone across seven processes:
 
     manifest sha256 first  07e3d7c48e4f6c8648ed53004d4f2d35c53791bd87b670864b99f022cfb68bc1
@@ -2339,3 +2339,37 @@ No published value moves. A packet built before and after this change carries th
 `baseline_share`, and the rest of the contract is identical apart from the rule sentence and
 the new rule block. The contract bytes change, so the packet digests and the identifiability
 source digest that covers `meridia/packet.py` change with them.
+
+### The qualification seeds are sealed outside the repository
+
+Six qualification seeds were literals in `scripts/build_v4_worlds.py`. Every bar stands on
+those worlds, and a world's whole configuration follows from its seed, so the values in the
+tree were the measured worlds in the tree.
+
+`qualification_seeds` now reads them the way a sealed input is read, from a JSON object at
+`~/.config/meridia/v4_qualification_seeds.json`, mode 600, or wherever
+`MERIDIA_QUALIFICATION_SEED_FILE` points, under the single key `qualification_seeds`. The
+reader refuses a missing, unreadable, malformed, short, non-integer or repeating file, names
+the file and the fault in each refusal, and carries no value into any message.
+`QUALIFICATION_WORLD_COUNT` stays in the tree because the freeze design publishes the world
+count; only the values are sealed. Nothing else about the family changed, so every
+qualification world rebuilds to the packet it had: the digest of the seed list the plan now
+returns is the digest of the list that was committed.
+
+Digests of the sealed set, canonical JSON with no spaces:
+
+- seed list `sha256:364672c03204fbdea0a5a39a46a4bfd1ab7ce4d40c55f1aad378802232068f8f`
+- sealed file `sha256:6fa4f38b8f3e76176deb4090dbbe6daadc3c5c382b153668eb9cbb7c8bfe6ca6`
+
+Those digests authenticate a rebuild against the same set. They are not a confidentiality
+boundary. Six small integers drawn from a guessable range are recoverable
+from their digest by search, so sealing the file closes the disclosure only against a reader
+of the repository, not against a reader who guesses the draw. Closing it against search needs
+the qualification set redrawn from the keyed seal into a range no search covers, and that
+cannot be done while a freeze stands on the present set. It is the next mint's work.
+
+The four places the decisions record named a qualification seed now name the world instead.
+Four files outside this lane still carry the same six values and are the remaining disclosure:
+`scripts/identifiability_v4.py` registers them at `EXPECTED_WORLD_SEEDS`,
+`tests/test_identifiability_v4_receipt.py` asserts against them,
+and `tests/test_mechanisms.py` and `tests/test_survey.py` use them as example seeds.
