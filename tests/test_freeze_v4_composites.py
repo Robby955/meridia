@@ -855,8 +855,8 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
     assert bars["frozen"] is True
     assert tuple(bars["gates"]) == tuple(freeze.GATE_COMPONENTS)
     assert bars["target_false_fail_rate"] == 0.01
-    assert bars["target_marginal_product"] == pytest.approx(0.99 ** 15)
-    assert bars["target_marginal_product"] == pytest.approx(0.8600583546412883)
+    assert bars["target_marginal_product"] == pytest.approx(0.99 ** 27)
+    assert bars["target_marginal_product"] == pytest.approx(0.7623427143471035)
     assert bars["reference_lines"] == ["A", "B", "C"]
     assert bars["qualification_worlds"] == [f"qual-{index}" for index in range(6)]
     assert bars["reference_report_count"] == 18
@@ -879,9 +879,18 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
         ["passed_worlds"] == []
 
     record = bars["gates"]["exposures_and_rates"]["components"]["p95_relative_error"]
-    raw = [row["report"]["composite_metrics"]["exposures_and_rates"]
-           ["p95_relative_error"] for row in replicates]
-    assert record["value"] == freeze.empirical_p99(raw)
+    by_line = {
+        line: [row["report"]["composite_metrics"]["exposures_and_rates"]
+               ["p95_relative_error"]
+               for row in replicates if row["reference_line"] == line]
+        for line in ("A", "B", "C")
+    }
+    assert record["value"] == max(
+        freeze.empirical_p99(values) for values in by_line.values()
+    )
+    assert record["empirical_p99_by_reference_line"] == {
+        line: freeze.empirical_p99(values) for line, values in by_line.items()
+    }
     assert record["direction"] == "ceiling"
     assert record["range"] == [0.0, None]
     assert record["quantile"] == 0.99
@@ -889,7 +898,7 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
     assert record["sample_count"] == len(replicates)
     assert record["sample_count_per_reference_line"] == 102
     assert record["order_statistic_rank_per_reference_line"] == 101
-    assert record["calibration_method"] == "derived-from-joint-gate-max-severity"
+    assert record["calibration_method"] == "worst-reference-line-component-p99"
     assert record["worlds"] == [f"qual-{index}" for index in range(6)]
     assert record["witnesses"] == ["A", "B", "C"]
     assert record["supporting_controls"] == [
@@ -910,7 +919,7 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
     for document in (report, provenance):
         for gate, components in freeze.GATE_COMPONENTS.items():
             assert gate in document
-            assert "joint per-reference-line false-fail rates:" in document
+            assert "per-reference-line union false-fail rates:" in document
             for component in components:
                 component_record = bars["gates"][gate]["components"][component]
                 assert component in document
@@ -922,6 +931,11 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
                 assert "worlds: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5" \
                     in document
                 assert "witnesses: A, B, C" in document
+                assert (
+                    "calibrating line: "
+                    + ", ".join(component_record["ceiling_witness_lines"])
+                ) in document
+        assert "the one-percent target is per component and line" in document
         assert "eligible cells by qualification world" in document
         assert '[0,"female","65+"]' in document
         assert '[0,"male","65+"]' in document
@@ -950,7 +964,7 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
         ) in document
         assert "Control separation" in document
         assert "Authenticated evidence design" in document
-        assert "reference results at per-line joint false-fail rates" in document
+        assert "reference results at per-line union false-fail rates" in document
         assert "A/qual-0: pass; evidence" in document
         assert "deterministic_linkage [primary]: failed worlds" in document
         assert "q95 diagnostic margin" in document
@@ -962,7 +976,7 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
         assert "region 0 liability mean: 900.0 before, 950.0 after, 1000.0 sealed" \
             in document
         assert (
-            "target marginal product over five gates and three graded worlds: "
+            "target marginal product over nine components and three graded worlds: "
             f"{bars['target_marginal_product']:.6f}"
         ) in document
         assert (
@@ -1625,27 +1639,38 @@ def test_one_control_pass_on_qual_two_makes_the_gate_a_deletion_candidate():
     assert comparison["exceeds"] is False
 
 
-def test_no_component_carries_the_severity_of_a_component_on_another_scale():
-    """Each component's bar is its own reference scale, not the gate's worst.
+def test_no_component_carries_the_bar_of_a_component_on_another_scale():
+    """Each component's bar is the p99 of its own values on its own worst line.
 
-    With one shared normalizer the max-severity of a gate is whichever component has the
-    largest raw numbers, and every other component of that gate is published at the same
-    number. On the tail block that put the exceedance bar at its attainable ceiling.
+    A gate's components are not on one scale, so a ceiling taken over the gate is set by
+    whichever component has the largest numbers and carries every other component of the
+    block up with it. Here each component reads its own distribution, and the registered
+    normalizer no longer enters the number.
     """
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
     bars = _calibrate(freeze, references, replicates, controls)
     for gate, components in freeze.GATE_COMPONENTS.items():
         record = bars["gates"][gate]
-        ceiling = record["severity_ceiling"]
+        assert record["normalizers_scale_published_bars"] is False
         for component in components:
-            normalizer = freeze.GATE_COMPONENT_NORMALIZERS[gate][component]
-            assert record["components"][component]["normalizer"] == normalizer
-            assert record["components"][component]["value"] \
-                == pytest.approx(ceiling * normalizer)
-        if len(components) > 1:
-            values = {record["components"][c]["value"] for c in components}
-            assert len(values) == len(components)
+            bar = record["components"][component]
+            assert bar["normalizer"] \
+                == freeze.GATE_COMPONENT_NORMALIZERS[gate][component]
+            per_line = {
+                line: freeze.empirical_p99([
+                    row["report"]["composite_metrics"][gate][component]
+                    for row in replicates if row["reference_line"] == line
+                ])
+                for line in ("A", "B", "C")
+            }
+            assert bar["empirical_p99_by_reference_line"] == per_line
+            assert bar["value"] == max(per_line.values())
+            assert bar["calibrated_value"] == max(per_line.values())
+            assert bar["ceiling_witness_lines"] == [
+                line for line, value in per_line.items()
+                if value == max(per_line.values())
+            ]
 
 
 def test_a_bar_at_its_attainable_ceiling_stops_the_freeze():
@@ -1688,20 +1713,20 @@ def test_every_final_reference_must_clear_the_p99_bars():
     }]
 
 
-def test_joint_gate_p99_controls_the_component_union_per_reference_line():
+def test_a_gate_union_can_exceed_one_percent_when_two_components_are_exceeded():
+    """The one-percent target is per component and line; the union is only reported.
+
+    Two components of one gate are pushed above their own bars on two different
+    replicates of the same line. Each component keeps a rate of one report in 102, and
+    the union of the gate is two in 102, which the receipt carries as such.
+    """
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
-    # One severity, reached on two different components of the same gate by two
-    # different replicates. Each component's own p99 stays below it, and the published
-    # bar is that severity carried back through the component's registered normalizer.
-    normalizers = freeze.GATE_COMPONENT_NORMALIZERS["tail_calibration"]
-    severity = 1.4
     line_a = [row for row in replicates if row["reference_line"] == "A"]
     line_a[0]["report"]["composite_metrics"]["tail_calibration"] \
-        ["q95_width_relative_error"] = severity * normalizers["q95_width_relative_error"]
+        ["q95_width_relative_error"] = 40.0
     line_a[1]["report"]["composite_metrics"]["tail_calibration"] \
-        ["es95_width_relative_error"] = \
-        severity * normalizers["es95_width_relative_error"]
+        ["es95_width_relative_error"] = 40.0
     _rebind(freeze, line_a[0], "replicate")
     _rebind(freeze, line_a[1], "replicate")
     bars = _calibrate(freeze, references, replicates, controls)
@@ -1709,16 +1734,25 @@ def test_joint_gate_p99_controls_the_component_union_per_reference_line():
     assert bars["frozen"] is True
     assert gate["sample_count_per_reference_line"] == 102
     assert gate["order_statistic_rank_per_reference_line"] == 101
-    assert gate["reference_line_calibration"]["A"]["severity_p99"] == severity
-    assert gate["components"]["q95_width_relative_error"][
-        "empirical_p99_by_reference_line"
-    ]["A"] < severity * normalizers["q95_width_relative_error"]
-    assert gate["components"]["es95_width_relative_error"][
-        "empirical_p99_by_reference_line"
-    ]["A"] < severity * normalizers["es95_width_relative_error"]
-    for component, normalizer in normalizers.items():
-        assert gate["components"][component]["value"] \
-            == pytest.approx(severity * normalizer)
+    line_record = gate["reference_line_calibration"]["A"]
+    assert line_record["component_false_fail_counts"] == {
+        "pooled_exceedance_deviation": 0,
+        "q95_width_relative_error": 1,
+        "es95_width_relative_error": 1,
+    }
+    assert line_record["union_false_fail_count"] == 2
+    assert line_record["union_false_fail_rate"] == pytest.approx(2.0 / 102.0)
+    assert bars["achieved_gate_union_false_fail_rates"]["tail_calibration"] \
+        == pytest.approx(2.0 / 102.0)
+    assert all(
+        rate <= 0.01
+        for gate_rates in bars[
+            "achieved_false_fail_rates_by_reference_line_and_component"
+        ]["A"].values()
+        for rate in gate_rates.values()
+    )
+    from meridia.verify import _bar_schema_errors
+    assert _bar_schema_errors(bars) == []
 
 
 def test_one_percent_claim_is_reported_independently_for_each_reference_line():
@@ -1734,39 +1768,56 @@ def test_one_percent_claim_is_reported_independently_for_each_reference_line():
 
     expected = 1.0 / 102.0
     assert bars["frozen"] is True
-    assert bars["achieved_false_fail_rates_by_reference_line"]["A"][
-        "release_accuracy"
-    ] == pytest.approx(expected)
-    assert bars["achieved_false_fail_rates_by_reference_line"]["B"][
-        "release_accuracy"
-    ] == 0.0
-    assert bars["achieved_false_fail_rates"]["release_accuracy"] \
+    rates = bars["achieved_false_fail_rates_by_reference_line_and_component"]
+    assert rates["A"]["release_accuracy"]["p95_relative_error"] \
         == pytest.approx(expected)
+    assert rates["B"]["release_accuracy"]["p95_relative_error"] == 0.0
+    assert bars["achieved_false_fail_rates_by_component"]["release_accuracy"][
+        "p95_relative_error"
+    ] == pytest.approx(expected)
     assert bars["achieved_marginal_rate_product"] == pytest.approx(
         min(bars["achieved_marginal_rate_product_by_reference_line"].values())
     )
 
 
-def test_verifier_rejects_joint_calibration_or_per_line_rate_tampering():
+def test_verifier_rejects_component_calibration_or_per_line_rate_tampering():
     freeze = _freeze()
     references, replicates, controls = _evidence(freeze)
     bars = _calibrate(freeze, references, replicates, controls)
     from meridia.verify import _bar_schema_errors
 
     changed = deepcopy(bars)
-    changed["gates"]["interval_quality"]["severity_ceiling"] += 0.01
+    changed["gates"]["interval_quality"]["components"]["coverage_deviation"][
+        "value"
+    ] += 0.01
     assert any(
         "interval_quality" in error and "calibration" in error
         for error in _bar_schema_errors(changed)
     )
 
     changed = deepcopy(bars)
-    changed["achieved_false_fail_rates_by_reference_line"]["A"][
+    changed["gates"]["interval_quality"]["components"]["coverage_deviation"][
+        "empirical_p99_by_reference_line"
+    ]["A"] += 0.5
+    assert any(
+        "interval_quality" in error for error in _bar_schema_errors(changed)
+    )
+
+    changed = deepcopy(bars)
+    changed["achieved_false_fail_rates_by_reference_line_and_component"]["A"][
         "tail_calibration"
-    ] = 0.01
+    ]["q95_width_relative_error"] = 0.01
     assert any(
         "tail_calibration" in error and "calibration" in error
         for error in _bar_schema_errors(changed)
+    )
+
+    changed = deepcopy(bars)
+    changed["gates"]["tail_calibration"]["reference_line_calibration"]["A"][
+        "union_false_fail_count"
+    ] = 3
+    assert any(
+        "tail_calibration" in error for error in _bar_schema_errors(changed)
     )
 
 

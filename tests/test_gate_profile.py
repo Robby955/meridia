@@ -61,9 +61,8 @@ def _wrong_tail_submission(tmp_path):
     """A submission whose gated blocks are right and whose filed q95 is far out.
 
     The filed q95 sits six ensemble tail widths above the sealed quantile and ES95 is
-    carried up with it. Against the registered component normalizers the q95 width error
-    runs well past its frozen bar while the ES95 error stays inside its own, wider one.
-    The allocation is the perfect-information one, so the reserve skill is exact.
+    carried up with it, so both width errors run past their own frozen bars. The
+    allocation is the perfect-information one, so the reserve skill is exact.
     """
     actuarial = _actuarial_fixtures()
     packet, admin, truth, detailed, rate_truth, liability, sealed, total = \
@@ -120,7 +119,7 @@ def test_lite_passes_a_submission_whose_tails_are_wrong(tmp_path):
     tail = report["gate_results"]["tail_calibration"]
     assert tail["gated"] is False and tail["pass"] is None and tail["reasons"] == []
     assert [detail.split()[0] for detail in tail["ungated_failures"]] == [
-        "q95_width_relative_error"]
+        "q95_width_relative_error", "es95_width_relative_error"]
     reserve = report["gate_results"]["reserve_skill"]
     assert reserve["gated"] is False and reserve["pass"] is None
     assert reserve["gated_components"] == [] and reserve["reasons"] == []

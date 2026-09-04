@@ -138,23 +138,19 @@ COMPOSITE_GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
 }
 # Every component is a dimensionless loss with zero as its ideal value, but the components
 # inside one gate are not on one scale. Pooled exceedance deviation lives in a band 0.95
-# wide while the q95 and ES95 width errors on the same block run past ten, so a max-severity
-# taken with equal weights is the width error alone and the exceedance component is carried
-# to whatever ceiling the width error sets. Clipped at its attainable range that made the
-# published exceedance bar exactly 0.95, a bar no submission can exceed and no tail control
-# can fail. Interval coverage deviation against the mean interval score, and the worst
-# regional shortfall probability against skill loss, sit the same way.
+# wide while the q95 and ES95 width errors on the same block run past ten. Interval
+# coverage deviation lives in a band one wide against a mean interval score that runs past
+# ten, and the worst regional shortfall probability sits the same way against skill loss.
 #
-# Each component therefore carries the scale of its own reference distribution: the median
-# of that component over the eighteen final reference reports on the six qualification
-# worlds, three fixed-seed lines each. A severity of one is a typical reference report on
-# that component, so the max over components is a comparison of like with like.
+# These constants are the median of each component over the eighteen final reference
+# reports on the six qualification worlds, three fixed-seed lines each. They are
+# registration-time values, read once and written here, not recomputed from the sample a
+# freeze calibrates on.
 #
-# These are registration-time constants, read once and written here. They are not
-# recomputed from the sample a freeze calibrates on, which would let that sample tune the
-# relative weights it is then judged by. A single-component gate is invariant to its
-# normalizer, since the value divides out of the order statistic and multiplies back into
-# the bar, so those two stay at one and their published bar is the order statistic itself.
+# No published bar reads them any more. A bar is the order statistic of the component's
+# own values, and dividing those values by a positive constant and multiplying the order
+# statistic back by it returns the same number. The registry stays because the receipt
+# records the scale each component was registered at and this verifier binds it.
 #
 # The seven components that do not read the published reserve total were measured again on
 # packets at the compiled rate 3769 and reproduce the values written here. The reserve pair
@@ -1302,43 +1298,115 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     if not is_sha256(bars.get("runner_digest_sha256")) \
             or not is_sha256(bars.get("measurement_contract_digest_sha256")):
         errors.append("freeze receipt lacks its common runner or measurement contract digest")
-    rates_by_line = bars.get("achieved_false_fail_rates_by_reference_line")
+    component_count = sum(
+        len(components) for components in COMPOSITE_GATE_COMPONENTS.values()
+    )
+    rates_by_line = bars.get(
+        "achieved_false_fail_rates_by_reference_line_and_component"
+    )
     rates_by_line_ok = isinstance(rates_by_line, dict) \
         and set(rates_by_line) == set(REFERENCE_LINES)
     if rates_by_line_ok:
         for line in REFERENCE_LINES:
             line_rates = rates_by_line[line]
             if not isinstance(line_rates, dict) \
-                    or set(line_rates) != set(COMPOSITE_GATE_COMPONENTS) \
-                    or any(
-                        not finite_number(value)
-                        or not 0.0 <= float(value) <= 0.01
-                        for value in line_rates.values()
-                    ):
+                    or set(line_rates) != set(COMPOSITE_GATE_COMPONENTS):
                 rates_by_line_ok = False
                 break
+            for gate, components in COMPOSITE_GATE_COMPONENTS.items():
+                gate_rates = line_rates[gate]
+                # The order statistic is taken over one component on one line, so that is
+                # the unit the one-percent target binds.
+                if not isinstance(gate_rates, dict) \
+                        or set(gate_rates) != set(components) \
+                        or any(
+                            not finite_number(gate_rates[component])
+                            or not 0.0 <= float(gate_rates[component]) <= 0.01
+                            for component in components
+                        ):
+                    rates_by_line_ok = False
+                    break
+            if not rates_by_line_ok:
+                break
     if not rates_by_line_ok:
-        errors.append("per-reference-line false-fail rates differ from the design")
+        errors.append("per-reference-line component false-fail rates differ from the design")
         rates_by_line = {}
-    rates = bars.get("achieved_false_fail_rates")
-    if not isinstance(rates, dict) or set(rates) != set(COMPOSITE_GATE_COMPONENTS):
-        errors.append("conservative false-fail rates differ from the five gates")
-        rates = {}
+    rates = bars.get("achieved_false_fail_rates_by_component")
+    rates_ok = isinstance(rates, dict) \
+        and set(rates) == set(COMPOSITE_GATE_COMPONENTS) \
+        and all(
+            isinstance(rates[gate], dict)
+            and set(rates[gate]) == set(components)
+            for gate, components in COMPOSITE_GATE_COMPONENTS.items()
+        )
+    if not rates_ok:
+        errors.append("conservative false-fail rates differ from the nine components")
     elif rates_by_line:
-        for gate, value in rates.items():
-            expected_rate = max(
-                float(rates_by_line[line][gate]) for line in REFERENCE_LINES
+        for gate, components in COMPOSITE_GATE_COMPONENTS.items():
+            for component in components:
+                value = rates[gate][component]
+                expected_rate = max(
+                    float(rates_by_line[line][gate][component])
+                    for line in REFERENCE_LINES
+                )
+                if not finite_number(value) \
+                        or not 0.0 <= float(value) <= 0.01 \
+                        or not math.isclose(
+                            float(value), expected_rate, rel_tol=1e-12, abs_tol=1e-15
+                        ):
+                    errors.append(
+                        f"{gate}/{component}: conservative false-fail rate is inconsistent"
+                    )
+    # A gate fails a replicate when any of its components is over its own bar, and two
+    # components can be over on two different replicates. That union is reported and is
+    # not bounded by the one-percent target, so it is checked for arithmetic only.
+    union_by_line = bars.get("achieved_gate_union_false_fail_rates_by_reference_line")
+    union_by_line_ok = isinstance(union_by_line, dict) \
+        and set(union_by_line) == set(REFERENCE_LINES) \
+        and all(
+            isinstance(union_by_line[line], dict)
+            and set(union_by_line[line]) == set(COMPOSITE_GATE_COMPONENTS)
+            and all(
+                finite_number(union_by_line[line][gate])
+                and 0.0 <= float(union_by_line[line][gate]) <= 1.0
+                for gate in COMPOSITE_GATE_COMPONENTS
             )
-            if not finite_number(value) \
-                    or not 0.0 <= float(value) <= 0.01 \
+            for line in REFERENCE_LINES
+        )
+    if union_by_line_ok and rates_by_line:
+        for line in REFERENCE_LINES:
+            for gate, components in COMPOSITE_GATE_COMPONENTS.items():
+                observed = float(union_by_line[line][gate])
+                parts = [float(rates_by_line[line][gate][component])
+                         for component in components]
+                if observed < max(parts) - 1e-12 \
+                        or observed > math.fsum(parts) + 1e-12:
+                    union_by_line_ok = False
+                    break
+            if not union_by_line_ok:
+                break
+    if not union_by_line_ok:
+        errors.append("per-reference-line gate union false-fail rates are inconsistent")
+        union_by_line = {}
+    union_rates = bars.get("achieved_gate_union_false_fail_rates")
+    if not isinstance(union_rates, dict) \
+            or set(union_rates) != set(COMPOSITE_GATE_COMPONENTS):
+        errors.append("conservative gate union false-fail rates differ from the five gates")
+    elif union_by_line:
+        for gate in COMPOSITE_GATE_COMPONENTS:
+            expected_rate = max(
+                float(union_by_line[line][gate]) for line in REFERENCE_LINES
+            )
+            if not finite_number(union_rates[gate]) \
                     or not math.isclose(
-                        float(value), expected_rate, rel_tol=1e-12, abs_tol=1e-15
+                        float(union_rates[gate]), expected_rate,
+                        rel_tol=1e-12, abs_tol=1e-15,
                     ):
-                errors.append(f"{gate}: conservative false-fail rate is inconsistent")
+                errors.append(f"{gate}: conservative union false-fail rate is inconsistent")
     if bars.get("achieved_false_fail_rate_method") \
-            != "per-reference-line joint max-severity empirical p99":
+            != "per-reference-line per-component empirical p99":
         errors.append("false-fail calibration method differs from the registered design")
-    target_product = 0.99 ** (len(COMPOSITE_GATE_COMPONENTS) * 3)
+    target_product = 0.99 ** (component_count * 3)
     if not finite_number(bars.get("target_marginal_product")) \
             or not math.isclose(float(bars["target_marginal_product"]), target_product,
                                 rel_tol=1e-12, abs_tol=1e-15):
@@ -1349,8 +1417,9 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     if products_ok:
         for line in REFERENCE_LINES:
             expected_line_product = math.prod(
-                (1.0 - float(rates_by_line[line][gate])) ** 3
-                for gate in COMPOSITE_GATE_COMPONENTS
+                (1.0 - float(rates_by_line[line][gate][component])) ** 3
+                for gate, components in COMPOSITE_GATE_COMPONENTS.items()
+                for component in components
             )
             if not finite_number(products_by_line[line]) or not math.isclose(
                 float(products_by_line[line]), expected_line_product,
@@ -1367,6 +1436,33 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             or not math.isclose(float(bars["achieved_marginal_rate_product"]),
                                 achieved_product, rel_tol=1e-12, abs_tol=1e-15):
         errors.append("conservative marginal product does not match the line products")
+    union_products_by_line = bars.get(
+        "achieved_gate_union_marginal_rate_product_by_reference_line"
+    )
+    union_products_ok = isinstance(union_products_by_line, dict) \
+        and set(union_products_by_line) == set(REFERENCE_LINES) and bool(union_by_line)
+    if union_products_ok:
+        for line in REFERENCE_LINES:
+            expected_line_product = math.prod(
+                (1.0 - float(union_by_line[line][gate])) ** 3
+                for gate in COMPOSITE_GATE_COMPONENTS
+            )
+            if not finite_number(union_products_by_line[line]) or not math.isclose(
+                float(union_products_by_line[line]), expected_line_product,
+                rel_tol=1e-12, abs_tol=1e-15,
+            ):
+                union_products_ok = False
+                break
+    if not union_products_ok:
+        errors.append("per-reference-line union marginal products are inconsistent")
+    union_product = min(float(value) for value in union_products_by_line.values()) \
+        if union_products_ok else None
+    if union_product is None \
+            or not finite_number(bars.get("achieved_gate_union_marginal_rate_product")) \
+            or not math.isclose(
+                float(bars["achieved_gate_union_marginal_rate_product"]),
+                union_product, rel_tol=1e-12, abs_tol=1e-15):
+        errors.append("conservative union marginal product does not match the line products")
     if bars.get("reference_failures") != []:
         errors.append("freeze receipt contains final reference failures")
 
@@ -2992,15 +3088,13 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             errors.append(f"{gate}: component names differ from the verifier")
             continue
         normalizers = gate_record.get("normalizers")
-        severity_ceiling = gate_record.get("severity_ceiling")
         line_calibration = gate_record.get("reference_line_calibration")
         expected_per_line = REPLICATES_PER_LINE_WORLD * len(QUALIFICATION_WORLD_NAMES)
         expected_rank = math.ceil(0.99 * expected_per_line)
         gate_ok = gate_record.get("calibration_method") \
-            == "per-reference-line-joint-max-severity" \
+            == "per-component-per-reference-line-p99" \
             and normalizers == GATE_COMPONENT_NORMALIZERS[gate] \
-            and finite_number(severity_ceiling) \
-            and float(severity_ceiling) >= 0.0 \
+            and gate_record.get("normalizers_scale_published_bars") is False \
             and gate_record.get("quantile") == 0.99 \
             and gate_record.get("target_false_fail_rate") == 0.01 \
             and gate_record.get("sample_count_per_reference_line") == expected_per_line \
@@ -3008,57 +3102,81 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             == expected_rank \
             and isinstance(line_calibration, dict) \
             and set(line_calibration) == set(REFERENCE_LINES)
-        observed_ceiling_lines: list[str] = []
         if gate_ok:
             for line in REFERENCE_LINES:
                 line_record = line_calibration[line]
                 expected_keys = {
-                    "severity_p99", "sample_count", "order_statistic_rank",
-                    "false_fail_count", "false_fail_rate", "quantile_witnesses",
+                    "sample_count", "order_statistic_rank", "component_p99",
+                    "component_false_fail_counts", "component_false_fail_rates",
+                    "union_false_fail_count", "union_false_fail_rate",
+                    "union_false_fail_witnesses",
                     "replicate_evidence_ids", "replicate_evidence_digest_sha256",
                 }
-                count = line_record.get("false_fail_count") \
-                    if isinstance(line_record, dict) else None
-                line_rate = line_record.get("false_fail_rate") \
-                    if isinstance(line_record, dict) else None
-                p99 = line_record.get("severity_p99") \
-                    if isinstance(line_record, dict) else None
-                evidence_ids = line_record.get("replicate_evidence_ids") \
-                    if isinstance(line_record, dict) else None
-                digest = line_record.get("replicate_evidence_digest_sha256") \
-                    if isinstance(line_record, dict) else None
-                witnesses = line_record.get("quantile_witnesses") \
-                    if isinstance(line_record, dict) else None
-                line_ok = isinstance(line_record, dict) \
-                    and set(line_record) == expected_keys \
-                    and finite_number(p99) \
-                    and 0.0 <= float(p99) <= float(severity_ceiling) \
-                    and line_record.get("sample_count") == expected_per_line \
+                if not isinstance(line_record, dict) \
+                        or set(line_record) != expected_keys:
+                    gate_ok = False
+                    break
+                counts = line_record.get("component_false_fail_counts")
+                line_rates = line_record.get("component_false_fail_rates")
+                p99_by_component = line_record.get("component_p99")
+                union_count = line_record.get("union_false_fail_count")
+                union_rate = line_record.get("union_false_fail_rate")
+                witnesses = line_record.get("union_false_fail_witnesses")
+                evidence_ids = line_record.get("replicate_evidence_ids")
+                digest = line_record.get("replicate_evidence_digest_sha256")
+                line_ok = line_record.get("sample_count") == expected_per_line \
                     and line_record.get("order_statistic_rank") == expected_rank \
-                    and isinstance(count, int) and not isinstance(count, bool) \
-                    and 0 <= count <= 1 \
-                    and finite_number(line_rate) \
+                    and isinstance(counts, dict) and set(counts) == set(expected) \
+                    and isinstance(line_rates, dict) \
+                    and set(line_rates) == set(expected) \
+                    and isinstance(p99_by_component, dict) \
+                    and set(p99_by_component) == set(expected) \
+                    and isinstance(union_count, int) \
+                    and not isinstance(union_count, bool) \
+                    and finite_number(union_rate) \
                     and math.isclose(
-                        float(line_rate), count / expected_per_line,
+                        float(union_rate), union_count / expected_per_line,
                         rel_tol=1e-12, abs_tol=1e-15,
                     ) \
+                    and isinstance(witnesses, list) \
+                    and len(witnesses) == union_count \
                     and bool(rates_by_line) \
+                    and bool(union_by_line) \
                     and math.isclose(
-                        float(line_rate), float(rates_by_line[line][gate]),
+                        float(union_rate), float(union_by_line[line][gate]),
                         rel_tol=1e-12, abs_tol=1e-15,
                     ) \
                     and evidence_ids == expected_line_replicate_evidence_ids[line] \
                     and is_sha256(digest) \
                     and hashlib.sha256(
                         "\n".join(evidence_ids).encode("utf-8")
-                    ).hexdigest() == digest \
-                    and isinstance(witnesses, list) and bool(witnesses)
+                    ).hexdigest() == digest
                 if line_ok:
-                    witness_identities: set[tuple[str, str, str]] = set()
+                    for component in expected:
+                        count = counts[component]
+                        rate = line_rates[component]
+                        p99 = p99_by_component[component]
+                        component_ok = isinstance(count, int) \
+                            and not isinstance(count, bool) \
+                            and 0 <= count <= 1 \
+                            and finite_number(rate) \
+                            and math.isclose(
+                                float(rate), count / expected_per_line,
+                                rel_tol=1e-12, abs_tol=1e-15,
+                            ) \
+                            and math.isclose(
+                                float(rate),
+                                float(rates_by_line[line][gate][component]),
+                                rel_tol=1e-12, abs_tol=1e-15,
+                            ) \
+                            and finite_number(p99) and float(p99) >= 0.0
+                        if not component_ok:
+                            line_ok = False
+                            break
+                if line_ok:
+                    identities: set[tuple[str, str, str]] = set()
                     for witness in witnesses:
-                        component_values = witness.get("component_values") \
-                            if isinstance(witness, dict) else None
-                        component_severities = witness.get("component_severities") \
+                        named = witness.get("components") \
                             if isinstance(witness, dict) else None
                         identity = (
                             witness.get("reference_line"), witness.get("world"),
@@ -3066,59 +3184,33 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         ) if isinstance(witness, dict) else (None, None, None)
                         witness_ok = isinstance(witness, dict) \
                             and set(witness) == {
-                                "reference_line", "world", "replicate_id", "evidence_id",
-                                "component_values", "component_severities", "severity",
+                                "reference_line", "world", "replicate_id",
+                                "evidence_id", "components",
                             } \
                             and identity[0] == line \
-                            and identity not in witness_identities \
+                            and identity not in identities \
                             and witness.get("evidence_id") \
-                            == replicate_binding_index.get(identity, {}).get("evidence_id") \
-                            and isinstance(component_values, dict) \
-                            and set(component_values) == set(expected) \
-                            and isinstance(component_severities, dict) \
-                            and set(component_severities) == set(expected) \
-                            and all(
-                                finite_number(component_values[component])
-                                and finite_number(component_severities[component])
-                                and math.isclose(
-                                    float(component_severities[component]),
-                                    float(component_values[component])
-                                    / GATE_COMPONENT_NORMALIZERS[gate][component],
-                                    rel_tol=1e-12, abs_tol=1e-15,
-                                )
-                                for component in expected
+                            == replicate_binding_index.get(identity, {}).get(
+                                "evidence_id"
                             ) \
-                            and finite_number(witness.get("severity")) \
-                            and math.isclose(
-                                float(witness["severity"]),
-                                max(float(value) for value in component_severities.values()),
-                                rel_tol=1e-12, abs_tol=1e-15,
-                            ) \
-                            and math.isclose(
-                                float(witness["severity"]), float(p99),
-                                rel_tol=1e-12, abs_tol=1e-15,
-                            )
+                            and isinstance(named, list) and bool(named) \
+                            and set(named) <= set(expected)
                         if not witness_ok:
                             line_ok = False
                             break
-                        witness_identities.add(identity)
+                        identities.add(identity)
                 if not line_ok:
                     gate_ok = False
                     break
-                if math.isclose(
-                    float(p99), float(severity_ceiling), rel_tol=0.0, abs_tol=0.0
-                ):
-                    observed_ceiling_lines.append(line)
-        if gate_ok:
-            gate_ok = gate_record.get("ceiling_witness_lines") \
-                == observed_ceiling_lines and bool(observed_ceiling_lines)
         if not gate_ok:
-            errors.append(f"{gate}: joint per-reference-line calibration is invalid")
+            errors.append(f"{gate}: per-component per-reference-line calibration is invalid")
         for component in expected:
             record = components[component]
             if not isinstance(record, dict) or record.get("direction") != "ceiling":
                 errors.append(f"{gate}/{component}: direction must be ceiling")
                 continue
+            recorded_p99 = record.get("empirical_p99_by_reference_line")
+            calibrated_value = _worst_line_p99(recorded_p99)
             if record.get("value") is None:
                 # A component whose calibrated value reaches the top of its attainable
                 # range gets no bar. The freeze refuses to publish one when the profile
@@ -3126,7 +3218,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                 # on a component the profile leaves out, and it has to say what the
                 # calibration produced and why that value is not a bar.
                 errors.extend(_unpublished_bar_errors(
-                    gate, component, record, severity_ceiling,
+                    gate, component, record, calibrated_value,
                     component in registered_selection.get(gate, []),
                 ))
                 continue
@@ -3141,8 +3233,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             if high is not None and float(value) > float(high):
                 errors.append(f"{gate}/{component}: value exceeds its attainable range")
             normalizer = GATE_COMPONENT_NORMALIZERS[gate][component]
-            expected_value = float(severity_ceiling) * normalizer \
-                if finite_number(severity_ceiling) else float("nan")
+            expected_value = calibrated_value
             if high is not None:
                 # A bar at the top of its attainable range decides nothing, so a receipt
                 # carrying one is rejected rather than read as a pass.
@@ -3155,16 +3246,31 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         f"{gate}/{component}: the calibrated bar reaches its attainable "
                         f"ceiling and cannot fail"
                     )
-                expected_value = min(expected_value, float(high))
+            expected_lines = [
+                line for line in REFERENCE_LINES
+                if isinstance(recorded_p99, dict)
+                and finite_number(recorded_p99.get(line))
+                and float(recorded_p99[line]) == expected_value
+            ]
             if record.get("normalizer") != normalizer \
+                    or record.get("calibrated_value") is None \
+                    or not finite_number(record.get("calibrated_value")) \
+                    or not math.isclose(
+                        float(record["calibrated_value"]), expected_value,
+                        rel_tol=1e-12, abs_tol=1e-15
+                    ) \
                     or record.get("calibration_method") \
-                    != "derived-from-joint-gate-max-severity" \
+                    != "worst-reference-line-component-p99" \
+                    or record.get("ceiling_witness_lines") != expected_lines \
+                    or not expected_lines \
                     or not math.isclose(
                         float(value), expected_value, rel_tol=1e-12, abs_tol=1e-15
                     ) \
                     or record.get("quantile") != 0.99 \
                     or record.get("target_false_fail_rate") != 0.01:
-                errors.append(f"{gate}/{component}: joint calibration metadata differs")
+                errors.append(
+                    f"{gate}/{component}: per-component calibration metadata differs"
+                )
             sample_count = record.get("sample_count")
             if isinstance(sample_count, bool) or not isinstance(sample_count, int) \
                     or sample_count != report_count \
@@ -3219,14 +3325,13 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             component_witnesses = record.get(
                 "component_quantile_witnesses_by_reference_line"
             )
-            component_rates = record.get(
-                "component_exceedance_rate_at_joint_ceiling_by_reference_line"
-            )
+            component_rates = record.get("false_fail_rate_by_reference_line")
+            component_counts = record.get("false_fail_count_by_reference_line")
             diagnostics_ok = bool(rates_by_line) and all(
                 isinstance(item, dict) and set(item) == set(REFERENCE_LINES)
                 for item in (
                     component_p99, observed_ranges, component_witnesses,
-                    component_rates,
+                    component_rates, component_counts,
                 )
             )
             if diagnostics_ok:
@@ -3246,8 +3351,18 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                         and float(observed[0]) >= low_bound \
                         and (high_bound is None or float(observed[1]) <= high_bound) \
                         and finite_number(component_rate) \
-                        and 0.0 <= float(component_rate) \
-                        <= float(rates_by_line[line][gate]) \
+                        and math.isclose(
+                            float(component_rate),
+                            float(rates_by_line[line][gate][component]),
+                            rel_tol=1e-12, abs_tol=1e-15,
+                        ) \
+                        and isinstance(component_counts[line], int) \
+                        and not isinstance(component_counts[line], bool) \
+                        and math.isclose(
+                            float(component_rate),
+                            component_counts[line] / expected_per_line,
+                            rel_tol=1e-12, abs_tol=1e-15,
+                        ) \
                         and isinstance(witnesses, list) and bool(witnesses)
                     identities: set[tuple[str, str, str]] = set()
                     if line_ok:
@@ -3368,12 +3483,33 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     return errors
 
 
+def _worst_line_p99(recorded: object) -> float:
+    """Return the largest of the three recorded per-line p99 values for one component.
+
+    That number is the component's bar: the empirical p99 of its own values on the
+    reference line whose p99 for it is largest. A receipt whose per-line record is not
+    three finite numbers gets a non-finite reading here, and every check that compares
+    against it then fails.
+    """
+
+    if not isinstance(recorded, Mapping) or set(recorded) != set(REFERENCE_LINES):
+        return float("nan")
+    values: list[float] = []
+    for line in REFERENCE_LINES:
+        value = recorded[line]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(float(value)):
+            return float("nan")
+        values.append(float(value))
+    return max(values)
+
+
 def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, object],
-                            severity_ceiling: object, decides: bool) -> list[str]:
+                            calibrated_value: float, decides: bool) -> list[str]:
     """Check a component the freeze published no bar for.
 
     Such a component decides nothing, so the receipt carries no ceiling to compare a
-    submission against. What it must still carry is the value the joint calibration
+    submission against. What it must still carry is the value its own calibration
     produced, the attainable ceiling that value reached, and the fact that the profile
     does not decide on it. A profile that does decide on the component may not carry one
     at all: there the freeze refuses instead of publishing.
@@ -3386,17 +3522,33 @@ def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, obje
     if decides:
         return [f"{label}: a gate the profile decides on must carry a published bar"]
     unpublished = record.get("unpublishable")
-    if record.get("publishable") is not False             or not isinstance(unpublished, dict)             or set(unpublished) != {
+    if record.get("publishable") is not False \
+            or not isinstance(unpublished, dict) \
+            or set(unpublished) != {
                 "calibrated_value", "attainable_ceiling", "reason",
                 "decides_under_profile",
-            }             or unpublished.get("decides_under_profile") is not False             or not isinstance(unpublished.get("reason"), str)             or not unpublished["reason"]:
+            } \
+            or unpublished.get("decides_under_profile") is not False \
+            or not isinstance(unpublished.get("reason"), str) \
+            or not unpublished["reason"]:
         return [f"{label}: unpublished bar receipt is incomplete"]
     expected_range = list(COMPOSITE_COMPONENT_RANGES[(gate, component)])
     high = expected_range[1]
     normalizer = GATE_COMPONENT_NORMALIZERS[gate][component]
     calibrated = unpublished.get("calibrated_value")
-    if high is None or record.get("range") != expected_range             or record.get("normalizer") != normalizer             or record.get("calibration_method")             != "derived-from-joint-gate-max-severity"             or record.get("quantile") != 0.99             or record.get("target_false_fail_rate") != 0.01             or unpublished.get("attainable_ceiling") != high             or not finite_number(calibrated)             or not finite_number(severity_ceiling)             or not math.isclose(float(calibrated),
-                                float(severity_ceiling) * normalizer,
+    if high is None or record.get("range") != expected_range \
+            or record.get("normalizer") != normalizer \
+            or record.get("calibration_method") \
+            != "worst-reference-line-component-p99" \
+            or record.get("quantile") != 0.99 \
+            or record.get("target_false_fail_rate") != 0.01 \
+            or unpublished.get("attainable_ceiling") != high \
+            or not finite_number(calibrated) \
+            or not finite_number(record.get("calibrated_value")) \
+            or not math.isclose(float(record["calibrated_value"]), float(calibrated),
+                                rel_tol=1e-12, abs_tol=1e-15) \
+            or not finite_number(calibrated_value) \
+            or not math.isclose(float(calibrated), float(calibrated_value),
                                 rel_tol=1e-12, abs_tol=1e-15):
         return [f"{label}: unpublished bar does not recompute from its calibration"]
     if not (float(calibrated) >= float(high)
@@ -3404,7 +3556,8 @@ def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, obje
                             rel_tol=1e-9, abs_tol=1e-12)):
         return [f"{label}: a bar below its attainable ceiling must be published"]
     witnesses = record.get("reference_witnesses")
-    if not isinstance(witnesses, list) or not witnesses             or any(not isinstance(witness, dict) or witness.get("pass") is not None
+    if not isinstance(witnesses, list) or not witnesses \
+            or any(not isinstance(witness, dict) or witness.get("pass") is not None
                    for witness in witnesses):
         return [f"{label}: witnesses cannot pass a bar that was not published"]
     return []

@@ -10,10 +10,10 @@ The reserve-rate input is the unaccepted candidate emitted by
 promotion happens after the final references, proportional-reserve controls, calibrated
 reserve-skill bar, authenticated q95 diagnostics, and red-team audit have all been verified.
 
-Only replicate reports set the exact empirical p99 gate-severity ceilings. Calibration is
-independent by reference line and joint across a gate's components. Final reports are never
-bootstrapped or resampled as fake replication. Final witnesses must then clear the frozen
-bars. The command line consumes JSON evidence and writes ``bars.json``, the two
+Only replicate reports set the exact empirical p99 bars. Calibration is independent by
+reference line and independent by component: a component's bar is the p99 of its own
+values on the line whose p99 for it is largest. Final reports are never bootstrapped or
+resampled as fake replication. Final witnesses must then clear the frozen bars. The command line consumes JSON evidence and writes ``bars.json``, the two
 standalone promoted reserve-audit receipts, ``freeze_report.txt``, and
 ``PROVENANCE.md``.
 """
@@ -267,23 +267,21 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
 
 # Every component is a dimensionless loss with zero as its ideal value, but the components
 # inside one gate are not on one scale. Pooled exceedance deviation lives in a band 0.95
-# wide while the q95 and ES95 width errors on the same block run past ten, so a max-severity
-# taken with equal weights is the width error alone and the exceedance component is carried
-# to whatever ceiling the width error sets. Clipped at its attainable range that made the
-# published exceedance bar exactly 0.95, a bar no submission can exceed and no tail control
-# can fail. Interval coverage deviation against the mean interval score, and the worst
-# regional shortfall probability against skill loss, sit the same way.
+# wide while the q95 and ES95 width errors on the same block run past ten. Interval
+# coverage deviation lives in a band one wide against a mean interval score that runs past
+# ten, and the worst regional shortfall probability sits the same way against skill loss.
 #
-# Each component therefore carries the scale of its own reference distribution: the median
-# of that component over the eighteen final reference reports on the six qualification
-# worlds, three fixed-seed lines each. A severity of one is a typical reference report on
-# that component, so the max over components is a comparison of like with like.
+# These constants are the median of each component over the eighteen final reference
+# reports on the six qualification worlds, three fixed-seed lines each. They are
+# registration-time values, read once and written here, not recomputed from the sample a
+# freeze calibrates on.
 #
-# These are registration-time constants, read once and written here. They are not
-# recomputed from the sample a freeze calibrates on, which would let that sample tune the
-# relative weights it is then judged by. A single-component gate is invariant to its
-# normalizer, since the value divides out of the order statistic and multiplies back into
-# the bar, so those two stay at one and their published bar is the order statistic itself.
+# No published bar reads them any more. A bar is now the order statistic of the component's
+# own values, and dividing those values by a positive constant and multiplying the order
+# statistic back by it returns the same number, so the registry no longer sets the height
+# of anything. It stays because the receipt records the scale each component was
+# registered at and the verifier binds it, and because the readings below are a measured
+# description of the reference distribution that the record keeps.
 #
 # The seven components that do not read the published reserve total were measured again on
 # packets at the compiled rate 3769 and reproduce the values written here. The reserve pair
@@ -362,6 +360,10 @@ SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
         "proportional_reserve",
     ),
 }
+
+CALIBRATED_COMPONENT_COUNT = sum(
+    len(components) for components in GATE_COMPONENTS.values()
+)
 
 REQUIRED_SCIENTIFIC_CONTROLS = tuple(sorted({
     control
@@ -2934,13 +2936,19 @@ def _calibrate_components(references: list[dict[str, Any]],
                           eligibility_audit_by_world: Mapping[str, dict[str, Any]],
                           profile_selection: Mapping[str, Sequence[str]]) \
         -> dict[str, Any]:
-    """Calibrate each composite jointly, independently within each reference line.
+    """Calibrate every component on its own distribution, independently within a line.
 
-    Each metric is a dimensionless loss and has a frozen normalizer.  A replicate's gate
-    severity is the maximum normalized component loss.  The empirical p99 is taken over
-    the 102 independent reports for each line, then the largest of the three line p99s is
-    the common gate ceiling.  Thus no line is hidden by pooling and component multiplicity
-    cannot inflate the registered one-percent gate-level false-fail rate.
+    Each metric is a dimensionless loss.  A component's bar is the empirical p99 of that
+    component's own values over the 102 independent reports of one reference line, taken
+    on the line whose p99 for that component is the largest of the three.  No line is
+    hidden by pooling, and no component is carried to a ceiling that a component on
+    another scale set.  A gate passes when every one of its components sits under its own
+    bar, so the one-percent false-fail target applies to a component on a line, which is
+    the unit the order statistic is taken over.
+
+    The union of one gate's component exceedances is measured per line and reported.  It
+    is not bounded by one percent: two components of the same gate can be exceeded by two
+    different replicates, and on this evidence one gate and one line does exactly that.
 
     A calibrated bar that reaches the top of its component's attainable range is not a
     bar. When the profile decides that component the freeze refuses, as it always has.
@@ -2966,59 +2974,54 @@ def _calibrate_components(references: list[dict[str, Any]],
             raise EvidenceError(
                 f"{gate}: per-line replicate counts differ from the registered design"
             )
+        rank = math.ceil(QUANTILE * sample_count_per_line)
 
-        severity_rows: dict[str, list[dict[str, Any]]] = {}
-        line_p99: dict[str, float] = {}
-        for line, rows in line_rows.items():
-            observed: list[dict[str, Any]] = []
-            for row in rows:
-                component_values = {
-                    component: row["metrics"][gate][component]
-                    for component in components
-                }
-                component_severities = {
-                    component: component_values[component] / normalizers[component]
-                    for component in components
-                }
-                observed.append({
+        observed_rows: dict[str, list[dict[str, Any]]] = {
+            line: [
+                {
                     "reference_line": line,
                     "world": row["world"],
                     "replicate_id": row["replicate_id"],
                     "evidence_id": row["evidence_id"],
-                    "component_values": component_values,
-                    "component_severities": component_severities,
-                    "severity": max(component_severities.values()),
-                })
-            severity_rows[line] = observed
-            line_p99[line] = empirical_p99([row["severity"] for row in observed])
-
-        severity_ceiling = max(line_p99.values())
-        rank = math.ceil(QUANTILE * sample_count_per_line)
-        line_calibration: dict[str, Any] = {}
-        for line in lines:
-            observed = severity_rows[line]
-            failed = sum(row["severity"] > severity_ceiling for row in observed)
-            evidence_ids = sorted(row["evidence_id"] for row in observed)
-            line_calibration[line] = {
-                "severity_p99": line_p99[line],
-                "sample_count": sample_count_per_line,
-                "order_statistic_rank": rank,
-                "false_fail_count": failed,
-                "false_fail_rate": failed / sample_count_per_line,
-                "quantile_witnesses": [
-                    row for row in observed if row["severity"] == line_p99[line]
-                ],
-                "replicate_evidence_ids": evidence_ids,
-                "replicate_evidence_digest_sha256": hashlib.sha256(
-                    "\n".join(evidence_ids).encode("utf-8")
-                ).hexdigest(),
+                    "component_values": {
+                        component: row["metrics"][gate][component]
+                        for component in components
+                    },
+                }
+                for row in rows
+            ]
+            for line, rows in line_rows.items()
+        }
+        component_p99: dict[str, dict[str, float]] = {
+            component: {
+                line: empirical_p99([
+                    row["component_values"][component] for row in observed_rows[line]
+                ])
+                for line in lines
             }
+            for component in components
+        }
+        component_bars: dict[str, float] = {
+            component: max(component_p99[component].values())
+            for component in components
+        }
+        component_counts: dict[str, dict[str, int]] = {
+            line: {
+                component: sum(
+                    row["component_values"][component] > component_bars[component]
+                    for row in observed_rows[line]
+                )
+                for component in components
+            }
+            for line in lines
+        }
 
         component_records: dict[str, Any] = {}
+        published: dict[str, float | None] = {}
         for component in components:
             normalizer = normalizers[component]
             _, attainable_high = COMPONENT_RANGES[(gate, component)]
-            calibrated_value = severity_ceiling * normalizer
+            calibrated_value = component_bars[component]
             value: float | None = calibrated_value
             unpublishable: dict[str, Any] | None = None
             decides = component in profile_selection.get(gate, ())
@@ -3045,8 +3048,7 @@ def _calibrate_components(references: list[dict[str, Any]],
                         "decides_under_profile": False,
                     }
                     value = None
-                else:
-                    value = min(calibrated_value, attainable_high)
+            published[component] = value
             reference_witnesses = [
                 {
                     "reference_line": entry["reference_line"],
@@ -3071,7 +3073,8 @@ def _calibrate_components(references: list[dict[str, Any]],
                 "direction": "ceiling",
                 "range": list(COMPONENT_RANGES[(gate, component)]),
                 "normalizer": normalizer,
-                "calibration_method": "derived-from-joint-gate-max-severity",
+                "calibration_method": "worst-reference-line-component-p99",
+                "calibrated_value": calibrated_value,
                 "quantile": QUANTILE,
                 "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
                 "sample_count": len(replicates),
@@ -3080,19 +3083,17 @@ def _calibrate_components(references: list[dict[str, Any]],
                 "worlds": worlds,
                 "witnesses": lines,
                 "reference_witnesses": reference_witnesses,
-                "empirical_p99_by_reference_line": {
-                    line: empirical_p99([
-                        row["component_values"][component]
-                        for row in severity_rows[line]
-                    ])
-                    for line in lines
-                },
+                "empirical_p99_by_reference_line": dict(component_p99[component]),
+                "ceiling_witness_lines": [
+                    line for line in lines
+                    if component_p99[component][line] == calibrated_value
+                ],
                 "observed_range_by_reference_line": {
                     line: [
                         min(row["component_values"][component]
-                            for row in severity_rows[line]),
+                            for row in observed_rows[line]),
                         max(row["component_values"][component]
-                            for row in severity_rows[line]),
+                            for row in observed_rows[line]),
                     ]
                     for line in lines
                 },
@@ -3105,20 +3106,17 @@ def _calibrate_components(references: list[dict[str, Any]],
                             "evidence_id": row["evidence_id"],
                             "value": row["component_values"][component],
                         }
-                        for row in severity_rows[line]
+                        for row in observed_rows[line]
                         if row["component_values"][component]
-                        == empirical_p99([
-                            item["component_values"][component]
-                            for item in severity_rows[line]
-                        ])
+                        == component_p99[component][line]
                     ]
                     for line in lines
                 },
-                "component_exceedance_rate_at_joint_ceiling_by_reference_line": {
-                    line: sum(
-                        row["component_values"][component] > calibrated_value
-                        for row in severity_rows[line]
-                    ) / sample_count_per_line
+                "false_fail_count_by_reference_line": {
+                    line: component_counts[line][component] for line in lines
+                },
+                "false_fail_rate_by_reference_line": {
+                    line: component_counts[line][component] / sample_count_per_line
                     for line in lines
                 },
                 "supporting_controls": [],
@@ -3140,17 +3138,62 @@ def _calibrate_components(references: list[dict[str, Any]],
                     "band_audit_by_world": dict(eligibility_audit_by_world),
                 }
             component_records[component] = record
+
+        line_calibration: dict[str, Any] = {}
+        for line in lines:
+            union_rows = [
+                row for row in observed_rows[line]
+                if any(
+                    _exceeds(row["component_values"][component], published[component])
+                    for component in components
+                )
+            ]
+            evidence_ids = sorted(row["evidence_id"] for row in observed_rows[line])
+            line_calibration[line] = {
+                "sample_count": sample_count_per_line,
+                "order_statistic_rank": rank,
+                "component_p99": {
+                    component: component_p99[component][line]
+                    for component in components
+                },
+                "component_false_fail_counts": {
+                    component: component_counts[line][component]
+                    for component in components
+                },
+                "component_false_fail_rates": {
+                    component: component_counts[line][component] / sample_count_per_line
+                    for component in components
+                },
+                "union_false_fail_count": len(union_rows),
+                "union_false_fail_rate": len(union_rows) / sample_count_per_line,
+                "union_false_fail_witnesses": [
+                    {
+                        "reference_line": row["reference_line"],
+                        "world": row["world"],
+                        "replicate_id": row["replicate_id"],
+                        "evidence_id": row["evidence_id"],
+                        "components": [
+                            component for component in components
+                            if _exceeds(row["component_values"][component],
+                                        published[component])
+                        ],
+                    }
+                    for row in union_rows
+                ],
+                "replicate_evidence_ids": evidence_ids,
+                "replicate_evidence_digest_sha256": hashlib.sha256(
+                    "\n".join(evidence_ids).encode("utf-8")
+                ).hexdigest(),
+            }
+
         gates[gate] = {
-            "calibration_method": "per-reference-line-joint-max-severity",
+            "calibration_method": "per-component-per-reference-line-p99",
             "normalizers": dict(normalizers),
-            "severity_ceiling": severity_ceiling,
+            "normalizers_scale_published_bars": False,
             "quantile": QUANTILE,
             "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
             "sample_count_per_reference_line": sample_count_per_line,
             "order_statistic_rank_per_reference_line": rank,
-            "ceiling_witness_lines": [
-                line for line in lines if line_p99[line] == severity_ceiling
-            ],
             "reference_line_calibration": line_calibration,
             "components": component_records,
             "supporting_controls": [],
@@ -3438,7 +3481,7 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
                   graded_world_count: int,
                   gate_profile: str = DEFAULT_GATE_PROFILE) -> dict[str, Any]:
     target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
-        len(GATE_COMPONENTS) * graded_world_count
+        CALIBRATED_COMPONENT_COUNT * graded_world_count
     )
     try:
         selection = gate_profile_selection(gate_profile)
@@ -3463,8 +3506,12 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
         "target_marginal_product": target_product,
         "achieved_marginal_rate_product": None,
         "achieved_marginal_rate_product_by_reference_line": {},
-        "achieved_false_fail_rates": {},
-        "achieved_false_fail_rates_by_reference_line": {},
+        "achieved_gate_union_marginal_rate_product": None,
+        "achieved_gate_union_marginal_rate_product_by_reference_line": {},
+        "achieved_false_fail_rates_by_component": {},
+        "achieved_false_fail_rates_by_reference_line_and_component": {},
+        "achieved_gate_union_false_fail_rates": {},
+        "achieved_gate_union_false_fail_rates_by_reference_line": {},
         "mortality_identification_evidence": None,
         "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
     }
@@ -3650,41 +3697,71 @@ def calibrate_composite_bars(
             )
         )
 
-    gate_rates_by_line = {
+    component_rates_by_line = {
+        line: {
+            gate: dict(
+                gates[gate]["reference_line_calibration"][line][
+                    "component_false_fail_rates"
+                ]
+            )
+            for gate in GATE_COMPONENTS
+        }
+        for line in lines
+    }
+    component_rates = {
+        gate: {
+            component: max(component_rates_by_line[line][gate][component]
+                           for line in lines)
+            for component in components
+        }
+        for gate, components in GATE_COMPONENTS.items()
+    }
+    union_rates_by_line = {
         line: {
             gate: gates[gate]["reference_line_calibration"][line][
-                "false_fail_rate"
+                "union_false_fail_rate"
             ]
             for gate in GATE_COMPONENTS
         }
         for line in lines
     }
-    gate_rates = {
-        gate: max(gate_rates_by_line[line][gate] for line in lines)
+    union_rates = {
+        gate: max(union_rates_by_line[line][gate] for line in lines)
         for gate in GATE_COMPONENTS
     }
     unattainable = [
-        f"{line}/{gate}"
+        f"{line}/{gate}/{component}"
         for line in lines
-        for gate, rate in gate_rates_by_line[line].items()
-        if rate > TARGET_FALSE_FAIL_RATE + 1e-15
+        for gate, components in GATE_COMPONENTS.items()
+        for component in components
+        if component_rates_by_line[line][gate][component]
+        > TARGET_FALSE_FAIL_RATE + 1e-15
     ]
     if unattainable:
         blockers.append(
-            "per-reference-line joint gate false-fail rate exceeds one percent for: "
+            "per-reference-line component false-fail rate exceeds one percent for: "
             + ", ".join(unattainable)
         )
     target_product = (1.0 - TARGET_FALSE_FAIL_RATE) ** (
-        len(GATE_COMPONENTS) * graded_world_count
+        CALIBRATED_COMPONENT_COUNT * graded_world_count
     )
     achieved_products_by_line = {
         line: math.prod(
-            (1.0 - gate_rates_by_line[line][gate]) ** graded_world_count
-            for gate in GATE_COMPONENTS
+            (1.0 - component_rates_by_line[line][gate][component]) ** graded_world_count
+            for gate, components in GATE_COMPONENTS.items()
+            for component in components
         )
         for line in lines
     }
     achieved_product = min(achieved_products_by_line.values())
+    union_products_by_line = {
+        line: math.prod(
+            (1.0 - union_rates_by_line[line][gate]) ** graded_world_count
+            for gate in GATE_COMPONENTS
+        )
+        for line in lines
+    }
+    union_product = min(union_products_by_line.values())
     reserve_audits: dict[str, Any] | None = None
     if not blockers:
         try:
@@ -3754,15 +3831,23 @@ def calibrate_composite_bars(
         "reference_failures": reference_failures,
         "ungated_reference_failures": ungated_reference_failures,
         "control_support": control_support,
-        "achieved_false_fail_rates": gate_rates,
-        "achieved_false_fail_rates_by_reference_line": gate_rates_by_line,
+        "achieved_false_fail_rates_by_component": component_rates,
+        "achieved_false_fail_rates_by_reference_line_and_component": (
+            component_rates_by_line
+        ),
+        "achieved_gate_union_false_fail_rates": union_rates,
+        "achieved_gate_union_false_fail_rates_by_reference_line": union_rates_by_line,
         "achieved_false_fail_rate_method": (
-            "per-reference-line joint max-severity empirical p99"
+            "per-reference-line per-component empirical p99"
         ),
         "target_marginal_product": target_product,
         "achieved_marginal_rate_product": achieved_product,
         "achieved_marginal_rate_product_by_reference_line": (
             achieved_products_by_line
+        ),
+        "achieved_gate_union_marginal_rate_product": union_product,
+        "achieved_gate_union_marginal_rate_product_by_reference_line": (
+            union_products_by_line
         ),
         "mortality_identification_evidence": mortality_audit,
         "caveats": [CORRELATION_CAVEAT, FINITE_WORLD_CAVEAT],
@@ -3932,9 +4017,9 @@ def _profile_accounting_line(bars: Mapping[str, Any]) -> str:
     selection = bars.get("gate_profile_selection")
     deciding = len(selection) if isinstance(selection, Mapping) else len(GATE_COMPONENTS)
     return (
-        f"- the rates below cover all {len(GATE_COMPONENTS)} calibrated gates; "
-        f"{deciding} of them decide under the "
-        f"{bars.get('gate_profile', DEFAULT_GATE_PROFILE)} profile"
+        f"- the rates below cover all {CALIBRATED_COMPONENT_COUNT} calibrated components "
+        f"of all {len(GATE_COMPONENTS)} gates; {deciding} of those gates decide under "
+        f"the {bars.get('gate_profile', DEFAULT_GATE_PROFILE)} profile"
     )
 
 
@@ -4232,7 +4317,7 @@ def _append_reference_gate_results(
             for row in witnesses
             if isinstance(row, Mapping)
         }
-    rates = bars.get("achieved_false_fail_rates_by_reference_line", {})
+    rates = bars.get("achieved_gate_union_false_fail_rates_by_reference_line", {})
     rendered_rates = ", ".join(
         f"{line} {float(rates.get(line, {}).get(gate)):.6%}"
         for line in bars.get("reference_lines", [])
@@ -4240,7 +4325,7 @@ def _append_reference_gate_results(
         and not isinstance(rates.get(line, {}).get(gate), bool)
     )
     lines.append(
-        "  reference results at per-line joint false-fail rates "
+        "  reference results at per-line union false-fail rates "
         f"{rendered_rates or 'missing'}:"
     )
     for line in bars.get("reference_lines", []):
@@ -4264,6 +4349,41 @@ def _append_reference_gate_results(
             lines.append(
                 f"    - {line}/{world}: {verdict}; evidence `{evidence}`"
             )
+
+
+def _append_union_accounting(lines: list[str], bars: Mapping[str, Any]) -> None:
+    """Report the union of one gate's component exceedances, which nothing bounds.
+
+    A gate fails a replicate when any of its components is over its own bar. Two
+    components can be over on two different replicates, so this rate can reach the number
+    of components in the gate divided by the sample size. It is measured and printed, and
+    the one-percent target is not claimed for it.
+    """
+
+    union_rates = bars.get("achieved_gate_union_false_fail_rates_by_reference_line")
+    if not isinstance(union_rates, Mapping) or not union_rates:
+        return
+    lines.append(
+        "- the one-percent target is per component and line; the union over a gate's "
+        "components is reported below and is not bounded by it"
+    )
+    for line in bars.get("reference_lines", []):
+        row = union_rates.get(line)
+        if not isinstance(row, Mapping):
+            continue
+        lines.append(
+            f"- {line} union false-fail rate by gate: "
+            + ", ".join(
+                f"{gate} {float(row[gate]):.6%}"
+                for gate in GATE_COMPONENTS if gate in row
+            )
+        )
+    union_product = bars.get("achieved_gate_union_marginal_rate_product")
+    if union_product is not None:
+        lines.append(
+            "- conservative achieved union marginal-rate product over five gates and "
+            f"three graded worlds: {float(union_product):.6f}"
+        )
 
 
 def render_freeze_report(bars: Mapping[str, Any]) -> str:
@@ -4291,16 +4411,16 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
                 else "reported, decides nothing"
             lines.append(f"- {gate} ({decision})")
             lines.append(
-                "  joint per-reference-line false-fail rates: "
+                "  per-reference-line union false-fail rates: "
                 + ", ".join(
                     f"{line} "
-                    f"{float(bars['achieved_false_fail_rates_by_reference_line'][line][gate]):.6%}"
+                    f"{float(bars['achieved_gate_union_false_fail_rates_by_reference_line'][line][gate]):.6%}"
                     for line in bars["reference_lines"]
                 )
             )
             lines.append(
-                f"  joint max-severity p99 ceiling: {record['severity_ceiling']:.12g}; "
-                f"rank {record['order_statistic_rank_per_reference_line']} of "
+                "  each component is calibrated on its own values; rank "
+                f"{record['order_statistic_rank_per_reference_line']} of "
                 f"{record['sample_count_per_reference_line']} per line"
             )
             lines.append(
@@ -4314,14 +4434,24 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
                     *_bar_value_lines(bar),
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
-                    f"    fixed normalizer: {bar['normalizer']:.12g}",
+                    f"    registered normalizer, which no longer scales the bar: "
+                    f"{bar['normalizer']:.12g}",
                     f"    worlds: {', '.join(bar['worlds'])}",
                     f"    witnesses: {', '.join(bar['witnesses'])}",
-                    "    diagnostic component p99 by line: "
+                    "    component p99 by line: "
                     + ", ".join(
                         f"{line} {float(value):.12g}"
                         for line, value in bar[
                             "empirical_p99_by_reference_line"
+                        ].items()
+                    ),
+                    "    calibrating line: "
+                    + (", ".join(bar.get("ceiling_witness_lines", [])) or "missing"),
+                    "    component false-fail rates by line: "
+                    + ", ".join(
+                        f"{line} {float(value):.6%}"
+                        for line, value in bar[
+                            "false_fail_rate_by_reference_line"
                         ].items()
                     ),
                 ])
@@ -4344,9 +4474,11 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
     _append_regime_identifiability(lines, bars)
     lines.extend(["## False-fail accounting", ""])
     lines.append(_profile_accounting_line(bars))
-    lines.append(f"- target per gate: {float(bars['target_false_fail_rate']):.2%}")
     lines.append(
-        "- target marginal product over five gates and three graded worlds: "
+        f"- target per component and line: {float(bars['target_false_fail_rate']):.2%}"
+    )
+    lines.append(
+        "- target marginal product over nine components and three graded worlds: "
         f"{float(bars['target_marginal_product']):.6f}"
     )
     achieved = bars.get("achieved_marginal_rate_product")
@@ -4358,6 +4490,7 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
         "achieved_marginal_rate_product_by_reference_line", {}
     ).items():
         lines.append(f"- {line} achieved conditional marginal-rate product: {value:.6f}")
+    _append_union_accounting(lines, bars)
     for caveat in bars.get("caveats", []):
         lines.append(f"- {caveat}")
     return "\n".join(lines) + "\n"
@@ -4367,11 +4500,11 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     lines = [
         "# Provenance of the version-four composite bars",
         "",
-        "Each gate ceiling is the maximum of the three reference-line empirical p99",
-        "order statistics of per-row max severity under fixed component normalizers.",
-        "Each line contributes 102 independent deterministic replicate reports; lines",
-        "are never pooled for the one-percent claim. Component records preserve their",
-        "own empirical diagnostics but do not make marginal false-fail claims.",
+        "Each component bar is the empirical p99 of that component's own values on the",
+        "reference line whose p99 for it is largest. Each line contributes 102",
+        "independent deterministic replicate reports; lines are never pooled for the",
+        "one-percent claim, and no component is carried to a ceiling another component",
+        "set. The one-percent false-fail target is per component and line.",
         "Final witness reports are checked against the bars but are not resampled.",
         "Scientific controls must pass the deterministic hard checks before a failure",
         "can support a gate.",
@@ -4405,16 +4538,16 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                 else "reported, decides nothing"
             lines.append(f"- {gate} ({decision})")
             lines.append(
-                "  joint per-reference-line false-fail rates: "
+                "  per-reference-line union false-fail rates: "
                 + ", ".join(
                     f"{line} "
-                    f"{float(bars['achieved_false_fail_rates_by_reference_line'][line][gate]):.6%}"
+                    f"{float(bars['achieved_gate_union_false_fail_rates_by_reference_line'][line][gate]):.6%}"
                     for line in bars["reference_lines"]
                 )
             )
             lines.append(
-                f"  joint max-severity p99 ceiling: {record['severity_ceiling']:.12g}; "
-                f"rank {record['order_statistic_rank_per_reference_line']} of "
+                "  each component is calibrated on its own values; rank "
+                f"{record['order_statistic_rank_per_reference_line']} of "
                 f"{record['sample_count_per_reference_line']} per line"
             )
             lines.append(
@@ -4428,14 +4561,24 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                     *_bar_value_lines(bar),
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
-                    f"    fixed normalizer: {bar['normalizer']:.12g}",
+                    f"    registered normalizer, which no longer scales the bar: "
+                    f"{bar['normalizer']:.12g}",
                     f"    worlds: {', '.join(bar['worlds'])}",
                     f"    witnesses: {', '.join(bar['witnesses'])}",
-                    "    diagnostic component p99 by line: "
+                    "    component p99 by line: "
                     + ", ".join(
                         f"{line} {float(value):.12g}"
                         for line, value in bar[
                             "empirical_p99_by_reference_line"
+                        ].items()
+                    ),
+                    "    calibrating line: "
+                    + (", ".join(bar.get("ceiling_witness_lines", [])) or "missing"),
+                    "    component false-fail rates by line: "
+                    + ", ".join(
+                        f"{line} {float(value):.6%}"
+                        for line, value in bar[
+                            "false_fail_rate_by_reference_line"
                         ].items()
                     ),
                     "    replicate evidence digest: `"
@@ -4462,7 +4605,7 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
     lines.extend(["## False-fail accounting", ""])
     lines.append(_profile_accounting_line(bars))
     lines.append(
-        "- target marginal product over five gates and three graded worlds: "
+        "- target marginal product over nine components and three graded worlds: "
         f"{float(bars['target_marginal_product']):.6f}"
     )
     achieved = bars.get("achieved_marginal_rate_product")
@@ -4474,6 +4617,7 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
         "achieved_marginal_rate_product_by_reference_line", {}
     ).items():
         lines.append(f"- {line} achieved conditional marginal-rate product: {value:.6f}")
+    _append_union_accounting(lines, bars)
     lines.extend(["", CORRELATION_CAVEAT, "", FINITE_WORLD_CAVEAT, ""])
     return "\n".join(lines)
 
