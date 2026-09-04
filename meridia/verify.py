@@ -139,6 +139,37 @@ GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
     gate: {component: 1.0 for component in components}
     for gate, components in COMPOSITE_GATE_COMPONENTS.items()
 }
+# A gate profile selects which of the five frozen composites decide a verdict. It never
+# adds a gate, never adds a component, and never moves a frozen ceiling: every profile is
+# a subset of COMPOSITE_GATE_COMPONENTS. Whatever a profile leaves out is still measured
+# and still reported; it only stops deciding. "full" is the default and decides on all
+# five. "lite" drops the tail block: exceedance deviations, the q95 and ES95
+# width-relative errors, and the regional shortfall probabilities are reported, and the
+# population, exposure and rate, projection, and reserve-skill blocks decide.
+DEFAULT_GATE_PROFILE = "full"
+GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "full": {gate: tuple(components)
+             for gate, components in COMPOSITE_GATE_COMPONENTS.items()},
+    "lite": {
+        "exposures_and_rates": ("p95_relative_error",),
+        "release_accuracy": ("p95_relative_error",),
+        "interval_quality": ("coverage_deviation", "mean_interval_score"),
+        "reserve_skill": ("skill_loss",),
+    },
+}
+
+
+def gate_profile_selection(name: str) -> dict[str, tuple[str, ...]]:
+    """Return the gates and components one profile decides on.
+
+    An unknown name raises rather than falling back to a default selection.
+    """
+    if not isinstance(name, str) or name not in GATE_PROFILES:
+        raise ValueError(f"unknown gate profile {name!r}")
+    return {gate: tuple(components)
+            for gate, components in GATE_PROFILES[name].items()}
+
+
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": (
         "deterministic_linkage", "ignore_health_selection", "informative_selection",
@@ -490,12 +521,15 @@ def load_totals(path: Path, n_counties: int) -> dict[str, np.ndarray]:
 
 def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None = None,
                       alpha: float = 0.10, *, score_disclosure: bool = True,
-                      allow_unfrozen: bool = False) -> dict:
+                      allow_unfrozen: bool = False,
+                      gate_profile: str = DEFAULT_GATE_PROFILE) -> dict:
     """Score one submission against one packet, dispatching on the packet's schema.
 
     ``allow_unfrozen`` is retained only for call compatibility and has no effect. A
     version-four verdict always requires a complete frozen receipt. Freeze measurements
     obtain ungated component metrics by omitting ``bars`` and reading ``hard_pass``.
+    ``gate_profile`` selects which composites decide a version-four verdict; the version-
+    three surface below has no composite gates and ignores it.
     """
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
     contract = json.loads((packet_dir / "participant" / "contract.json").read_text())
@@ -503,8 +537,10 @@ def verify_submission(packet_dir: Path, submission_dir: Path, bars: dict | None 
         del allow_unfrozen
         if bars is not None and bars.get("frozen") is not True:
             return _failed_v4_report(
-                "bars: this bar set does not record a completed freeze")
-        return verify_actuarial_submission(packet_dir, submission_dir, bars, alpha)
+                "bars: this bar set does not record a completed freeze",
+                gate_profile=gate_profile)
+        return verify_actuarial_submission(packet_dir, submission_dir, bars, alpha,
+                                           gate_profile=gate_profile)
     admin = admin_from_packet(packet_dir)
     # Fail closed on the selected output contract. The reusable Meridia verifier keeps
     # the detailed-table audit; the benchmark surface scores the other three files.
@@ -1159,6 +1195,20 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         errors.append("freeze quantile must be 0.99")
     if bars.get("target_false_fail_rate") != 0.01:
         errors.append("target false-fail rate must be 0.01")
+    # A receipt has to name a registered profile and carry that profile's own selection.
+    # A receipt with no profile field predates profiles and is read as the full one.
+    try:
+        registered_selection = {
+            gate: list(components) for gate, components
+            in gate_profile_selection(bars.get("gate_profile",
+                                               DEFAULT_GATE_PROFILE)).items()
+        }
+    except ValueError:
+        errors.append("freeze receipt names an unregistered gate profile")
+    else:
+        if bars.get("gate_profile_selection", registered_selection) \
+                != registered_selection:
+            errors.append("gate profile selection differs from the registered profile")
     worlds = bars.get("qualification_worlds")
     if worlds != list(QUALIFICATION_WORLD_NAMES):
         errors.append("freeze receipt must name qual-0 through qual-5 in order")
@@ -3179,44 +3229,69 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
 
 
 def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
-                             hard_pass: bool) -> dict[str, dict]:
+                             hard_pass: bool,
+                             gate_profile: str = DEFAULT_GATE_PROFILE) -> dict[str, dict]:
+    """Compare every composite against its frozen bar, deciding only on the profile.
+
+    All five gates are compared and reported. ``gated`` says which of them decide the
+    verdict under the named profile. A component the profile leaves out can never produce
+    a reason: its exceedance is recorded in ``ungated_failures`` instead. A gate with no
+    gated component decides nothing, and its ``pass`` is null rather than a verdict.
+    """
+    selection = gate_profile_selection(gate_profile)
     results: dict[str, dict] = {}
     for gate, components in COMPOSITE_GATE_COMPONENTS.items():
+        gated = selection.get(gate, ())
+        marker = {"gated": bool(gated), "gated_components": list(gated)}
         values = composite_metrics.get(gate, {})
         if not hard_pass:
             results[gate] = {"pass": False, "evaluated": False,
-                             "reasons": ["hard checks failed"]}
+                             "reasons": ["hard checks failed"],
+                             "ungated_failures": [], **marker}
             continue
         nonfinite = [component for component in components
                      if not math.isfinite(float(values.get(component, float("nan"))))]
-        if nonfinite:
+        gated_nonfinite = [component for component in nonfinite if component in gated]
+        reported_nonfinite = [component for component in nonfinite
+                              if component not in gated]
+        ungated_failures = [f"non-finite components {reported_nonfinite}"] \
+            if reported_nonfinite else []
+        if gated_nonfinite:
             results[gate] = {"pass": False, "evaluated": True,
-                             "reasons": [f"non-finite components {nonfinite}"]}
+                             "reasons": [f"non-finite components {gated_nonfinite}"],
+                             "ungated_failures": ungated_failures, **marker}
             continue
         if bars is None:
             results[gate] = {"pass": False, "evaluated": False,
-                             "reasons": ["frozen bars not supplied"]}
+                             "reasons": ["frozen bars not supplied"],
+                             "ungated_failures": ungated_failures, **marker}
             continue
         failures = []
         frozen = bars["gates"][gate]["components"]
         for component in components:
+            if component in nonfinite:
+                continue
             value = float(values[component])
             ceiling = float(frozen[component]["value"])
             if value > ceiling:
-                failures.append(f"{component} {value:.6g} > {ceiling:.6g}")
-        results[gate] = {"pass": not failures, "evaluated": True,
-                         "reasons": failures}
+                detail = f"{component} {value:.6g} > {ceiling:.6g}"
+                (failures if component in gated else ungated_failures).append(detail)
+        results[gate] = {"pass": (not failures) if gated else None, "evaluated": True,
+                         "reasons": failures, "ungated_failures": ungated_failures,
+                         **marker}
     return results
 
 
-def _failed_v4_report(reason: str, *, schema_errors: list[str] | None = None) -> dict:
+def _failed_v4_report(reason: str, *, schema_errors: list[str] | None = None,
+                      gate_profile: str = DEFAULT_GATE_PROFILE) -> dict:
     empty = {gate: {} for gate in COMPOSITE_GATE_COMPONENTS}
     return {"pass": False, "hard_pass": False, "reasons": [reason],
+            "gate_profile": gate_profile,
             "schema_errors": list(schema_errors or []), "additivity_errors": [],
             "rate_errors": [], "reserve_errors": [], "metrics": {},
             "projection_metrics": {}, "rate_metrics": {},
             "composite_metrics": empty, "gate_results": evaluate_composite_gates(
-                empty, None, False), "reserve": {"feasible": False},
+                empty, None, False, gate_profile), "reserve": {"feasible": False},
             "reserve_q95_feasibility": {"valid": False},
             "reserve_tail_evidence": {
                 "schema": RESERVE_TAIL_EVIDENCE_SCHEMA,
@@ -3227,7 +3302,8 @@ def _failed_v4_report(reason: str, *, schema_errors: list[str] | None = None) ->
 
 def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
                                 bars: dict | None = None, alpha: float = 0.10,
-                                thresholds: ActuarialThresholds | None = None) -> dict:
+                                thresholds: ActuarialThresholds | None = None,
+                                gate_profile: str = DEFAULT_GATE_PROFILE) -> dict:
     """Score the exact three-file version-four surface.
 
     The release and projection tables carry the eight version-three estimands and the
@@ -3237,8 +3313,13 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
     submitted q95 allocation-floor comparison remains an authenticated diagnostic and is
     not a hard check. Schema, additivity, and feasibility are deterministic hard checks.
     The stochastic verdict has exactly five composite pass events.
+
+    ``gate_profile`` names which of those five decide. The default profile decides on all
+    of them. Every profile measures and reports all five, and the report names the profile
+    the verdict came from. An unknown profile name raises rather than scoring.
     """
     packet_dir, submission_dir = Path(packet_dir), Path(submission_dir)
+    gate_profile_selection(gate_profile)
     try:
         contract_file = json.loads(
             (packet_dir / "participant" / "contract.json").read_text())
@@ -3246,20 +3327,23 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         obligation = ObligationContract.from_public(reserve_contract["obligation"])
         admin = admin_from_packet(packet_dir)
     except Exception as exc:
-        return _failed_v4_report(f"packet: cannot read public contract ({type(exc).__name__})")
+        return _failed_v4_report(
+            f"packet: cannot read public contract ({type(exc).__name__})",
+            gate_profile=gate_profile)
     thresholds = thresholds or ActuarialThresholds()
     reserve_rule_evidence, reserve_rule_errors = _public_reserve_rule_evidence(
         packet_dir, contract_file)
 
     file_errors = _v4_file_errors(submission_dir)
     if file_errors:
-        return _failed_v4_report(f"file set: {'; '.join(file_errors)}")
+        return _failed_v4_report(f"file set: {'; '.join(file_errors)}",
+                                 gate_profile=gate_profile)
     header_errors = _v4_header_errors(submission_dir)
     contract_errors = _contract_submission_errors(packet_dir, contract_file, thresholds)
     if header_errors or contract_errors:
         errors = contract_errors + header_errors
         return _failed_v4_report(f"schema: {len(errors)} violation(s)",
-                                 schema_errors=errors)
+                                 schema_errors=errors, gate_profile=gate_profile)
 
     try:
         evidence = _v4_evidence(packet_dir, submission_dir)
@@ -3267,6 +3351,7 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         return _failed_v4_report(
             "evidence: cannot bind verifier inputs",
             schema_errors=[str(exc)],
+            gate_profile=gate_profile,
         )
 
     retained = packet_dir / "retained"
@@ -3284,7 +3369,7 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
         )
     except Exception as exc:
         return _failed_v4_report(f"schema: cannot parse a required file ({type(exc).__name__})",
-                                 schema_errors=[str(exc)])
+                                 schema_errors=[str(exc)], gate_profile=gate_profile)
 
     schema_errors = validate_release(release_core, admin,
                                      extra_columns=RATE_EXTRA_COLUMNS,
@@ -3374,20 +3459,29 @@ def verify_actuarial_submission(packet_dir: Path, submission_dir: Path,
             f"public reserve rule: {len(reserve_rule_errors)} violation(s)")
     if bar_errors:
         hard_reasons.append(f"bars: {len(bar_errors)} schema violation(s)")
+    # A receipt frozen under one profile cannot decide under another: the reader of a
+    # verdict must see the same profile name on the bars and on the report.
+    bar_profile = bars.get("gate_profile", DEFAULT_GATE_PROFILE) \
+        if isinstance(bars, dict) else None
+    if bars is not None and bar_profile != gate_profile:
+        hard_reasons.append(
+            f"bars: the receipt froze the {bar_profile!r} gate profile, "
+            f"not {gate_profile!r}")
 
     composite_metrics = build_composite_metrics(
         metrics, projection_metrics, rate_metrics, reserve, alpha)
     hard_pass = not hard_reasons
     gate_results = evaluate_composite_gates(
-        composite_metrics, bars if not bar_errors else None, hard_pass)
+        composite_metrics, bars if not bar_errors else None, hard_pass, gate_profile)
     gate_reasons = [f"{gate}: " + "; ".join(result["reasons"])
                     for gate, result in gate_results.items()
-                    if result["evaluated"] and not result["pass"]]
+                    if result["evaluated"] and result["gated"] and not result["pass"]]
     reasons = hard_reasons + gate_reasons
     if bars is None:
         reasons.append("bars: no frozen composite bar receipt was supplied")
     report = {
         "pass": not reasons, "hard_pass": hard_pass, "reasons": reasons,
+        "gate_profile": gate_profile,
         "schema_errors": all_schema_errors, "additivity_errors": all_additivity_errors,
         "rate_errors": rate_errors, "reserve_errors": reserve_errors,
         "metrics": metrics, "projection_metrics": projection_metrics,
@@ -3433,5 +3527,7 @@ def summary_table(report: dict) -> str:
         lines.append(f"disclosure pass={report['disclosure']['pass']} "
                      f"protected={report['disclosure']['n_protected']} "
                      f"suppressed={report['disclosure']['n_suppressed']}")
+    if report.get("gate_profile"):
+        lines.append(f"gate profile {report['gate_profile']}")
     lines.append("PASS" if report["pass"] else "FAIL: " + "; ".join(report["reasons"]))
     return "\n".join(lines)

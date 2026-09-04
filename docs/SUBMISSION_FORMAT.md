@@ -115,6 +115,12 @@ Five stochastic composite gates decide a structurally valid submission:
 The frozen bar document gives every component ceiling. Missing, incomplete, or old-format
 bars stop scoring rather than supplying a default threshold.
 
+The same document names the gate profile it froze under, and a profile selects which of
+those five decide. Under the default `full` profile all five decide. Under `lite` the tail
+block is measured and reported while exposures and rates, release accuracy, interval
+quality, and reserve skill decide. Every verdict names the profile it came from, and a bar
+document frozen under one profile cannot be scored under another.
+
 ## Participant input columns
 
 `contract.json` publishes `participant_csv_schemas`, an exact map from every core input

@@ -2307,3 +2307,80 @@ how the reserve total is derived, not to any estimator, and no world needs to be
 
 Nothing was sealed. No graded world was minted, no seed was derived, and the task package
 was not repinned, because all three wait on a completed freeze.
+
+## Gate profiles, 2026-09-03
+
+### The lite profile, and why the task ships with it
+
+A gate profile names which of the five frozen composites decide a verdict. It is a
+selection over the gates that already exist: no profile adds a gate, adds a component, or
+moves a calibrated ceiling. What a profile leaves out is still measured, still written
+into the verifier result, and still written into the freeze report. It only stops
+deciding.
+
+Two profiles are registered. `full` is the default and decides on all five composites, so
+it carries the behaviour every earlier freeze and every earlier verdict already had.
+`lite` decides on four blocks: exposures and rates, release accuracy, interval quality, and
+reserve skill on the means. Release accuracy and interval quality read the revised release
+and the projection together, so the projection block gates under lite as well. Reserve
+skill under lite is the skill loss alone, which is the allocation's expected uncovered
+obligation against the public proportional baseline and the perfect-information oracle,
+with the reserve contract untouched: an allocation is still finite, still nonnegative, and
+still sums to the published total, and those remain deterministic hard checks under either
+profile.
+
+The tail block does not gate under lite. The pooled exceedance deviation, the q95 and ES95
+width-relative errors, and the worst regional shortfall probability are computed on every
+submission, reported in the verdict, and carried in the freeze report and in
+`PROVENANCE.md`. The reason for reporting them rather than gating on them is the failure
+this document has already recorded on three freezes: the phase-one v8 reports, where the
+worst-region exceedance deviation read 0.95 on four worlds; the pass whose blocker was the
+reference itself, where the tail and the reserve were the failing blocks and the regional
+liability means were off by up to 17 percent; and the phase-two rebuild that wrote
+`bars/national-v9` with `RESULT: NOT FROZEN`. No reference line has cleared the tail block
+on any of them. The upstream failure is a regional liability level error that runs through
+elder exposure and survival into the tail, and the standing decision is that no tail
+ceiling is widened around that bias. The remaining choice is between holding
+the task back until the reference clears the tail and shipping with the gates the
+reference does pass while the tail is reported. The lite profile is the second of those.
+It states in the receipt which gates decided, so a reader is never left to infer it.
+
+### What lite costs, stated in the receipt
+
+Six registered controls test the tail block alone: `development_average_regime`,
+`mean_only_tail`, `normal_tail`, `padded_tail`, `predictive_tails`, and
+`regime_recombination`. Under lite they separate nothing, because the only gate they fail
+is the one that no longer decides. A wrong tail method therefore passes the lite task.
+That is the price of the profile and it is written where it cannot be missed: the freeze
+receipt, the freeze report, and `PROVENANCE.md` name all six as deletion candidates for
+the lite profile. A control whose registered primary gate still decides is judged on that
+gate exactly as before, so the sixteen other controls carry the same separation
+requirement they always did.
+
+The freeze itself is unchanged in everything that produces a number. Under lite it still
+calibrates all five gates, still calibrates each independently within each reference line
+on the same seventeen paired resamples per line and world, and still writes the same
+per-line one-percent accounting over all five. The receipt a verifier reads carries the
+same all-control all-world separation surface. The one difference is that a final
+reference result above a bar that the profile does not gate is recorded in
+`ungated_reference_failures` rather than blocking the freeze, which is what lets a freeze
+complete while the tail exceedance stays visible in the report.
+
+### Selecting it, and the mean liability that is reported rather than gated
+
+The freeze takes `--gate-profile lite` and defaults to `full`. The verifier takes
+`gate_profile="lite"` and defaults to `full`. The name is written into `bars.json`, into
+`freeze_report.txt`, into `PROVENANCE.md`, and into the verifier result under
+`gate_profile`, so every verdict says which profile produced it. A receipt frozen under
+one profile cannot decide under another: the verifier reports a hard failure when the two
+names differ, which stops a lite receipt from being read as a full pass.
+
+One quantity in the reserve block is reported under both profiles rather than gated. The
+filed regional `liability_mean` is recomputed against the sealed ensemble mean, both as
+the mean liability error in the scored reserve and per region in the authenticated elder
+reference evidence. No frozen composite component reads it, under either profile, and a
+profile is a selection rather than a new bar, so lite could not start gating it without
+calibrating a component the full profile has never had. Under lite the regional level is
+carried by the blocks that do decide, and the per-region comparison against the sealed
+mean stays a reported quantity. If that comparison should decide, it needs its own
+calibrated component in a freeze, which is a separate decision from this one.

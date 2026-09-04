@@ -1,0 +1,281 @@
+"""The gate profile: which frozen composites decide, and what the rest still report."""
+
+from __future__ import annotations
+
+import importlib.util
+from copy import deepcopy
+from functools import lru_cache
+from pathlib import Path
+
+import pytest
+
+from meridia.actuarial import perfect_information_allocation
+from meridia.verify import (COMPOSITE_GATE_COMPONENTS, DEFAULT_GATE_PROFILE,
+                            GATE_PROFILES, evaluate_composite_gates,
+                            gate_profile_selection, verify_submission)
+
+TAIL_CONTROLS = (
+    "development_average_regime", "mean_only_tail", "normal_tail", "padded_tail",
+    "predictive_tails", "regime_recombination",
+)
+
+
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@lru_cache(maxsize=1)
+def _freeze():
+    return _load("freeze_v4_bars_profile",
+                 Path(__file__).resolve().parents[1] / "scripts" / "freeze_v4_bars.py")
+
+
+@lru_cache(maxsize=1)
+def _fixtures():
+    return _load("composite_fixtures_for_profile",
+                 Path(__file__).resolve().parent / "test_freeze_v4_composites.py")
+
+
+@lru_cache(maxsize=1)
+def _actuarial_fixtures():
+    return _load("actuarial_fixtures_for_profile",
+                 Path(__file__).resolve().parent / "test_actuarial.py")
+
+
+@lru_cache(maxsize=2)
+def _bars(gate_profile: str) -> dict:
+    """One complete freeze receipt under the named profile."""
+    freeze, fixtures = _freeze(), _fixtures()
+    references, replicates, controls = fixtures._evidence(freeze)
+    return freeze.calibrate_composite_bars(
+        references, replicates, controls, gate_profile=gate_profile,
+        **fixtures._calibration_kwargs(freeze, references, controls),
+    )
+
+
+def _wrong_tail_submission(tmp_path):
+    """A submission whose gated blocks are right and whose filed tails are far out.
+
+    The filed q95 sits six ensemble tail widths above the sealed quantile and ES95 is
+    carried up with it, so both width-relative errors run well past their frozen bars.
+    The allocation is the perfect-information one, so the reserve skill is exact.
+    """
+    actuarial = _actuarial_fixtures()
+    packet, admin, truth, detailed, rate_truth, liability, sealed, total = \
+        actuarial._packet(tmp_path)
+    source = packet / "participant" / "sources" / "observed.csv"
+    source.parent.mkdir(exist_ok=True)
+    source.write_text("value\n1\n")
+    oracle = perfect_information_allocation(liability, total)
+    mean, quantile, shortfall = sealed["mean"], sealed["q"], sealed["es"]
+    filed_q95 = mean + 6.0 * (quantile - mean)
+    submission = tmp_path / "submission"
+    actuarial._oracle_submission(submission, admin, truth, detailed, rate_truth, sealed,
+                                 total, oracle, filed_q95)
+    actuarial._write(submission / "reserve.csv", {
+        "region": [0, 1], "liability_mean": mean, "q95": filed_q95,
+        "es95": filed_q95 + (shortfall - quantile), "allocation": oracle,
+    })
+    return packet, submission
+
+
+def test_every_profile_is_a_selection_over_the_five_frozen_gates():
+    freeze = _freeze()
+    assert DEFAULT_GATE_PROFILE == "full"
+    assert freeze.DEFAULT_GATE_PROFILE == DEFAULT_GATE_PROFILE
+    assert set(GATE_PROFILES) == set(freeze.GATE_PROFILES) == {"full", "lite"}
+    for name in GATE_PROFILES:
+        selection = gate_profile_selection(name)
+        assert selection == freeze.gate_profile_selection(name)
+        assert set(selection) <= set(COMPOSITE_GATE_COMPONENTS)
+        for gate, components in selection.items():
+            assert components
+            assert set(components) <= set(COMPOSITE_GATE_COMPONENTS[gate])
+    assert gate_profile_selection("full") == {
+        gate: tuple(components)
+        for gate, components in COMPOSITE_GATE_COMPONENTS.items()
+    }
+    lite = gate_profile_selection("lite")
+    assert "tail_calibration" not in lite
+    assert lite["reserve_skill"] == ("skill_loss",)
+    with pytest.raises(ValueError):
+        gate_profile_selection("tail_only")
+    with pytest.raises(freeze.EvidenceError):
+        freeze.gate_profile_selection("tail_only")
+
+
+def test_lite_passes_a_submission_whose_tails_are_wrong(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    report = verify_submission(packet, submission, _bars("lite"), gate_profile="lite")
+    assert report["hard_pass"] is True
+    assert report["reasons"] == []
+    assert report["pass"] is True
+    assert report["gate_profile"] == "lite"
+    tail = report["gate_results"]["tail_calibration"]
+    assert tail["gated"] is False and tail["pass"] is None and tail["reasons"] == []
+    assert [detail.split()[0] for detail in tail["ungated_failures"]] == [
+        "q95_width_relative_error", "es95_width_relative_error"]
+    reserve = report["gate_results"]["reserve_skill"]
+    assert reserve["gated"] is True and reserve["pass"] is True
+    assert reserve["gated_components"] == ["skill_loss"]
+    # The tail block is still measured on the same submission, and the mean liability the
+    # reserve file filed is still recomputed against the sealed ensemble mean.
+    assert report["composite_metrics"]["tail_calibration"][
+        "q95_width_relative_error"] == pytest.approx(5.0)
+    assert report["reserve"]["mean_liability_error"] == pytest.approx(0.0)
+    assert [row["sealed"] for row
+            in report["elder_reference_evidence"]["liability_mean_by_region"]] \
+        == [pytest.approx(row["submitted"]) for row
+            in report["elder_reference_evidence"]["liability_mean_by_region"]]
+
+
+def test_full_fails_the_same_submission(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    report = verify_submission(packet, submission, _bars("full"))
+    assert report["hard_pass"] is True
+    assert report["gate_profile"] == "full"
+    assert report["pass"] is False
+    assert len(report["reasons"]) == 1
+    assert report["reasons"][0].startswith("tail_calibration: ")
+    assert "q95_width_relative_error" in report["reasons"][0]
+    tail = report["gate_results"]["tail_calibration"]
+    assert tail["gated"] is True and tail["pass"] is False
+    assert tail["ungated_failures"] == []
+    for gate in ("exposures_and_rates", "release_accuracy", "interval_quality",
+                 "reserve_skill"):
+        assert report["gate_results"][gate]["pass"] is True
+
+
+def test_a_receipt_cannot_decide_under_a_profile_it_did_not_freeze(tmp_path):
+    packet, submission = _wrong_tail_submission(tmp_path)
+    report = verify_submission(packet, submission, _bars("full"), gate_profile="lite")
+    assert report["pass"] is False and report["hard_pass"] is False
+    assert any("gate profile" in reason for reason in report["reasons"])
+
+
+def test_a_receipt_must_carry_the_registered_selection_for_the_profile_it_names():
+    from meridia.verify import _bar_schema_errors
+
+    assert _bar_schema_errors(_bars("lite")) == []
+    forged = deepcopy(_bars("lite"))
+    forged["gate_profile_selection"]["tail_calibration"] = ["pooled_exceedance_deviation"]
+    assert any("gate profile selection differs" in error
+               for error in _bar_schema_errors(forged))
+    renamed = deepcopy(_bars("lite"))
+    renamed["gate_profile"] = "tail_only"
+    assert any("unregistered gate profile" in error
+               for error in _bar_schema_errors(renamed))
+
+
+def test_the_profile_name_reaches_the_bars_the_report_and_the_verdict(tmp_path):
+    freeze = _freeze()
+    packet, submission = _wrong_tail_submission(tmp_path)
+    for profile, other in (("lite", "full"), ("full", "lite")):
+        bars = _bars(profile)
+        assert bars["frozen"] is True
+        assert bars["gate_profile"] == profile
+        assert bars["gate_profile_selection"] == {
+            gate: list(components)
+            for gate, components in gate_profile_selection(profile).items()
+        }
+        report_text = freeze.render_freeze_report(bars)
+        provenance = freeze.render_provenance(bars)
+        assert f"PROFILE: {profile}" in report_text
+        assert f"- profile: {profile}" in report_text
+        assert f"Gate profile: `{profile}`." in provenance
+        assert f"- profile: {profile}" in provenance
+        assert f"PROFILE: {other}" not in report_text
+        verdict = verify_submission(packet, submission, bars, gate_profile=profile)
+        assert verdict["gate_profile"] == profile
+    lite_report = freeze.render_freeze_report(_bars("lite"))
+    assert "tail_calibration (reported, decides nothing)" in lite_report
+    assert "reserve_skill (decides on skill_loss)" in lite_report
+    full_report = freeze.render_freeze_report(_bars("full"))
+    assert "tail_calibration (decides on pooled_exceedance_deviation, " \
+        "q95_width_relative_error, es95_width_relative_error)" in full_report
+
+
+def test_a_control_that_fails_only_tail_gates_is_a_lite_deletion_candidate():
+    freeze = _freeze()
+    lite, full = _bars("lite"), _bars("full")
+    lite_support = lite["control_support"]["gate_profile"]
+    assert lite_support["name"] == "lite"
+    assert lite_support["reported_only_gates"] == ["tail_calibration"]
+    assert lite_support["deletion_candidate_controls"] == sorted(TAIL_CONTROLS)
+    for record in lite_support["deletion_candidates"]:
+        assert record["primary_gate"] == "tail_calibration"
+        assert record["primary_gate_decides"] is False
+        assert record["failed_gated_worlds"] == []
+        assert record["unseparated_worlds"] == list(lite["qualification_worlds"])
+    assert set(lite_support["separating_controls"]) == \
+        set(freeze.REQUIRED_SCIENTIFIC_CONTROLS) - set(TAIL_CONTROLS)
+    # Under lite those six wrong tail methods pass the task, so the report names them.
+    for text in (freeze.render_freeze_report(lite), freeze.render_provenance(lite)):
+        assert "lite profile deletion candidates" in text
+        named = text.split("lite profile deletion candidates")[1]
+        assert all(name in named for name in TAIL_CONTROLS)
+    # The registered per-primary-gate battery is unchanged, and full names nobody.
+    assert full["control_support"]["gate_profile"]["deletion_candidate_controls"] == []
+    assert lite["control_support"]["deletion_candidates"] == []
+    assert lite["control_support"]["separated_controls_by_gate"] == \
+        full["control_support"]["separated_controls_by_gate"]
+
+
+def test_a_reference_above_a_tail_bar_blocks_full_and_is_recorded_under_lite():
+    freeze, fixtures = _freeze(), _fixtures()
+    references, replicates, controls = fixtures._evidence(freeze)
+    references = deepcopy(references)
+    references[0]["report"]["composite_metrics"]["tail_calibration"][
+        "q95_width_relative_error"] = 0.9
+    fixtures._rebind(freeze, references[0], "reference")
+    kwargs = fixtures._calibration_kwargs(freeze, references, controls)
+    full = freeze.calibrate_composite_bars(references, replicates, controls, **kwargs)
+    lite = freeze.calibrate_composite_bars(references, replicates, controls,
+                                           gate_profile="lite", **kwargs)
+    assert full["frozen"] is False
+    assert any("exceed the p99 bars" in blocker for blocker in full["blockers"])
+    assert [row["gate"] for row in full["reference_failures"]] == ["tail_calibration"]
+    assert full["ungated_reference_failures"] == []
+    assert lite["frozen"] is True and lite["blockers"] == []
+    assert lite["reference_failures"] == []
+    assert [row["gate"] for row in lite["ungated_reference_failures"]] == \
+        ["tail_calibration"]
+    text = freeze.render_freeze_report(lite)
+    assert "- reference results above a reported bar:" in text
+    assert "A/qual-0: tail_calibration q95_width_relative_error" in text
+
+
+def test_an_ungated_component_never_produces_a_reason():
+    metrics = {
+        "exposures_and_rates": {"p95_relative_error": 0.1},
+        "release_accuracy": {"p95_relative_error": 0.1},
+        "interval_quality": {"coverage_deviation": 0.1, "mean_interval_score": 0.1},
+        "tail_calibration": {"pooled_exceedance_deviation": 0.9,
+                             "q95_width_relative_error": float("nan"),
+                             "es95_width_relative_error": 0.1},
+        "reserve_skill": {"skill_loss": 0.1,
+                          "worst_regional_shortfall_probability": 0.9},
+    }
+    bars = {"gates": {gate: {"components": {component: {"value": 0.5}
+                                            for component in components}}
+                      for gate, components in COMPOSITE_GATE_COMPONENTS.items()}}
+    lite = evaluate_composite_gates(metrics, bars, True, "lite")
+    assert [gate for gate, result in lite.items() if result["gated"]] == [
+        "exposures_and_rates", "release_accuracy", "interval_quality", "reserve_skill"]
+    assert all(result["pass"] for result in lite.values() if result["gated"])
+    assert lite["reserve_skill"]["ungated_failures"] == [
+        "worst_regional_shortfall_probability 0.9 > 0.5"]
+    assert lite["tail_calibration"]["pass"] is None
+    assert "non-finite components ['q95_width_relative_error']" in \
+        lite["tail_calibration"]["ungated_failures"]
+    full = evaluate_composite_gates(metrics, bars, True, "full")
+    assert full["tail_calibration"]["pass"] is False
+    assert full["tail_calibration"]["reasons"] == [
+        "non-finite components ['q95_width_relative_error']"]
+    assert full["reserve_skill"]["pass"] is False
+    assert full["reserve_skill"]["reasons"] == [
+        "worst_regional_shortfall_probability 0.9 > 0.5"]
