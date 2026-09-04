@@ -1,0 +1,52 @@
+{
+  "achieved_false_fail_rates_by_component": {},
+  "achieved_false_fail_rates_by_reference_line_and_component": {},
+  "achieved_gate_union_false_fail_rates": {},
+  "achieved_gate_union_false_fail_rates_by_reference_line": {},
+  "achieved_gate_union_marginal_rate_product": null,
+  "achieved_gate_union_marginal_rate_product_by_reference_line": {},
+  "achieved_marginal_rate_product": null,
+  "achieved_marginal_rate_product_by_reference_line": {},
+  "blockers": [
+    "reserve_skill/worst_regional_shortfall_probability: the calibrated bar 1 reaches its attainable ceiling 1, so the component cannot fail"
+  ],
+  "caveats": [
+    "The marginal products assume independent gate and world failures. They are arithmetic summaries, not empirical pass probabilities; failures can be correlated.",
+    "Only six qualification worlds support this freeze. Replicate false-fail rates are conditional on those worlds and do not establish a one-percent rate on new worlds."
+  ],
+  "frozen": false,
+  "gate_profile": "full",
+  "gate_profile_selection": {
+    "exposures_and_rates": [
+      "p95_relative_error"
+    ],
+    "interval_quality": [
+      "coverage_deviation",
+      "mean_interval_score"
+    ],
+    "release_accuracy": [
+      "p95_relative_error"
+    ],
+    "reserve_skill": [
+      "skill_loss",
+      "worst_regional_shortfall_probability"
+    ],
+    "tail_calibration": [
+      "pooled_exceedance_deviation",
+      "q95_width_relative_error",
+      "es95_width_relative_error"
+    ]
+  },
+  "gates": {},
+  "graded_world_count": 3,
+  "mortality_identification_evidence": null,
+  "qualification_world_count": 6,
+  "quantile": 0.99,
+  "reference_failures": [],
+  "reported_only_components": [],
+  "reported_only_gates": [],
+  "schema": "meridia.v4.composite-bars.v1",
+  "target_false_fail_rate": 0.01,
+  "target_marginal_product": 0.7623427143471035,
+  "ungated_reference_failures": []
+}

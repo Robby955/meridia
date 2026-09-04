@@ -3798,3 +3798,220 @@ a pass that freezes replaces the v11 directory name with the one it wrote.
 
 The evidence still does not need rebuilding. The same 18 reference reports, 306 paired
 replicates, 132 controls and 24 development diagnostics carried this pass.
+
+## P5 pass six, 2026-09-04
+
+### The reserve candidate contract now reads the published rule
+
+Pass five stopped the lite freeze on a mismatch between two halves of one mechanism.
+`scripts/calibrate_reserve_rate.py` has emitted the published means-based rule for several
+passes: a reference contributes the sum of its submitted regional mean liabilities over
+the packet's public exposure, rounded up to the rate grid, and the published rate is the
+largest of those candidates that still leaves the reserve decision identified on every
+qualification world. The freezer still expected the earlier candidate, whose target read
+the filed q95 sum plus a quarter of the gap to ES95 and which carried a `tail_slack_share`
+key. The key set and the rule string both differed, so the freeze refused the candidate its
+own calibrator produced.
+
+The contract is reconciled to the published rule. `_validate_reserve_calibration_candidate`
+accepts exactly the key set the calibrator writes, being the rate, the grid, the
+identification margin share, both rule strings, the binding reference, the rate ladder and
+the eighteen evidence rows, and each row now carries the submitted mean liability sum and
+its own candidate rate. The freezer recomputes what it can. The mean liability sum is read
+back off the authenticated reference report, by summing the submitted regional means in
+that report's own elder reference evidence, so a candidate cannot claim a target the
+reports do not support. Each row's candidate rate must be its required rate rounded up to
+the grid. Every rung of the ladder must carry the worst world and worst margin share its
+own per-world readings imply, a rung is identified exactly when that worst share reaches
+the registered one percent, and the published rate must be the largest rung that is. The
+chosen reading must reproduce its skill denominator from the baseline and oracle
+obligations and its margin share from that denominator and the sealed mean total liability.
+
+Two checks left with the older rule, and the record says why. The published total is a
+rate applied to public exposure and is no longer a floor over the filed q95 sum, and the
+margin it leaves against the target is signed. On the qualification evidence the total
+sits below the filed q95 sum on all eighteen rows and below the target mean on ten of
+them, so refusing a negative margin would have refused the rule itself. The acceptance
+record now names the rule it was accepted under, and the verifier holds the promoted
+record to the same rule, the same margin share and the same ladder. A test binds the
+freezer's registered key sets and rule strings to what the calibrator actually emits, so
+the two cannot drift apart again.
+
+### The shipping profile is standard
+
+Two profiles were the ends of a range. Under `full` all nine components decide, so the
+freeze refuses at the shortfall probability rather than publish a ceiling nothing can
+exceed. Under `lite` the tail block and the reserve block leave whole, which gives away
+five components that do carry information.
+
+The registered shipping profile is `standard`. All five blocks decide. Eight of the nine
+components decide. The worst regional shortfall probability is measured and reported and
+decides nothing, because it reads exactly 1.000000 on all eighteen final references and
+all 306 replicates at the compiled rate 3769, so its own p99 is 1.000000 against an
+attainable ceiling of 1.000000. The receipt carries the value its calibration produced,
+the ceiling that value reached, the reason a ceiling nothing can exceed is not a bar, and
+the fact that the profile does not decide on it. Its reference witnesses carry a null
+verdict rather than a pass, and nothing compares a submission against it.
+
+The reported-only list is now a field rather than something a reader derives. It names
+gate and component pairs, since a profile can leave out one component of a block it
+otherwise decides on, and it appears in `bars.json`, the freeze report, the provenance
+file and the verifier result. The verifier holds a receipt to the registered list for the
+profile it names and still refuses to score under a profile the receipt did not freeze.
+`full` and `lite` are unchanged and the default is still `full`.
+
+### Three profiles on the same evidence
+
+The same 18 reference reports, 306 paired replicates, 132 controls and 24 development
+diagnostics carried all three runs. Nothing was rebuilt.
+
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile standard --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-standard
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile full --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-full
+    PYTHONPATH=$PWD python3 scripts/freeze_v4_bars.py --evidence /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/freeze_evidence_manifest.json --gate-profile lite --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v13-lite
+
+None of the three froze. Each directory holds a fail-closed `bars.json`, a report reading
+`RESULT: NOT FROZEN`, and a provenance file, and none holds a reserve calibration
+acceptance, so nothing downstream ran.
+
+Under `full` the run refuses inside calibration, at the same place pass five stopped:
+
+    reserve_skill/worst_regional_shortfall_probability: the calibrated bar 1 reaches
+    its attainable ceiling 1, so the component cannot fail
+
+Under `standard` and `lite` calibration completes, the reserve candidate is accepted for
+the first time in this task, and both stop at the next registered check:
+
+    reserve calibration remains blocked because proportional_reserve passes
+    reserve_skill: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+
+### The nine bars, measured under standard
+
+Each row names the component, the bar, the reference line whose p99 for it is largest, the
+component's attainable range, and the largest of the eighteen final reference readings:
+
+    exposure and rate p95 error      15.667516   A   [0, none]    8.285235
+    release accuracy p95 error        1.314919   B   [0, none]    1.110512
+    interval coverage deviation       0.900000   B   [0, 1]       0.733333
+    mean interval score              10.250382   B   [0, none]    5.865275
+    pooled exceedance deviation       0.192106   A   [0, 0.95]    0.086475
+    q95 width error                  18.100609   B   [0, none]   11.653963
+    es95 width error                 20.680355   B   [0, none]   13.544241
+    reserve skill loss                6.007926   C   [0, none]    4.632584
+    worst regional shortfall        no bar       ABC  [0, 1]       1.000000
+
+The derivation did not change this pass, and the eight published bars reproduce pass five's
+values exactly. The shortfall row carries a calibrated value of 1.000000 against a ceiling
+of 1.000000 on all three lines. No final reference exceeds any published bar, on any world,
+under any of the three profiles. There is no gated reference failure and no ungated
+reference failure anywhere in the three runs.
+
+### False-fail rates and products
+
+Counts are out of the 102 replicates of a line, and the nine columns are the nine
+components in registered order, being exposure and rate p95, release accuracy p95,
+interval coverage, interval score, pooled exceedance, q95 width, es95 width, skill loss
+and shortfall:
+
+    line A   1 1 0 0 1 0 0 1 0   component product 0.888494
+    line B   1 1 0 1 0 1 1 1 0   component product 0.837494
+    line C   0 1 0 0 1 0 0 1 0   component product 0.915147
+
+The union over each block's components, in the five registered blocks:
+
+    line A   1 1 0 1 1   union product 0.888494
+    line B   1 1 1 2 1   union product 0.837248
+    line C   0 1 0 1 1   union product 0.915147
+
+A count of one is a rate of 0.980392 percent, so every component on every line is at or
+under the one-percent target. The single reading above one percent is line B's tail block
+union at 1.960784 percent, where the q95 width error and the es95 width error are exceeded
+by two different replicates. The target marginal product over nine components and three
+graded worlds is 0.762343 and the conservative achieved reading is line B at 0.837494,
+with a union reading of 0.837248. These numbers are identical under `standard` and `lite`,
+because the bars are the same document and the profile only moves components between
+deciding and reported. Under `full` no calibration completes, so no rate exists.
+
+### Control separation
+
+The matrix was measured off the 132 control reports at the bars above. Every control
+passes the structural hard checks on every world, nothing is hard-invalid, and no report
+is missing, duplicated or unregistered.
+
+Two of the twenty-two controls fail their own block on all six qualification worlds, both
+on the pooled exceedance component: `mean_only_tail` and `predictive_tails`.
+
+Five fail their own block on some worlds and not others. `uniform_allocation` fails the
+reserve block on qual-1 through qual-5 through skill loss and passes qual-0.
+`deterministic_linkage` fails the exposure block on qual-5 alone, and `version_three_recipe`
+does the same. `experience_history_only` fails release accuracy on qual-3 alone.
+`padded_tail` fails the tail block on qual-1 alone through the q95 width error.
+
+The other fifteen fail their own block on no world at all: `benchmark_only`,
+`exact_key_union`, `no_dedup`, `register_only`, `static_projection`, `survey_only`,
+`informative_selection`, `ignore_health_selection`, `inflated_intervals`,
+`reconstruction_uncertainty`, `development_average_regime`, `normal_tail`,
+`regime_recombination`, `proportional_reserve` and `reserve_allocation`.
+
+Under `standard` the deciding-component matrix is the same as the primary matrix. Every
+block decides, and the only component the profile drops is one no control ever fails, so
+no control's separation changes. Twenty of the twenty-two are named deletion candidates
+for the profile, being every control except the two tail methods.
+
+Under `lite` only three controls fail a deciding component on any world:
+`version_three_recipe` on four, `deterministic_linkage` on two, `experience_history_only`
+on one. None fails a deciding component on every world, so all twenty-two are named
+deletion candidates.
+
+Under `full` calibration refuses before any control is read, so that run carries no matrix
+and no deletion candidates.
+
+### Standard does not freeze, and the number that stops it
+
+The component is `reserve_skill/skill_loss`. Its bar is 6.007926, set by line C's p99 over
+that line's 102 replicates. The proportional reserve control reads a skill loss of exactly
+1.000000 on qual-0, qual-1, qual-2, qual-3, qual-4 and qual-5, so it sits under the bar and
+passes the block on every world. The reserve candidate cannot be accepted while the
+control it is supposed to be separated from passes, so the freeze stops there.
+
+The skill loss is `max(0, 1 - skill)` and the proportional baseline is the zero-skill
+allocation by construction, so its loss is exactly one and any reading above one is a
+method that does worse than the baseline. The eighteen final references read as follows,
+by line and world:
+
+    A   0.443647   0.875570   1.654263   4.341476   0.269351   2.204032
+    B   0.682435   1.230758   1.270637   2.197047   0.519507   2.671521
+    C   0.377650   0.907671   1.935986   4.632584   0.429408   2.109672
+
+Ten of the eighteen are above one. All three lines are above one on qual-2, qual-3 and
+qual-5, and all three are below one on qual-0 and qual-4. The largest reading is 4.632584
+on C/qual-3, and line C's replicate spread reaches 6.007926, which is the bar. A ceiling
+taken from the reference method's own spread therefore sits six times above where the
+proportional baseline lands, and no derivation reading this evidence puts the baseline
+above it.
+
+That is a statement about the reserve block at the compiled rate 3769 rather than about
+the order statistic a bar is taken over. At that rate the published total does not cover
+the mean liability on five of the six worlds, the reference allocations lose to the
+proportional baseline on half the world set, and the block's own wrong methods therefore
+cannot be separated from the reference. `reserve_allocation` reads the same 1.000000 on
+every world and is in the same position. Only `uniform_allocation` separates at all, and
+it fails five worlds rather than six.
+
+A second blocker waits behind this one and the run never reaches it. Control separation is
+incomplete under every profile, because only the two tail methods fail their own block on
+every world, so `control separation is incomplete; deletion candidates` would follow at
+the next step. Neither blocker is a bar derivation question, and this pass did not loosen
+anything to get past either.
+
+### Nothing was minted and no command was written
+
+`standard` did not freeze, so no graded world was minted, no seed was derived, no seal was
+written, and the task package was not repinned. The mint and repin commands are not
+recorded for v13. Both stay gated on `reserve_calibration_accepted.json` sitting beside a
+set of bars, and none of the three v13 directories holds that file. Their shapes stay where
+the earlier pass wrote them, under "The morning commands, gated on a profile that froze",
+and the pass that freezes replaces the directory name there with the one it wrote.
+
+The evidence still does not need rebuilding. The same 18 reference reports, 306 paired
+replicates, 132 controls and 24 development diagnostics carried this pass, and the
+measurements above were taken off those reports at the bars this pass published.

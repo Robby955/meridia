@@ -1,0 +1,42 @@
+# Version-four composite bar freeze report
+
+RESULT: NOT FROZEN
+PROFILE: standard
+
+## Blockers
+
+- reserve calibration remains blocked because proportional_reserve passes reserve_skill: qual-0, qual-1, qual-2, qual-3, qual-4, qual-5
+
+## Gate profile
+
+- profile: standard
+- gates that decide: exposures_and_rates (p95_relative_error), release_accuracy (p95_relative_error), interval_quality (coverage_deviation, mean_interval_score), tail_calibration (pooled_exceedance_deviation, q95_width_relative_error, es95_width_relative_error), reserve_skill (skill_loss)
+- measured and reported, deciding nothing: reserve_skill (worst_regional_shortfall_probability)
+- reported-only components: reserve_skill/worst_regional_shortfall_probability
+- reference results above a reported bar:
+  - none
+- components published with no bar, because the calibrated value reaches the top of the component's attainable range: none
+
+## Authenticated evidence design
+
+- measurement contract digest: `missing`
+- common runner digest: `missing`
+- final reference reports: 0
+- paired replicate reports: 0; 0 resamples per world
+- qualification control reports: 0
+- development diagnostic reports: 0; these do not count as qualification controls
+- unique run receipts: 0
+
+## Empirical tail definition
+
+q95 is order statistic ceil(0.95 * M) of the M continuations.
+ES95 is the mean of all continuations tied at or above q95.
+
+## False-fail accounting
+
+- the rates below cover all 9 calibrated components of all 5 gates; 5 of those gates decide under the standard profile
+- target per component and line: 1.00%
+- target marginal product over nine components and three graded worlds: 0.762343
+- conservative achieved conditional marginal-rate product: unavailable
+- The marginal products assume independent gate and world failures. They are arithmetic summaries, not empirical pass probabilities; failures can be correlated.
+- Only six qualification worlds support this freeze. Replicate false-fail rates are conditional on those worlds and do not establish a one-percent rate on new worlds.
