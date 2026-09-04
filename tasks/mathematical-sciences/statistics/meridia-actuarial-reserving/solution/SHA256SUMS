@@ -1,6 +1,6 @@
-# Meridia version-four task assets, written by a development packaging run.
-# meridia source commit d33531f17c4ce59cc991e387ee80dc4186e89462
-# meridia source tree f0eac15639e4628e40f653f3121df88194d91056
-# hidden packet manifest sha256 d5c73bdda8122ffbf0b68d83b0156191546ef9ff0277f24cc80ed5a71c648fd5
-# bar set sha256 01ec9d853030214df150cb4a6b15447a950ba629006b15dbf095a504af7cbac7
-2bb40844625a1416e0201de8e0aa12eac51fd76c806f09f571b2cb31701eda30  reference_source.tar.gz
+# Meridia version-four task assets, written by authoring/build_assets.py.
+# meridia source commit 50485d14a9e8578163d0e3a175a9e35af099c33b
+# meridia source tree 1d893f37be862e92aa098146de4cd02a2b514c9d
+# hidden packet manifest sha256 cbe9003b38ea4ed0e822926b1e5149cdcffa9b8856d5fadab71004e739872214
+# participant bar projection sha256 e3bb595d2055be22a4c48803b54ec2c3584615f8adaecfb5677ca3b16859261b
+ac6941778abc997fb850b035e7251e00c06243929c5ccb44d31c2e35746403ec  reference_source.tar.gz

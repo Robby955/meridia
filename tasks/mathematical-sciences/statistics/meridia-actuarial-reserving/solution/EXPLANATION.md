@@ -89,13 +89,14 @@ from, the `meridia` tree hash at that commit, and a SHA-256 for each of the twen
 modules line A imports. `solve.py` checks every one of them against the extracted export
 before its first import and exits with the offending path when one differs. Pinned at:
 
-    source_commit  d33531f17c4ce59cc991e387ee80dc4186e89462
-    source_tree    f0eac15639e4628e40f653f3121df88194d91056
+    source_commit  50485d14a9e8578163d0e3a175a9e35af099c33b
+    source_tree    1d893f37be862e92aa098146de4cd02a2b514c9d
 
 That is the commit the three `SHA256SUMS` files name, so the pin and the staged archives
-now record one commit rather than two. The pin was first written at `d39d94e`, one
-commit earlier, where all twenty files are byte for byte the same; the step between them
-adds the gate profile to `meridia/verify.py`, which line A does not import.
+record one commit rather than two. The pin was carried here from `d33531f` when the
+standard profile froze. One of the twenty digests moved across that step,
+`meridia/methods/controls.py`, which holds the registered wrong methods and which line A
+does not import; the other nineteen are byte for byte what they were.
 
 The twenty modules are the transitive import closure of `meridia.methods.design_based`
 and `meridia.methods.actuarial_reference`, lazy imports inside function bodies included,

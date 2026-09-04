@@ -70,11 +70,11 @@ with the task. `exposures_and_rates` is the 95th percentile of relative error ov
 exposure and rate cells thick enough to score. `release_accuracy` is the worst estimand's
 95th percentile of relative error across `release.csv` and `projection.csv`.
 `interval_quality` is the worst block's departure from 90% coverage with the mean interval
-score. `reserve_skill` is your skill loss against the published proportional split. Two
-blocks are measured and reported without deciding: `tail_calibration`, which reads pooled
-exceedance and how far `q95` and `es95` land from the sealed ones in units of the
-ensemble's tail width, and the worst region's shortfall probability inside
-`reserve_skill`. If the `/data/bars.json` shipped with this container names the full
-profile rather than the lite one, both of those decide too.
+score. `tail_calibration` reads pooled exceedance and how far your `q95` and `es95` land
+from the sealed ones in units of the ensemble's tail width. `reserve_skill` is measured
+and reported and decides nothing: both its components ship with no ceiling, so your
+reserve rows are still checked for the arithmetic above and nothing in them can fail you
+on skill. `gate_profile` in `/data/bars.json` names the profile in force, and
+`gate_profile_selection` beside it lists the components that profile decides on.
 
 You have 28800 seconds to complete this task. Do not cheat by using online solutions or hints specific to this task.

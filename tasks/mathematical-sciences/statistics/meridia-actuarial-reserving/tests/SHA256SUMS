@@ -1,7 +1,7 @@
-# Meridia version-four task assets, written by a development packaging run.
-# meridia source commit d33531f17c4ce59cc991e387ee80dc4186e89462
-# meridia source tree f0eac15639e4628e40f653f3121df88194d91056
-# hidden packet manifest sha256 d5c73bdda8122ffbf0b68d83b0156191546ef9ff0277f24cc80ed5a71c648fd5
-# bar set sha256 01ec9d853030214df150cb4a6b15447a950ba629006b15dbf095a504af7cbac7
-90d044878215a43b0a0627512fd53487dc27b6266ac7e185840ff7da08c3461b  test_assets.tar.gz
-bd86aedb311cb25c4f8655227230214820f3f919aa9e6bf6854a3d7c163f870a  frozen_verifier_source.tar.gz
+# Meridia version-four task assets, written by authoring/build_assets.py.
+# meridia source commit 50485d14a9e8578163d0e3a175a9e35af099c33b
+# meridia source tree 1d893f37be862e92aa098146de4cd02a2b514c9d
+# hidden packet manifest sha256 cbe9003b38ea4ed0e822926b1e5149cdcffa9b8856d5fadab71004e739872214
+# participant bar projection sha256 e3bb595d2055be22a4c48803b54ec2c3584615f8adaecfb5677ca3b16859261b
+a3c4b7ca171589d1d3a635e6797e71c90eb566393b8613637e62bd601ee46258  test_assets.tar.gz
+9f3e0f4d7ddef6aff5952d8c066361a8ae1506a511040ef51dd47a368a191fe9  frozen_verifier_source.tar.gz

@@ -15,7 +15,7 @@
   "meridia/methods/__init__.py": "f3b5be45f7a2b5761903bd12a61920dce8d6b0e0d3017c4ebbf911e4ce93d127",
   "meridia/methods/actuarial_reference.py": "d79e00e5be254be98be984ba33fa0371189a36aff550ba523ac635d82216b11b",
   "meridia/methods/common.py": "5f1f597f358f77cb638f9c8aefb359d61c53537c7cbae75f80072a45ff6683e8",
-  "meridia/methods/controls.py": "07386c916bdf36ccb434950cf93359236831e1fed743b702a44a754f41d27414",
+  "meridia/methods/controls.py": "a48a17222302864942b9eb20a0bfd750365813275e1e13b2e1ab4de76af98245",
   "meridia/methods/design_based.py": "bcbf46e144454f39195f60047acb5742a6c043531e935d6b1aa3c976c84c5e2d",
   "meridia/microdata.py": "c8a432e057cccc59ca0c98725c2a232b67538d34c696138e4161c2648260cce6",
   "meridia/population.py": "7a019208b91f6c9e31e97137a8ea96c0f5edbdb5a700d0235a4338abd9e2a661",
@@ -24,6 +24,6 @@
   "meridia/survey.py": "504423c0bf6d484d71f9e286a8d225c56563ade6aec3e7a095aba6a24810622e"
  },
  "schema": "meridia-reference-pin-v1",
- "source_commit": "d33531f17c4ce59cc991e387ee80dc4186e89462",
- "source_tree": "f0eac15639e4628e40f653f3121df88194d91056"
+ "source_commit": "50485d14a9e8578163d0e3a175a9e35af099c33b",
+ "source_tree": "1d893f37be862e92aa098146de4cd02a2b514c9d"
 }

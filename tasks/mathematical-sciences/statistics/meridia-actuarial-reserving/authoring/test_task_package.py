@@ -523,7 +523,7 @@ class TaskPackageTests(unittest.TestCase):
             _write(freeze_report, "RESULT: FROZEN\n")
             _write(
                 seal_manifest,
-                '{"schema":"meridia.sealed.v1","worlds":[{"index":0}]}\n',
+                '{"schema":"meridia.sealed-packet.v4","worlds":[{"index":0}]}\n',
             )
             _write(
                 seal_confirmation,
@@ -731,11 +731,17 @@ class TaskPackageTests(unittest.TestCase):
         self.assertEqual(manifest["calibration"]["world_count"], DEVELOPMENT_WORLDS)
         self.assertEqual(len(manifest["development_packets"]), DEVELOPMENT_WORLDS)
         self.assertIn("freeze_report_sha256", manifest)
-        instruction = (TASK_ROOT / "instruction.md").read_text()
-        self.assertIn(
-            f"must sum exactly to **{manifest['instruction_reserve_total']}**",
-            instruction,
+        self.assertEqual(
+            manifest["seal"]["world_index"], int(manifest["seal"]["world_index"])
         )
+        self.assertGreater(manifest["instruction_reserve_total"], 0)
+        # The instruction sends the solver to the contract rather than typing the total,
+        # so the pin to check here is the pointer and the absence of any typed figure.
+        # A figure in the instruction would be a second, unchecked statement of a number
+        # the verifier only ever recomputes from the participant bytes.
+        instruction = (TASK_ROOT / "instruction.md").read_text()
+        self.assertIn(RESERVE_TOTAL_POINTER, instruction)
+        self.assertNotRegex(instruction, r"sum exactly to \*\*[^*]*\*\*")
 
 
 if __name__ == "__main__":

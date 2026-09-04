@@ -68,6 +68,11 @@ SCORER_PARTICIPANT_CSV_FILES = (
 )
 DEVELOPMENT_WORLDS = 12
 SUBMISSION_SURFACE = ["release.csv", "projection.csv", "reserve.csv"]
+# The version-four world seal, written by scripts/seal_v4_worlds.py in the code lane. It
+# is not the version-three reconstruction seal, which declares meridia.sealed.v1 and
+# registers worlds of a different packet class. Naming the version-four schema here is
+# what stops a version-three manifest from authorizing a version-four packaging run.
+SEAL_MANIFEST_SCHEMA = "meridia.sealed-packet.v4"
 # The instruction points at the reserve total instead of stating it. The packet publishes
 # the figure at reserve.total in the participant contract, the verifier recomputes it from
 # the participant bytes and fails a submission on mismatch, and the solver reads the same
@@ -362,7 +367,7 @@ def main() -> int:
     if re.search(r"(?:19|20)[0-9]{6}", hidden.name):
         raise ValueError("hidden packet directory exposes a date-derived seed handle")
     seal_manifest = json.loads(args.seal_manifest.read_text())
-    if seal_manifest.get("schema") != "meridia.sealed.v1":
+    if seal_manifest.get("schema") != SEAL_MANIFEST_SCHEMA:
         raise ValueError("unexpected sealed-world manifest schema")
     registered = {int(world["index"]) for world in seal_manifest["worlds"]}
     if args.seal_index not in registered:
