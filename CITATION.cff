@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: If you use Meridia, please cite it as below.
+title: "Meridia: synthetic countries for testing statistical methods"
+abstract: >-
+  Meridia generates synthetic countries from a seed: terrain, rivers,
+  settlements, and a population of individual people with households,
+  ages, incomes, employers, and health histories. Surveys and registers
+  drawn from that population carry the flaws real collection produces.
+  Because the complete population is retained, the error of any estimate
+  is known exactly and stated uncertainty can be checked against true
+  coverage.
+type: software
+authors:
+  - family-names: Sneiderman
+    given-names: Robert
+    email: robbysneiderman@gmail.com
+repository-code: "https://github.com/Robby955/meridia"
+license: Apache-2.0
+version: "4.0.0"
+date-released: "2026-09-04"
+keywords:
+  - synthetic data
+  - survey methodology
+  - record linkage
+  - uncertainty quantification
+  - calibration

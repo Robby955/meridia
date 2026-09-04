@@ -15,32 +15,37 @@ observed record.
 - Administrative geography (states and counties, exact partition) and the release
   contract v0 with its scorer: estimands, schema, additivity, worst-unit accuracy,
   coverage with an interval score, and a linear-recovery disclosure audit.
-- In review on a side branch: persistent truth identities, dwelling stock, and a
-  business layer (enterprises, establishments, jobs) with payroll conserved to the cent.
+- Persistent truth identities, dwelling stock, and a business layer of enterprises,
+  establishments, and jobs, with payroll conserved to the cent (`meridia/identities.py`,
+  `meridia/dwellings.py`, `meridia/businesses.py`).
+- Hospitals and encounters: capacity from the world's character draw, patient encounters
+  linking people to facilities (`meridia/hospitals.py`).
+- Event histories: append-only monthly event tables of births, deaths, moves, job changes,
+  and business openings and closures, from which any date's snapshot reconstructs exactly
+  (`meridia/events.py`).
+- Sealing protocol: evaluation worlds generated at registered seeds and never inspected,
+  with hash-sealed manifests (`meridia/sealing.py`, `seals/`).
+- Observed registers: imperfect population, business, income, and health registers over the
+  retained truth, with duplicates, stale addresses, split and merged identifiers, and
+  reporting delays, each by an explicit recorded mechanism (`meridia/sources.py`).
+- The reconstruction chain: surveys drawn from imperfect frames, then editing, imputation,
+  weighting, estimation, variance, and the scored release, projection, and reserve tables
+  (`meridia/methods/`, `meridia/verify.py`).
 
 ## Next
 
-1. **Hospitals and encounters.** Capacity from the world's character draw; patient
-   encounters linking people to facilities.
-2. **Event histories.** Append-only monthly event tables (births, deaths, moves, job
-   changes, business openings and closures) from which any date's snapshot
-   reconstructs exactly.
-3. **Sealing protocol.** Evaluation worlds generated at registered seeds and never
-   inspected, with hash-sealed manifests.
-4. **Shock dial.** Break years: a mortality spike, a migration wave, an economic break,
+1. **Shock dial.** Break years: a mortality spike, a migration wave, an economic break,
    each a parameter change with retained truth, so methods can be tested across
-   structural change with a counterfactual that exists.
-5. **Observed registers.** Imperfect population, business, income, and health registers
-   over the sealed truth: duplicates, stale addresses, split and merged identifiers,
-   reporting delays, each by an explicit recorded mechanism. This is what makes record
-   linkage and coverage estimation real problems rather than database joins.
-6. **The reconstruction chain.** Surveys drawn from imperfect frames; editing, imputation,
-   weighting, estimation, variance, and disclosure control as scored stages; a full
-   published table audited against retained truth.
+   structural change with a counterfactual that exists. The dial exists in
+   `meridia/demography.py`; what is not here is a world family built around it.
+2. **Epidemics.** SEIR on household and workplace contact structure rather than well mixed.
+3. **Commuting.** A journey-to-work layer over the existing settlement and job structure.
+4. **Climate beyond weather.** Latitude temperature structure and seasons above the
+   existing orographic precipitation.
 
 ## Further out
 
-Epidemics and commuting; climate beyond weather; multiple planets with independent
+Multiple planets with independent
 geographies and institutions; a persistent universe where sealed worlds serve blinded
 evaluation and open worlds serve method research.
 

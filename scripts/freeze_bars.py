@@ -37,8 +37,7 @@ REGRET_MARGIN = 2.0          # ceiling = 2 x worst strong regret, at least 0.02
 # population source's coverage sits 0.02 to 0.08 below the development band, so the
 # national count is read through the survey and the benchmark, and the survey's own
 # nonresponse total moves by a few percent between worlds while the benchmark carries a
-# log-bias of magnitude 0.02 to 0.07 (the version-two floor of 0.03 assumed the
-# hidden world's coverage was exchangeable with the development worlds). Qualification
+# log-bias of magnitude 0.02 to 0.07. Qualification
 # worlds must be built under the hidden source regime and the development worlds under
 # the development regime; the script checks both.
 ACCURACY_FLOOR = {

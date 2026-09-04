@@ -8,3 +8,9 @@ __pycache__/
 # tracked with an explicit negation below.
 /.*/
 !/.github/
+
+# Written by the commands in the README, and by the freeze pass beside them.
+/worlds/
+/evidence/
+*.egg-info/
+.DS_Store

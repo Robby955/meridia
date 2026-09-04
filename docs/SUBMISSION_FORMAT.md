@@ -34,12 +34,16 @@ times county exposures.
 
 Rate eligibility depends only on retained person-years exposure and is fixed before a
 submitted value is read. The scored state-by-sex rate bands are `0-17`, `18-64`, and
-`65+`. Their exposure floors are 600, 600, and 500 person-years respectively. The
-`65-74`, `75-84`, and `85+` rates remain in the file as reported diagnostics and do not
-create pass events. A freeze may complete only if all 72 state-by-sex `65+` cells across
+`65+`. Their exposure floors are 600, 600, and 500 person-years respectively, set by
+`EXPOSURE_ELIGIBILITY_BY_BAND` in `meridia/actuarial.py`. The
+`18-44`, `45-64`, `65-74`, `75-84`, and `85+` rates remain in the file as reported
+diagnostics and do not create pass events. A freeze may complete only if all 72 state-by-sex `65+` cells across
 the six qualification worlds clear the 500 person-year floor. The freeze report must
 enumerate the 12 state-by-sex exposure values in each qualification world for every fine
-and broad band, for 72 values per band. No P4 qualification values have yet been claimed.
+and broad band, for 72 values per band. The shipping freeze meets both conditions. All 72
+state-by-sex `65+` cells clear the 500 person-year floor at a minimum of 549.08
+person-years, and the freeze evidence enumerates 72 values in every one of the eight fine
+and broad bands, under `eligible_cells` in `bars/national-v14-standard/bars.json`.
 
 ## `projection.csv`
 
@@ -107,9 +111,10 @@ total is not an estimate of the liability and is not guaranteed to cover it.
 
 Because the candidates are the references' own mean-liability estimates, every rate the
 rule can select is close to the mean of the liability being reserved against, and at such a
-total at least one region is short on every continuation. Measured over the whole candidate
-ladder on the current qualification world set, the worst-region shortfall probability of
-every reference allocation is exactly one at every candidate. The reserve block's regional
+total at least one region is short on every continuation. At the compiled rate, the
+worst-region shortfall probability of every reference allocation reads exactly one on all
+eighteen final reference reports, and its p99 over the 306 replicates is one on all three
+lines, which is the top of its attainable range. The reserve block's regional
 shortfall probability is therefore reported rather than given a ceiling anything could
 exceed, and the reserve total should be read as a spending rule rather than as a level the
 liability is expected to stay under.
@@ -138,14 +143,20 @@ The same document names the gate profile it froze under, and a profile selects w
 those five decide. Under the default `full` profile all five decide. Under `lite` the tail
 block and the reserve block are measured and reported while exposures and rates, release
 accuracy, and interval quality decide. Every verdict names the profile it came from, and a
-bar document frozen under one profile cannot be scored under another.
+bar document frozen under one profile cannot be scored under another. Under `standard`,
+the shipping profile, exposures and rates, release accuracy, interval quality and the tail
+block decide, on seven components in all, and the reserve block is measured and reported
+whole while deciding nothing.
 
 A component whose calibrated ceiling reaches the top of its attainable range is not a
 ceiling: nothing can exceed it. Where the profile decides that component the freeze
 refuses. Where it does not, the bar document publishes the component with a null value, the
 value the calibration produced, and the reason, and no submission is compared against it.
-The regional shortfall probability is carried that way under `lite` on the current world
-set.
+Under `lite` the regional shortfall probability is carried that way on the current world
+set. Under `standard` both reserve components are: the shortfall probability for the
+attainable-ceiling reason, and the skill loss for the registered reason that at the
+compiled rate the reference allocations lose to the proportional baseline on ten of the
+eighteen final reports.
 
 ## Participant input columns
 

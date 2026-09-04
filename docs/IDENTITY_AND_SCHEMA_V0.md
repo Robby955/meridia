@@ -471,19 +471,11 @@ stream. No global random state, clock time, process ID, filesystem order, or net
 may affect an output.
 
 Schema version, generator version, parameters, source table digests, and output table
-digests belong in the future world manifest. A schema change increments the schema version.
+digests belong in the world manifest. A schema change increments the schema version.
 An algorithm change increments the generator version. Existing canonical timelines remain
 replayable; a new version extends or forks them and never rewrites their past.
 
-## 12. Delivery order
+## 12. Scope
 
-1. This identity-and-schema contract.
-2. Initial identity mapping and dwelling current-state table with exact tests.
-3. Business and hospital current-state tables, then jobs and encounters.
-4. Append-only institutional event histories and deterministic replay (implemented).
-5. Imperfect observed sources and sealed truth crosswalks (implemented).
-6. The capstone production contract consuming observed records only (next).
-
-Sealing protocol, shock-dial implementation, geography, weather, population, microdata,
-survey, demography, and rendering remain outside this branch's ownership. This branch imports
-their public outputs and does not modify their code.
+This document fixes the two identity domains and the schema of every observed source. The
+modules that produce them are listed in the repository README.

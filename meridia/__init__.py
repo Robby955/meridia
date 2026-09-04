@@ -1,8 +1,8 @@
-"""Meridia: a seeded synthetic planet for verification-grade statistical environments.
+"""Meridia: seeded synthetic countries with retained truth.
 
-Layers (design: theorempath/HQ/STATPROD_ONE_WORLD_DESIGN_2026-08-31.md):
-terrain -> hydrology -> climate -> weather -> chemistry -> populations -> program.
-Implemented: terrain, hydrology. Everything else is planned, in that order.
+Layers, in build order: terrain, hydrology, weather, population, microdata,
+demography, administrative geography, dwellings, businesses, hospitals, events,
+observed sources, survey, release, projection, actuarial, verifier.
 """
 
-__version__ = "0.0.1"
+__version__ = "4.0.0"

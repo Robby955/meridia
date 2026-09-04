@@ -25,11 +25,11 @@ from meridia.verify import verify_release_projection_allocation
 
 
 # Digests of the bar set this script is allowed to confirm against: the version-three
-# set in `bars/national-v7/`, which `scripts/freeze_bars.py` reports as frozen on the
+# set in `bars/history/national-v7/`, which `scripts/freeze_bars.py` reports as frozen on the
 # nine qualification worlds (`RESULT: bars frozen; every control fails a named gate`).
 # Any other input is refused. The refusal is the point: a confirmation spends the sealed
 # world's only look, and a bar set that a control clears is not worth spending it on.
-# See `bars/national-v7/PROVENANCE.md`.
+# See `bars/history/national-v7/PROVENANCE.md`.
 EXPECTED_SHA256 = {
     "bars": "f53983161245bb1eca4cb36a6a35325aba3c58262d9d46ef2cd97047d4f6aae9",
     "calibration_a": "61cf3367661bee14155934be70e1afddf0ae4cf04c57494cd92537f6e2c0b107",
