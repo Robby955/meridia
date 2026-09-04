@@ -570,3 +570,48 @@ def test_deletion_switches_and_five_composite_mapping(packet, tmp_path):
     assert summary["composite_metrics"] == report["composite_metrics"]
     with pytest.raises(ValueError, match="must be distinct"):
         phase_three._validate_packet_group([packet] * 6, 6, False)
+
+
+def _freeze_module():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "freeze_v4_bars.py"
+    spec = importlib.util.spec_from_file_location("freeze_v4_bars_controls", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_version_three_recipe_targets_the_composite_its_failure_lives_in():
+    """Release accuracy cannot hold the recipe, and exposures and rates can.
+
+    On the six qualification worlds the recipe's release accuracy is better than every
+    reference line on qual-0, so no bar that admits the references can fail it there. Its
+    exposure and rate error is above the worst reference line on all six. The tail block
+    separates too, and by more, but it does not decide under the lite profile, so the
+    exposure and rate block is the one registration that holds under both.
+    """
+    from meridia.verify import (COMPOSITE_GATE_COMPONENTS, GATE_PROFILES,
+                                SCIENTIFIC_CONTROLS_BY_GATE)
+
+    target = controls.CONTROL_TARGET_COMPOSITES["version_three_recipe"]
+    assert target == "exposures_and_rates"
+    assert target in COMPOSITE_GATE_COMPONENTS
+    assert all(target in profile for profile in GATE_PROFILES.values())
+    assert "version_three_recipe" in SCIENTIFIC_CONTROLS_BY_GATE[target]
+    assert "version_three_recipe" not in SCIENTIFIC_CONTROLS_BY_GATE["release_accuracy"]
+
+
+def test_every_control_registry_agrees_on_the_target_composite():
+    from meridia.verify import SCIENTIFIC_CONTROLS_BY_GATE
+
+    freeze = _freeze_module()
+    assert freeze.SCIENTIFIC_CONTROLS_BY_GATE == SCIENTIFIC_CONTROLS_BY_GATE
+    registered = {
+        control: gate
+        for gate, names in SCIENTIFIC_CONTROLS_BY_GATE.items()
+        for control in names
+    }
+    for control, gate in registered.items():
+        assert controls.CONTROL_TARGET_COMPOSITES[control] == gate, control

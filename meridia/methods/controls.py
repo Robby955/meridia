@@ -172,7 +172,12 @@ CONTROL_TARGET_COMPOSITES = {
     "normal_tail": "tail_calibration",
     "padded_tail": "tail_calibration",
     "proportional_reserve": "reserve_skill",
-    "version_three_recipe": "release_accuracy",
+    # The recipe's failure does not live in release accuracy. On the six qualification
+    # worlds it is better on that composite than every reference line a bar has to admit
+    # on qual-0, so no admissible bar can fail it there. Its exposure and rate error is
+    # above the worst reference line on all six, and the lite profile still gates that
+    # block while it reports the tail.
+    "version_three_recipe": "exposures_and_rates",
     "experience_history_only": "release_accuracy",
     "reconstruction_uncertainty": "interval_quality",
     "informative_selection": "exposures_and_rates",

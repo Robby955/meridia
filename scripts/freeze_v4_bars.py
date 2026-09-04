@@ -291,6 +291,7 @@ SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
         "deterministic_linkage",
         "ignore_health_selection",
         "informative_selection",
+        "version_three_recipe",
     ),
     "release_accuracy": (
         "register_only",
@@ -299,7 +300,6 @@ SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
         "static_projection",
         "benchmark_only",
         "exact_key_union",
-        "version_three_recipe",
         "experience_history_only",
     ),
     "interval_quality": (

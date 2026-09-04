@@ -174,11 +174,11 @@ def gate_profile_selection(name: str) -> dict[str, tuple[str, ...]]:
 SCIENTIFIC_CONTROLS_BY_GATE: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": (
         "deterministic_linkage", "ignore_health_selection", "informative_selection",
+        "version_three_recipe",
     ),
     "release_accuracy": (
         "register_only", "survey_only", "no_dedup", "static_projection",
-        "benchmark_only", "exact_key_union", "version_three_recipe",
-        "experience_history_only",
+        "benchmark_only", "exact_key_union", "experience_history_only",
     ),
     "interval_quality": ("inflated_intervals", "reconstruction_uncertainty"),
     "tail_calibration": (

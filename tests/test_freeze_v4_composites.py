@@ -880,7 +880,8 @@ def test_complete_freeze_has_only_five_composites_and_auditable_bars():
     assert record["worlds"] == [f"qual-{index}" for index in range(6)]
     assert record["witnesses"] == ["A", "B", "C"]
     assert record["supporting_controls"] == [
-        "deterministic_linkage", "ignore_health_selection", "informative_selection"
+        "deterministic_linkage", "ignore_health_selection", "informative_selection",
+        "version_three_recipe",
     ]
     assert record["eligible_cells"]["distinct"] == [
         [0, "female", "65+"], [0, "male", "65+"]

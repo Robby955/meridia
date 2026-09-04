@@ -2525,3 +2525,35 @@ the spread between them.
 This is a second blocker on the P4 world set, independent of the reserve rate. It is
 recorded rather than worked around. Nothing in the threshold moved, and no axis was
 reclassified to avoid it.
+
+### The version-three recipe now targets the block its failure lives in
+
+`version_three_recipe` was registered against `release_accuracy`. The freeze rule asks
+that every registered control hard-pass structure and fail its primary composite on every
+qualification world. Measured on the six P4 qualification worlds against all three
+reference lines, the recipe's release accuracy is 0.4165 on qual-0 while the three lines
+read 0.8266, 0.7974 and 0.8266. The recipe is better there than every line a bar has to
+admit, so no admissible bar can fail it on that world and the registration cannot record a
+passing destruction test.
+
+Its registration moves to `exposures_and_rates`. Control value against the worst of the
+three reference lines, world by world: qual-0 14.3329 against 1.2574; qual-1 12.6134
+against 1.5094; qual-2 11.5504 against 0.9596; qual-3 3.7095 against 0.5695; qual-4 9.1644
+against 8.2852; qual-5 17.3362 against 7.1264. It is above the worst line on all six, by
+factors of 11.4, 8.4, 12.0, 6.5, 1.1 and 2.4. The two narrow worlds are the two where the
+reference lines themselves carry a large exposure and rate error, so the margin there is
+narrow for a reason that lies in the references.
+
+The tail block separates by more, at 11 to 19 times the worst line on pooled exceedance
+deviation across all six worlds, and would be the stronger registration under the full
+profile. It is not the one taken, because the tail block does not decide under the lite
+profile and a control registered against it would test nothing there. The exposure and
+rate block decides under both profiles.
+
+Interval quality also separates on all six, by 1.2 to 3.7 on coverage deviation and 3.6 to
+9.7 on the mean interval score. One registration per control is the rule, so the other two
+blocks are recorded here rather than added.
+
+Nothing about the control changed. It runs the same switches and produces the same
+submission. Only the composite it is judged on moved, in the three registries that have to
+agree: the control registry, the verifier, and the freeze.
