@@ -1,2 +1,10 @@
 __pycache__/
 .pytest_cache/
+.venv/
+
+# Hidden directories at the repository root are local working state: virtual
+# environments, editor state, and the scratch directories local tooling writes.
+# None of them belong in the published tree. Re-include anything that should be
+# tracked with an explicit negation below.
+/.*/
+!/.github/
