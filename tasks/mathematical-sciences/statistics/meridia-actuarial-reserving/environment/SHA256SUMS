@@ -1,6 +1,6 @@
 # Meridia version-four task assets, written by a development packaging run.
-# meridia source commit a18610cd8cb8578ac82b6bfb1d98be9b1c4063c0
-# meridia source tree a655cfcb413e5a03179ec9b276fe97bb753d000c
+# meridia source commit d33531f17c4ce59cc991e387ee80dc4186e89462
+# meridia source tree f0eac15639e4628e40f653f3121df88194d91056
 # hidden packet manifest sha256 d5c73bdda8122ffbf0b68d83b0156191546ef9ff0277f24cc80ed5a71c648fd5
 # bar set sha256 01ec9d853030214df150cb4a6b15447a950ba629006b15dbf095a504af7cbac7
 0ac992ba3f7bd78c7c2dbbb2d38cd3634ae6e198800a0f5d2bc47f4f09d627fe  data/packets.tar.gz
