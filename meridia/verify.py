@@ -17,6 +17,7 @@ import csv
 import hashlib
 import json
 import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -125,7 +126,7 @@ DEVELOPMENT_DIAGNOSTIC_REPORT_COUNT = (
     len(DEVELOPMENT_WORLD_NAMES) * len(DEVELOPMENT_DIAGNOSTICS)
 )
 RESERVE_QUALIFICATION_SCHEMA = "meridia.v4.reserve-qualification-audit.v1"
-RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v1"
+RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v2"
 RESERVE_RED_TEAM_SCHEMA = "meridia.reserve-total-red-team.v1"
 COMPOSITE_GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
     "exposures_and_rates": ("p95_relative_error",),
@@ -3228,6 +3229,44 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     return errors
 
 
+UNDEFINED_COMPONENT_REASONS: dict[tuple[str, str], str] = {
+    ("reserve_skill", "skill_loss"): (
+        "the reserve skill denominator J(A_B) - J(A*) is not positive at this published "
+        "total, so no allocation is separable from any other and the skill score does "
+        "not exist"
+    ),
+}
+
+
+def component_value(value: object) -> float:
+    """Read one composite component as a float, without ever raising.
+
+    An in-memory report carries an undefined component as a non-finite float and a
+    receipt read back from disk carries the same thing as null. Both mean the component
+    does not exist, and a gate has to reach the same verdict either way.
+    """
+    if value is None or isinstance(value, bool):
+        return float("nan")
+    if isinstance(value, Mapping):
+        value = value.get("value")
+        if value is None or isinstance(value, bool):
+            return float("nan")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return number if math.isfinite(number) else float("nan")
+
+
+def _undefined_reason(gate: str, components: Sequence[str]) -> str:
+    """Name the undefined components, and say why when the cause is registered."""
+    reason = f"non-finite components {list(components)}"
+    notes = [UNDEFINED_COMPONENT_REASONS[(gate, component)]
+             for component in components
+             if (gate, component) in UNDEFINED_COMPONENT_REASONS]
+    return "; ".join([reason, *notes])
+
+
 def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
                              hard_pass: bool,
                              gate_profile: str = DEFAULT_GATE_PROFILE) -> dict[str, dict]:
@@ -3249,16 +3288,18 @@ def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
                              "reasons": ["hard checks failed"],
                              "ungated_failures": [], **marker}
             continue
+        readings = {component: component_value(values.get(component))
+                    for component in components}
         nonfinite = [component for component in components
-                     if not math.isfinite(float(values.get(component, float("nan"))))]
+                     if not math.isfinite(readings[component])]
         gated_nonfinite = [component for component in nonfinite if component in gated]
         reported_nonfinite = [component for component in nonfinite
                               if component not in gated]
-        ungated_failures = [f"non-finite components {reported_nonfinite}"] \
+        ungated_failures = [_undefined_reason(gate, reported_nonfinite)] \
             if reported_nonfinite else []
         if gated_nonfinite:
             results[gate] = {"pass": False, "evaluated": True,
-                             "reasons": [f"non-finite components {gated_nonfinite}"],
+                             "reasons": [_undefined_reason(gate, gated_nonfinite)],
                              "ungated_failures": ungated_failures, **marker}
             continue
         if bars is None:
@@ -3271,7 +3312,7 @@ def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
         for component in components:
             if component in nonfinite:
                 continue
-            value = float(values[component])
+            value = readings[component]
             ceiling = float(frozen[component]["value"])
             if value > ceiling:
                 detail = f"{component} {value:.6g} > {ceiling:.6g}"
@@ -3521,7 +3562,7 @@ def summary_table(report: dict) -> str:
     lines.append(
         f"reserve feasible={decision.get('feasible', False)} "
         f"loss={decision.get('loss', float('nan')):.4f} "
-        f"skill={decision.get('skill', float('nan')):.4f}"
+        f"skill={component_value(decision.get('skill')):.4f}"
     )
     if "disclosure" in report:
         lines.append(f"disclosure pass={report['disclosure']['pass']} "

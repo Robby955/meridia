@@ -2464,3 +2464,34 @@ the new default, and `scripts/build_v4_worlds.py` reads `GRADING_WORLD` unchange
 `PacketParams()` before it runs a battery, so until the default moves the evidence pass
 stops at the preflight with the candidate rate named. That stop is the intended behaviour
 and was not weakened here.
+
+### An undefined reserve skill is now a recorded failure
+
+The P4 evidence pass stopped on a serialization error, `Out of range float values are not
+JSON compliant: nan`, while writing the first verifier report. The value was
+`reserve_skill/skill_loss` on qual-1, where the published total covered every continuation
+under both the proportional baseline and the perfect-information oracle, so the skill
+denominator was zero and the score did not exist.
+
+Three layers now handle that state instead of stopping on it.
+
+The report writer records a non-finite measurement as null. JSON has no spelling for one
+and every receipt here is written with `allow_nan=False`, so an undefined measurement used
+to end the run rather than reach disk. Numpy scalars and array members are recorded the
+same way.
+
+The gate reads a component through one function that returns a non-finite value for a
+missing, null, non-numeric or non-finite entry and never raises. An in-memory report
+carries an undefined component as a float and a receipt read back from disk carries it as
+null, and a gate has to reach the same verdict on both.
+
+The failure now says why. A gate whose undefined component has a registered cause carries
+that cause in its reason. For reserve skill the reason is that the denominator is not
+positive at this published total, so no allocation is separable from any other and the
+score does not exist. Nothing about the verdict changed: an undefined gated component was
+already a gate failure, and an undefined component the profile does not gate is still
+reported rather than blocking.
+
+The freeze refuses a bar calibrated on such a report. `extract_composite_metrics` reads a
+null component as missing and raises, which is the behaviour it already had for a
+non-finite number.

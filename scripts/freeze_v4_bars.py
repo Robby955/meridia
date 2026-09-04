@@ -44,7 +44,7 @@ MORTALITY_IDENTIFICATION_AUDIT_SCHEMA = (
     "meridia.v4.mortality-identification-audit.v1"
 )
 RESERVE_QUALIFICATION_SCHEMA = "meridia.v4.reserve-qualification-audit.v1"
-RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v1"
+RESERVE_CALIBRATION_SCHEMA = "meridia.reserve-rate-calibration.v2"
 RESERVE_RED_TEAM_SCHEMA = "meridia.reserve-total-red-team.v1"
 RESERVE_TAIL_EVIDENCE_SCHEMA = "meridia.v4.reserve-tail-evidence.v1"
 ELDER_REFERENCE_EVIDENCE_SCHEMA = "meridia.v4.elder-reference-evidence.v1"

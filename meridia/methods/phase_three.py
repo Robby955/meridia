@@ -502,7 +502,15 @@ def _finite(value, default: float | None = None) -> float | None:
 
 
 def _json_safe(value):
-    """Convert verifier numeric containers to deterministic JSON values."""
+    """Convert verifier numeric containers to deterministic JSON values.
+
+    A measurement that is undefined arrives here as a non-finite float. JSON has no
+    spelling for one, and every receipt in this tree is written with ``allow_nan=False``,
+    so an undefined measurement used to stop the run with a serialization error instead of
+    being recorded. It is written as null. A reader sees a missing value where a number
+    was expected, which is what the gate already treats as a failure, and the report the
+    freeze needs still reaches disk.
+    """
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -510,7 +518,9 @@ def _json_safe(value):
     if isinstance(value, np.ndarray):
         return _json_safe(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     return value
 
 
