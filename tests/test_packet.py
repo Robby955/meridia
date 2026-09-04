@@ -1132,12 +1132,59 @@ def test_the_contract_publishes_the_survey_family_and_the_baseline_share(packet)
         assert f'"{name}": {drawn[name]}' not in text
 
 
+def test_the_published_baseline_share_is_a_function_of_participant_files_only(packet):
+    """Rebuild the contract's baseline share from the participant tree and nothing else.
+
+    The share is the split the frozen practical baseline A_B spends the reserve total on,
+    so a participant has to be able to reproduce it exactly, and it must carry no sealed
+    regional composition. Both are the same statement: the value is a function of two
+    participant files, and the register those files hold has its own coverage error.
+    """
+    import pandas as pd
+
+    packet_dir, _ = packet
+    participant = packet_dir / "participant"
+    contract = json.loads((participant / "contract.json").read_text())
+    reserve = contract["reserve"]
+    rule = reserve["baseline_share_rule"]
+    assert rule["file"] == "sources/population_revised.csv"
+    assert rule["geography_file"] == "geography.csv"
+    assert rule["as_of_tick"] == contract["ticks"]["revised"]
+    assert rule["minimum_age"] == contract["obligation"]["eligibility_min_age"]
+    assert rule["file"] in PARTICIPANT_PACKET_FILES
+    assert rule["geography_file"] in PARTICIPANT_PACKET_FILES
+
+    register = pd.read_csv(participant / rule["file"])
+    geography = pd.read_csv(participant / rule["geography_file"])
+    county_state = dict(zip(geography[rule["geography_county_column"]],
+                            geography[rule["geography_state_column"]]))
+    age = (rule["as_of_tick"] - register[rule["birth_tick_column"]]) // 12
+    elders = register.loc[age >= rule["minimum_age"], rule["county_column"]]
+    counts = np.zeros(int(contract["n_states"]), dtype=np.float64)
+    for state, count in elders.map(county_state).value_counts().items():
+        counts[int(state)] = float(count)
+    assert counts.sum() > 0
+    recomputed = np.round(counts / counts.sum(), rule["decimals"])
+    published = np.asarray(reserve["baseline_share"], dtype=np.float64)
+    assert recomputed.tolist() == published.tolist()
+
+    # The register is a reported source, so its elder composition is not the sealed one.
+    # A share that matched the retained counts would be publishing them.
+    truth = pd.read_csv(packet_dir / "retained" / "truth_revised.csv")
+    sealed_rows = truth[(truth["estimand"] == "elders_65_plus")
+                        & (truth["level"] == "state")].sort_values("unit")
+    sealed = sealed_rows["value"].to_numpy(dtype=np.float64)
+    assert len(sealed) == len(published)
+    assert not np.allclose(sealed / sealed.sum(), published, atol=1e-6)
+
+
 # ------------------------------------ the mortality trend's only anchor is the file
 
 TREND_WORLD = PacketParams(grid=(64, 80), n_settlements=5, n_states=3, total=40_000,
                            observed_months=120, preliminary_lag=6, horizon_months=12,
                            experience_years=5, experience_lag_months=12,
                            ensemble_members=4, design_cell=4)
+
 
 
 def _experience_drift(rows) -> float:

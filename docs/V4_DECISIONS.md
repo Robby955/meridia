@@ -2307,3 +2307,35 @@ how the reserve total is derived, not to any estimator, and no world needs to be
 
 Nothing was sealed. No graded world was minted, no seed was derived, and the task package
 was not repinned, because all three wait on a completed freeze.
+
+## Two disclosure fixes, 2026-09-03
+
+### The published baseline share is computed from participant bytes
+
+`reserve.baseline_share` was computed from the register table the build holds in memory and
+from `admin["county_state"]`. Both of those are published, so the value was already
+reproducible, but the published field was a function of build state rather than of the files
+a participant receives, and no test held the two together.
+
+It is now computed the way the reserve total already is, by reading the participant bytes
+back after serialization. The two files are `participant/sources/population_revised.csv` and
+`participant/geography.csv`, which are the two the reference method already opens as
+`data["population"]` and `data["county_state"]`. The quantity is the register's own count of
+rows whose age at the revised tick is at or above the obligation's eligibility age, by state,
+divided by the total of those counts and rounded to six decimals. The register carries its
+own coverage error, so the share is not the sealed regional composition: on the test world
+the register split is 0.530707 to 0.469293 while the retained elder split is 0.524926 to
+0.475074. A register county outside the published geography now raises instead of wrapping
+to the last state.
+
+`contract["reserve"]["baseline_share_rule"]` publishes the recipe the way `total_rule`
+publishes the reserve total rule: the two file names, the four column names, the tick, the
+minimum age, the aggregation, and the rounding.
+`tests/test_packet.py::test_the_published_baseline_share_is_a_function_of_participant_files_only`
+rebuilds the share from the participant tree with pandas alone, asserts equality with the
+contract, and asserts the retained elder split is not the published one.
+
+No published value moves. A packet built before and after this change carries the same
+`baseline_share`, and the rest of the contract is identical apart from the rule sentence and
+the new rule block. The contract bytes change, so the packet digests and the identifiability
+source digest that covers `meridia/packet.py` change with them.

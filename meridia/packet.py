@@ -357,18 +357,29 @@ def reserve_weights(population: dict, county_state: np.ndarray, tick: int,
     return np.round(ladder[rank], 4)
 
 
-def reserve_baseline_share(population: dict, county_state: np.ndarray, tick: int,
+def reserve_baseline_share(register: dict, county_state: np.ndarray, tick: int,
                            n_regions: int, min_age: int) -> np.ndarray:
     """Published regional size behind the frozen practical baseline A_B.
 
-    The share of persons at or above the obligation's eligibility age, by region, in the
-    revised population source. It is a participant file, so a submission reproduces the
-    baseline exactly and knows what it has to beat. Holding a reserve in proportion to how
-    many people it covers is what a practitioner does with no regional tail model.
+    The share of register rows at or above the obligation's eligibility age, by region.
+    Both inputs are the exact bytes a participant receives: ``register`` is
+    ``participant/sources/population_revised.csv`` read back after serialization, and
+    ``county_state`` is the ``state`` column of ``participant/geography.csv`` ordered by
+    county. Those are the two files the reference method already opens as
+    ``data["population"]`` and ``data["county_state"]``, so a submission reproduces the
+    baseline from files it holds and knows what it has to beat.
+
+    The register is a reported source with its own coverage error, so this share is not
+    the sealed regional composition and no sealed count can be read back out of it.
+    Holding a reserve in proportion to how many people it covers is what a practitioner
+    does with no regional tail model.
     """
-    state = np.asarray(county_state, dtype=np.int64)[
-        np.asarray(population["county"], dtype=np.int64)]
-    age = (int(tick) - np.asarray(population["birth_tick"], dtype=np.int64)) // 12
+    counties = np.asarray(register["county"], dtype=np.int64)
+    lookup = np.asarray(county_state, dtype=np.int64)
+    if counties.size and (counties.min() < 0 or counties.max() >= lookup.size):
+        raise ValueError("register county lies outside the published geography")
+    state = lookup[counties]
+    age = (int(tick) - np.asarray(register["birth_tick"], dtype=np.int64)) // 12
     eligible = np.bincount(state[age >= int(min_age)], minlength=n_regions).astype(np.float64)
     if eligible.sum() <= 0:
         return np.full(n_regions, 1.0 / max(n_regions, 1))
@@ -1324,6 +1335,13 @@ def _build_packet_into(seed: int, out_dir: Path, params: PacketParams,
     population_revised = snapshots["revised"]["population"]
     age_years = (ticks["revised"] - population_revised["birth_tick"]) // 12
     budget = int(round(params.budget_fraction * int((age_years >= 65).sum())))
+    # The published baseline share is read back from the participant bytes for the same
+    # reason the public total is: it must be a function of the files a participant
+    # receives and of nothing held only while the packet is being built.
+    public_register = pd.read_csv(participant / "sources" / "population_revised.csv")
+    public_geography = pd.read_csv(participant / "geography.csv")
+    published_county_state = public_geography.sort_values("county")["state"].to_numpy(
+        dtype=np.int64)
 
     # The tail truth: M independently redrawn continuations from the branch state the
     # ledger kept at the revised snapshot, priced into regional present values. The
@@ -1335,7 +1353,7 @@ def _build_packet_into(seed: int, out_dir: Path, params: PacketParams,
     n_regions = int(admin["n_states"])
     weights = reserve_weights(population_revised, admin["county_state"], ticks["revised"],
                               n_regions, params.reserve_weight_spread)
-    baseline_share = reserve_baseline_share(population_revised, admin["county_state"],
+    baseline_share = reserve_baseline_share(public_register, published_county_state,
                                             ticks["revised"], n_regions,
                                             obligation.eligibility_min_age)
     cache_key = baseline_ledger_digest(built["history"], obligation,
@@ -1386,8 +1404,23 @@ def _build_packet_into(seed: int, out_dir: Path, params: PacketParams,
                "weights": [float(w) for w in weights],
                "baseline_share": [float(v) for v in baseline_share],
                "baseline_rule": "A_B splits the total in proportion to each region's share "
-                                "of persons at or above the eligibility age in the revised "
-                                "population source",
+                                "of register rows at or above the eligibility age in the "
+                                "revised population source",
+               "baseline_share_rule": {
+                   "file": "sources/population_revised.csv",
+                   "county_column": "county",
+                   "birth_tick_column": "birth_tick",
+                   "geography_file": "geography.csv",
+                   "geography_county_column": "county",
+                   "geography_state_column": "state",
+                   "as_of_tick": int(ticks["revised"]),
+                   "age_years": "(as_of_tick - birth_tick) // 12",
+                   "minimum_age": int(obligation.eligibility_min_age),
+                   "aggregation": "count register rows whose age is at or above the "
+                                  "minimum age by their state, then divide by the total "
+                                  "of those counts",
+                   "decimals": 6,
+               },
                "rounding_unit": rounding_unit,
                "weight_rule": "public ladder over regions ranked by the share of persons "
                               "85 and over in the revised population source",
