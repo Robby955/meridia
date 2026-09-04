@@ -10,9 +10,11 @@ clone, and no network.
 
 Scoring against that one document reads higher than scoring inside the benchmark's own
 corpus, because the term weights are fitted on the corpus and a single document flattens
-them. Both numbers were measured on the version-three repository's task tree of
-seventy-one instructions: 0.70 here against 0.65 there for the text as it stands, and
-0.83 here against 0.81 there for the text this replaced. The local ceiling is therefore set below the benchmark's, and clearing
+them. Two pairs were measured on the version-three repository's task tree of
+seventy-one instructions: 0.70 here against 0.65 there for the first version-four draft,
+and 0.83 here against 0.81 there for the version-three text that draft replaced. The
+instruction as it now stands reads 0.71 here; its corpus number has not been remeasured
+since the rewrite. The local ceiling is therefore set below the benchmark's, and clearing
 it leaves the real check margin.
 """
 
