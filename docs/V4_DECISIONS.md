@@ -2985,3 +2985,121 @@ PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build
 
 Nothing was sealed in this pass. No graded world was minted, no seed was derived, and the task
 package was not repinned, because all three still wait on a completed freeze.
+
+## P5 pass three, 2026-09-04
+
+### The reserve rate rule now asks two questions of a candidate
+
+The rate rule that selected 3769 asked one question. On every qualification world, does the
+published proportional baseline still carry a measurably larger expected uncovered
+obligation than a perfect-information allocation of the same total? That difference is the
+reserve skill denominator, and where it collapses the skill score is undefined and no
+allocation can be told from any other. The old rule at 6321 failed it on every world. The
+retarget to 3769 cleared it on all six, at a worst margin of 1.07 percent of the sealed mean
+total liability.
+
+At 3769 the same reserve block saturates its other reading. The worst-region shortfall
+probability is exactly one on all eighteen reference reports, with no spread. That is the top
+of the component's attainable range, and the freeze refuses a calibrated bar that reaches it,
+because no submission can exceed such a bar and no control can fail on it. One rule was too
+wide and the next was too narrow, and both failures are readings of the same quantity, the
+published total against the sealed liability.
+
+The rule a rate has to satisfy is therefore joint. Select the largest rate on the ladder at
+which, on every qualification world,
+
+- the baseline-minus-oracle expected uncovered obligation is at least one percent of that
+  world's sealed mean total liability, and
+- every reference line's worst-region shortfall probability, read against the sealed
+  continuation ensemble, is at or below the registered `regional_shortfall_ceiling` of 0.20.
+
+The second condition takes the worst of the three reference lines. The ceiling it names lies
+strictly inside the component's attainable range of zero to one, which is what the freeze
+asks of a published bar.
+
+`scripts/sweep_reserve_rate_joint.py` measures both quantities at every integer rate on the
+ladder. It reads the six qualification packets for the sealed continuation ensemble, the
+published baseline share, the shortfall weights, the public exposure and the rounding unit.
+It runs each reference line once on each world and records the liability paths that line
+allocates against. Those paths never read the published total, so one run per pair answers
+every candidate. The fill the script evaluates reproduces the eighteen recorded reference
+allocations at 3769 to within 1.3e-06 currency units on totals of order two hundred million.
+
+### What the ladder says
+
+Fifteen rates satisfy the identification condition, 3769 through 3783. One thousand rates
+satisfy the shortfall condition, 5322 through 6321. No rate satisfies both. The two windows
+are disjoint and 1539 rate points apart.
+
+Candidates across the ladder, the worst margin over the six worlds and the worst shortfall
+probability over the eighteen line and world pairs:
+
+    rate    worst margin   (a)   worst shortfall   (b)
+    3769      0.010723     yes      1.000000       no
+    3783      0.010081     yes      1.000000       no
+    3784      0.009985     no       1.000000       no
+    3900      0.005054     no       1.000000       no
+    4140      0.000239     no       1.000000       no
+    4600      0.000000     no       0.999512       no
+    5000      0.000000     no       0.282715       no
+    5322      0.000000     no       0.198730       yes
+    5800      0.000000     no       0.038086       yes
+    6321      0.000000     no       0.024414       yes
+
+The highest rate at which each world's margin still reaches one percent:
+
+    qual-0  4449      qual-1  3926      qual-2  3804
+    qual-3  3783      qual-4  4368      qual-5  3789
+
+The lowest rate at which each world and line pair falls to the 0.20 ceiling:
+
+    world     line A    line B    line C
+    qual-0     4542      4788      4662
+    qual-1     4766      4961      4610
+    qual-2     4827      5145      4777
+    qual-3     5322      5020      5244
+    qual-4     4916      5234      4845
+    qual-5     4262      4384      4177
+
+qual-3 binds both ends. It is the world whose margin runs out first, at 3783, and its line A
+pair is the last to reach the ceiling, at 5322.
+
+Per world at the two boundary candidates. At 3769 the shortfall probability is one on every
+line, so only the margin varies:
+
+    world    margin at 3769   margin at 3783   margin at 5322
+    qual-0      0.043423         0.042752         0.000000
+    qual-1      0.028489         0.026829         0.000000
+    qual-2      0.011656         0.010955         0.001403
+    qual-3      0.011529         0.010081         0.000130
+    qual-4      0.022570         0.022218         0.000328
+    qual-5      0.010723         0.010222         0.000000
+
+    world    shortfall at 5322, lines A, B and C
+    qual-0      0.000000   0.009766   0.000000
+    qual-1      0.000000   0.005859   0.000000
+    qual-2      0.031250   0.146484   0.023926
+    qual-3      0.198730   0.025391   0.161133
+    qual-4      0.015137   0.139648   0.013672
+    qual-5      0.000000   0.000488   0.000000
+
+### The nearest, and the stop
+
+The nearest admissible pair on the ladder is 3783 for identification and 5322 for the
+shortfall ceiling. Neither condition is relaxed to close the gap. The reading is not a near
+miss on a threshold: at 3783 the worst shortfall probability is still exactly one on all
+eighteen reports, and at 5322 the margin is zero on three of the six worlds and below one
+part in a thousand of the sealed liability on the other three. A published total large enough
+for a region to be covered on four continuations in five is a total under which the
+proportional baseline and the perfect-information allocation carry the same uncovered
+obligation, because at that size almost nothing is left uncovered under either. The two
+conditions read the same quantity in opposite directions and the world set does not admit
+both.
+
+The conclusion is not that the ladder was searched too coarsely. The grid is one rate point
+over the whole range, and both curves are monotone across the gap. It is that the reserve
+block as published cannot carry both readings at once on these six worlds, and which of the
+two the block is meant to measure is a rule decision that is not taken here.
+
+The compiled rate therefore stays at 3769, the largest rate that satisfies the identification
+condition. Nothing about the sweep moves a published value.
