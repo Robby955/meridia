@@ -4192,3 +4192,110 @@ everywhere. The other three deciding blocks reject an empty or broken submission
 this world set, do not separate the registered wrong methods from the reference. The
 receipt says so in those words rather than implying a discrimination the evidence does not
 support.
+
+### The mint and the repin, written and not run
+
+Standard froze, so the two sequences that were gated on a frozen profile can be written
+out. Neither was run in this pass. What gates both is `reserve_calibration_accepted.json`
+sitting beside a set of bars, and `bars/national-v14-standard` is the first directory in
+this task to hold one. Every command below reads that directory and no other. No seed is
+printed by any of them and no seed reaches a participant tree.
+
+The mint takes the V4 seal over three graded worlds and then builds them at the compiled
+rate. Run both from the integration repository with a clean tree.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/seal_v4_worlds.py --count 3 --out /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/reserve_calibration_accepted.json
+```
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-integration-p4
+PYTHONPATH=$PWD python3 scripts/build_v4_worlds.py --out /Users/robsneiderman/Desktop/meridia-p5/worlds-p5 --family graded --world-workers 3 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --reserve-calibration-audit /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/reserve_calibration_accepted.json --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --key /Users/robsneiderman/.meridia/sealed_master.key
+```
+
+That writes `graded-0`, `graded-1` and `graded-2` under
+`/Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded`. The graded build takes no
+cache. Its seeds are new, so every ensemble is computed, and three worlds at the committed
+size on a free machine is the single-world figure times one rather than the
+eighteen-at-once figure. The twelve development worlds and the six qualification worlds
+already under `worlds-p5` are not rebuilt.
+
+Between the mint and the repin, `seals/meridia-v4-worlds-confirmation.md` is written by
+hand in the shape the version two and version three confirmations under `seals/` already
+have. The asset builder reads it and refuses unless the text contains the sha256 of the
+graded packet's `manifest.json`, so that digest is what the confirmation has to carry.
+
+The repin runs in the task package worktree. It exports the verifier source and the
+reference source out of the integration repository at the commit that froze these bars,
+being 2b55e10, and records that commit and its tree in the three `SHA256SUMS` headers, so
+the integration tree has to be clean and unchanged under `meridia/` when it runs. Only one
+graded world goes into the package, and `--seal-index` names which one.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
+PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 build_assets.py --meridia /Users/robsneiderman/Projects/meridia-v4-integration-p4 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-00 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-01 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-02 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-03 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-04 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-05 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-06 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-07 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-08 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-09 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-10 --development /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/development/dev-11 --hidden /Users/robsneiderman/Desktop/meridia-p5/worlds-p5/graded/graded-0 --bars /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/bars.json --calibration-a /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_A.json --calibration-b /Users/robsneiderman/Desktop/meridia-p5/evidence-p5/phase_three/calibration_B.json --bar-provenance /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/PROVENANCE.md --freeze-report /Users/robsneiderman/Projects/meridia-v4-integration-p4/bars/national-v14-standard/freeze_report.txt --seal-manifest /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds.json --seal-confirmation /Users/robsneiderman/Projects/meridia-v4-integration-p4/seals/meridia-v4-worlds-confirmation.md --seal-index 0 --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving
+```
+
+The submission contract is checked straight after, out of the same worktree, along with
+the package and instruction checks that sit beside it.
+
+```
+cd /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving/authoring
+PYTHONPATH=/Users/robsneiderman/Projects/meridia-v4-integration-p4 python3 -m pytest -q test_submission_contract.py test_task_package.py test_instruction_similarity.py
+```
+
+Then both images are built and the two gate lines are run through the trial runner, with
+the scoring container driven directly and the network off. Neither line uses a model. The
+first build is the one that builds both images.
+
+```
+/Users/robsneiderman/Projects/theorempath/HQ/MERIDIA_READINESS/tools/run_trial.sh --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving --agent oracle --out /Users/robsneiderman/Desktop/meridia-p5/trials-v14/oracle --tests-image meridia-v14-tests:local --env-image meridia-v14-env:local --build-images
+```
+
+```
+/Users/robsneiderman/Projects/theorempath/HQ/MERIDIA_READINESS/tools/run_trial.sh --task-dir /Users/robsneiderman/Projects/meridia-v4-task/tasks/mathematical-sciences/statistics/meridia-actuarial-reserving --agent nop --out /Users/robsneiderman/Desktop/meridia-p5/trials-v14/nop --tests-image meridia-v14-tests:local --env-image meridia-v14-env:local
+```
+
+The reference line has to reach a reward of one and write `release.csv`, `projection.csv`
+and `reserve.csv` and no fourth file. The do-nothing line has to reach a reward of zero on
+an empty submission directory. A reference line that does not pass the four deciding
+blocks on the graded world is the reading that matters most, because it is the first time
+those bars meet a world that was not in the calibration set.
+
+Nothing above was run in this pass. No graded world was minted, no seed was derived, no
+seal was written, and the task package was not repinned.
+
+### What standard gates and what it reports, for the proposal thread
+
+The shipping profile decides four of the five composite blocks. A submission is scored on
+the exposure and rate block at a p95 relative error bar of 15.667516, on the release
+accuracy block at 1.314919, on the interval block at a coverage deviation of 0.900000 and
+a mean interval score of 10.250382, and on the tail block at a pooled exceedance deviation
+of 0.192106, a q95 width relative error of 18.100609 and an es95 width relative error of
+20.680355. Every bar is the empirical p99 of that component's own values over the 102
+independent replicates of one reference line, taken on the line whose p99 for it is
+largest, so the one-percent false-fail target applies to a component on a line, which is
+the unit the order statistic is taken over. Measured on those replicates, no component on
+any line exceeds one percent: the counts are one out of 102 or zero out of 102 everywhere,
+the single reading above one percent is the tail block's union on line B at 1.960784
+percent where two different replicates cross two different width components, and the
+conservative achieved marginal product over nine components and three graded worlds is
+0.862617 against a target of 0.762343. No final reference exceeds any published bar on any
+of the six qualification worlds.
+
+The fifth block, reserve skill, is measured and reported and decides nothing, and both of
+its components are published with no bar. The worst regional shortfall probability reads
+exactly 1.000000 on all eighteen final references and all 306 replicates at the compiled
+rate 3769, so its own p99 sits at the top of its attainable range and no submission could
+ever exceed it. The skill loss has a finite p99 at 6.007926, but at that rate the
+reference allocations lose to the proportional baseline on ten of the eighteen final
+reports, and the baseline itself reads exactly 1.000000 on every world, so a ceiling taken
+from the reference spread sits six times above where the baseline lands and separates
+nothing. The rate is not a free parameter: the published rule takes it from the filed mean
+liabilities, every candidate the qualification set can produce lies between 3602 and 4140,
+and the shortfall does not become a tail event below 5322. Both facts are in the receipt
+with the reason, the reserve figures are still filed and still scored for arithmetic, and
+the record says plainly that at six worlds the tail block is the only deciding block that
+fails a registered wrong method on every world, while the other three reject an empty or
+broken submission without separating the registered methods from the reference.
