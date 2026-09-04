@@ -43,8 +43,8 @@ RUN useradd --create-home --uid 10001 agent && \
     chown -R agent:agent /app
 
 # The tests below are the image's own statement of what it holds. The graded world
-# arrives without its retained tree and without a participant truth directory, and no
-# file from the tests build context is copied into this image at all.
+# arrives without its sealed tree and without a participant truth directory, and no file
+# from the tests build context is copied into this image at all.
 COPY --from=packets /packets /data
 RUN test -f /data/bars.json && \
     test -f /data/hidden/participant/contract.json && \
@@ -65,7 +65,7 @@ RUN test -f /data/bars.json && \
     for index in 1 2 3 4 5 6 7 8 9 10 11 12; do \
       test -f "/data/development/world-${index}/participant/truth/truth_revised.csv" || exit 1; \
       test -f "/data/development/world-${index}/participant/experience_history.csv" || exit 1; \
-      test ! -e "/data/development/world-${index}/retained" || exit 1; \
+      test "$(ls /data/development/world-${index})" = "participant" || exit 1; \
     done && \
     test ! -e /data/development/world-13 && \
     test ! -e /data/calibration && \
