@@ -2783,3 +2783,87 @@ def test_a_third_line_out_by_ten_percent_still_refuses():
     )
     assert bars["frozen"] is False
     assert any("not single digit" in blocker for blocker in bars["blockers"])
+
+
+def _saturate_shortfall(freeze, references, replicates, controls):
+    """Drive the shortfall component to the top of its attainable range everywhere."""
+    for entry in replicates:
+        entry["report"]["composite_metrics"]["reserve_skill"][
+            "worst_regional_shortfall_probability"] = 1.0
+        _rebind(freeze, entry, "replicate")
+    for entry in references:
+        entry["report"]["composite_metrics"]["reserve_skill"][
+            "worst_regional_shortfall_probability"] = 1.0
+        _rebind(freeze, entry, "reference")
+    reserve_controls = set(freeze.SCIENTIFIC_CONTROLS_BY_GATE["reserve_skill"])
+    for entry in controls:
+        if entry["control"] in reserve_controls:
+            entry["report"]["composite_metrics"]["reserve_skill"]["skill_loss"] = 4.0
+            _rebind(freeze, entry, "control")
+
+
+def test_a_bar_at_its_attainable_ceiling_refuses_full_and_is_unpublished_under_lite():
+    """The reserve shortfall reading of this world set, in the fixture's own numbers."""
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    _saturate_shortfall(freeze, references, replicates, controls)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+
+    full = freeze.calibrate_composite_bars(
+        references, replicates, controls, gate_profile="full", **kwargs
+    )
+    assert full["frozen"] is False
+    assert any(
+        "worst_regional_shortfall_probability" in blocker
+        and "attainable ceiling" in blocker
+        for blocker in full["blockers"]
+    )
+
+    lite = freeze.calibrate_composite_bars(
+        references, replicates, controls, gate_profile="lite", **kwargs
+    )
+    assert lite["blockers"] == []
+    assert lite["frozen"] is True
+    record = lite["gates"]["reserve_skill"]["components"][
+        "worst_regional_shortfall_probability"]
+    assert record["value"] is None and record["publishable"] is False
+    assert record["unpublishable"]["attainable_ceiling"] == 1.0
+    assert record["unpublishable"]["decides_under_profile"] is False
+    assert record["unpublishable"]["calibrated_value"] >= 1.0
+    assert all(row["pass"] is None for row in record["reference_witnesses"])
+    # The other component of the same gate keeps its bar, so a reserve reading above it
+    # is still recorded as an ungated reference failure rather than lost.
+    assert lite["gates"]["reserve_skill"]["components"]["skill_loss"]["value"] > 0.0
+    for text in (freeze.render_freeze_report(lite), freeze.render_provenance(lite)):
+        assert "reserve_skill/worst_regional_shortfall_probability" in text
+        assert "value: no bar published" in text
+
+
+def test_the_verifier_takes_an_unpublished_bar_only_where_the_profile_agrees():
+    from meridia import verify as verifier
+
+    freeze = _freeze()
+    references, replicates, controls = _evidence(freeze)
+    _saturate_shortfall(freeze, references, replicates, controls)
+    kwargs = _calibration_kwargs(freeze, references, controls)
+    lite = freeze.calibrate_composite_bars(
+        references, replicates, controls, gate_profile="lite", **kwargs
+    )
+    assert lite["frozen"] is True
+    assert verifier._bar_schema_errors(lite) == []
+
+    reread_as_full = json.loads(json.dumps(lite))
+    reread_as_full["gate_profile"] = "full"
+    reread_as_full["gate_profile_selection"] = {
+        gate: list(components)
+        for gate, components in verifier.gate_profile_selection("full").items()
+    }
+    errors = verifier._bar_schema_errors(reread_as_full)
+    assert any("must carry a published bar" in error for error in errors)
+
+    forged = json.loads(json.dumps(lite))
+    forged["gates"]["reserve_skill"]["components"][
+        "worst_regional_shortfall_probability"]["unpublishable"][
+        "calibrated_value"] = 0.1
+    assert any("does not recompute" in error
+               for error in verifier._bar_schema_errors(forged))

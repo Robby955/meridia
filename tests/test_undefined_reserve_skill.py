@@ -109,15 +109,24 @@ def test_component_value_reads_a_defined_component(value):
 @pytest.mark.parametrize("profile", ["full", "lite"])
 @pytest.mark.parametrize("undefined", [float("nan"), None])
 def test_an_undefined_skill_fails_the_gate_with_a_stated_reason(profile, undefined):
+    """Under full the undefined score is a reason; under lite it is reported only.
+
+    The reserve block does not decide a lite verdict, so an undefined skill there is
+    recorded with the same stated cause and produces no reason. The cause has to read
+    the same either way, because it is a fact about the world and the published total
+    rather than about which gates a profile chose.
+    """
     results = evaluate_composite_gates(_metrics(undefined), _bars(), True, profile)
     reserve = results["reserve_skill"]
-    assert reserve["gated"] is True
+    gated = profile == "full"
+    assert reserve["gated"] is gated
     assert reserve["evaluated"] is True
-    assert reserve["pass"] is False
-    assert len(reserve["reasons"]) == 1
-    reason = reserve["reasons"][0]
-    assert "non-finite components ['skill_loss']" in reason
-    assert "denominator J(A_B) - J(A*) is not positive" in reason
+    stated = reserve["reasons"] if gated else reserve["ungated_failures"]
+    assert reserve["pass"] is (False if gated else None)
+    assert reserve["reasons"] == ([stated[0]] if gated else [])
+    assert len(stated) == 1
+    assert "non-finite components ['skill_loss']" in stated[0]
+    assert "denominator J(A_B) - J(A*) is not positive" in stated[0]
     assert all(results[gate]["pass"] is not False
                for gate in results if gate != "reserve_skill"
                and results[gate]["gated"])

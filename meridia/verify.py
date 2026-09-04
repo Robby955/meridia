@@ -183,9 +183,12 @@ GATE_COMPONENT_NORMALIZERS: dict[str, dict[str, float]] = {
 # adds a gate, never adds a component, and never moves a frozen ceiling: every profile is
 # a subset of COMPOSITE_GATE_COMPONENTS. Whatever a profile leaves out is still measured
 # and still reported; it only stops deciding. "full" is the default and decides on all
-# five. "lite" drops the tail block: exceedance deviations, the q95 and ES95
-# width-relative errors, and the regional shortfall probabilities are reported, and the
-# population, exposure and rate, projection, and reserve-skill blocks decide.
+# five. "lite" drops the tail block and the reserve block: exceedance deviations, the q95
+# and ES95 width-relative errors, the skill loss and the regional shortfall probabilities
+# are reported, and the population, exposure and rate, and projection blocks decide. The
+# reserve block leaves lite because its shortfall component reads exactly one on every
+# reference report at every rate the published rate rule can select, so that component
+# cannot be given a bar anything could fail.
 DEFAULT_GATE_PROFILE = "full"
 GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     "full": {gate: tuple(components)
@@ -194,7 +197,6 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
-        "reserve_skill": ("skill_loss",),
     },
 }
 
@@ -1237,6 +1239,7 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
         errors.append("target false-fail rate must be 0.01")
     # A receipt has to name a registered profile and carry that profile's own selection.
     # A receipt with no profile field predates profiles and is read as the full one.
+    registered_selection: dict[str, list[str]] = {}
     try:
         registered_selection = {
             gate: list(components) for gate, components
@@ -2926,10 +2929,19 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
                                 if isinstance(comparison, dict) else None
                             exceeds = comparison.get("exceeds") \
                                 if isinstance(comparison, dict) else None
-                            if not finite_number(value) or not finite_number(ceiling) \
+                            # A component the freeze published no bar for cannot be
+                            # exceeded, so its comparison carries no ceiling and its
+                            # exceedance is false. Anything else on such a component
+                            # would let a control claim a failure it cannot have.
+                            expected_exceeds = ceiling is not None \
+                                and finite_number(value) and finite_number(ceiling) \
+                                and float(value) > float(ceiling)
+                            if not finite_number(value) \
                                     or ceiling != bar.get("value") \
+                                    or (ceiling is not None
+                                        and not finite_number(ceiling)) \
                                     or not isinstance(exceeds, bool) \
-                                    or exceeds != (float(value) > float(ceiling)):
+                                    or exceeds is not expected_exceeds:
                                 result_ok = False
                                 break
                             has_exceedance = has_exceedance or exceeds
@@ -3106,6 +3118,17 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
             record = components[component]
             if not isinstance(record, dict) or record.get("direction") != "ceiling":
                 errors.append(f"{gate}/{component}: direction must be ceiling")
+                continue
+            if record.get("value") is None:
+                # A component whose calibrated value reaches the top of its attainable
+                # range gets no bar. The freeze refuses to publish one when the profile
+                # decides that component, so a receipt may only carry an unpublished bar
+                # on a component the profile leaves out, and it has to say what the
+                # calibration produced and why that value is not a bar.
+                errors.extend(_unpublished_bar_errors(
+                    gate, component, record, severity_ceiling,
+                    component in registered_selection.get(gate, []),
+                ))
                 continue
             value = record.get("value")
             if not finite_number(value) or float(value) < 0.0:
@@ -3345,6 +3368,48 @@ def _bar_schema_errors(bars: dict | None) -> list[str]:
     return errors
 
 
+def _unpublished_bar_errors(gate: str, component: str, record: Mapping[str, object],
+                            severity_ceiling: object, decides: bool) -> list[str]:
+    """Check a component the freeze published no bar for.
+
+    Such a component decides nothing, so the receipt carries no ceiling to compare a
+    submission against. What it must still carry is the value the joint calibration
+    produced, the attainable ceiling that value reached, and the fact that the profile
+    does not decide on it. A profile that does decide on the component may not carry one
+    at all: there the freeze refuses instead of publishing.
+    """
+    def finite_number(value: object) -> bool:
+        return not isinstance(value, bool) and isinstance(value, (int, float)) \
+            and math.isfinite(float(value))
+
+    label = f"{gate}/{component}"
+    if decides:
+        return [f"{label}: a gate the profile decides on must carry a published bar"]
+    unpublished = record.get("unpublishable")
+    if record.get("publishable") is not False             or not isinstance(unpublished, dict)             or set(unpublished) != {
+                "calibrated_value", "attainable_ceiling", "reason",
+                "decides_under_profile",
+            }             or unpublished.get("decides_under_profile") is not False             or not isinstance(unpublished.get("reason"), str)             or not unpublished["reason"]:
+        return [f"{label}: unpublished bar receipt is incomplete"]
+    expected_range = list(COMPOSITE_COMPONENT_RANGES[(gate, component)])
+    high = expected_range[1]
+    normalizer = GATE_COMPONENT_NORMALIZERS[gate][component]
+    calibrated = unpublished.get("calibrated_value")
+    if high is None or record.get("range") != expected_range             or record.get("normalizer") != normalizer             or record.get("calibration_method")             != "derived-from-joint-gate-max-severity"             or record.get("quantile") != 0.99             or record.get("target_false_fail_rate") != 0.01             or unpublished.get("attainable_ceiling") != high             or not finite_number(calibrated)             or not finite_number(severity_ceiling)             or not math.isclose(float(calibrated),
+                                float(severity_ceiling) * normalizer,
+                                rel_tol=1e-12, abs_tol=1e-15):
+        return [f"{label}: unpublished bar does not recompute from its calibration"]
+    if not (float(calibrated) >= float(high)
+            or math.isclose(float(calibrated), float(high),
+                            rel_tol=1e-9, abs_tol=1e-12)):
+        return [f"{label}: a bar below its attainable ceiling must be published"]
+    witnesses = record.get("reference_witnesses")
+    if not isinstance(witnesses, list) or not witnesses             or any(not isinstance(witness, dict) or witness.get("pass") is not None
+                   for witness in witnesses):
+        return [f"{label}: witnesses cannot pass a bar that was not published"]
+    return []
+
+
 UNDEFINED_COMPONENT_REASONS: dict[tuple[str, str], str] = {
     ("reserve_skill", "skill_loss"): (
         "the reserve skill denominator J(A_B) - J(A*) is not positive at this published "
@@ -3429,7 +3494,10 @@ def evaluate_composite_gates(composite_metrics: dict, bars: dict | None,
             if component in nonfinite:
                 continue
             value = readings[component]
-            ceiling = float(frozen[component]["value"])
+            ceiling = component_value(frozen[component].get("value"))
+            # A component the freeze published no bar for is compared against nothing.
+            if not math.isfinite(ceiling):
+                continue
             if value > ceiling:
                 detail = f"{component} {value:.6g} > {ceiling:.6g}"
                 (failures if component in gated else ungated_failures).append(detail)

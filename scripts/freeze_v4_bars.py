@@ -246,8 +246,15 @@ GATE_COMPONENTS: dict[str, tuple[str, ...]] = {
 # A gate profile selects which of the five calibrated composites decide a verdict. It is
 # a subset of GATE_COMPONENTS: no profile adds a gate, adds a component, or moves a bar.
 # Every profile calibrates all five gates on the same replicate design and reports all
-# five; the profile only says which ones decide. "lite" reports the tail block and
-# decides on the population, exposure and rate, projection, and reserve-skill blocks.
+# five; the profile only says which ones decide. "lite" decides on the population,
+# exposure and rate, and projection blocks, and reports the tail and the reserve.
+#
+# The reserve block leaves lite for a measured reason. On this world set the worst-region
+# shortfall probability reads exactly one on all eighteen final reference reports at every
+# rate the published rate rule can select, so its calibrated bar sits at the top of the
+# component's attainable range and no submission can exceed it and no control can fail on
+# it. A block one of whose components cannot be given a bar is not a block a reduced
+# profile should decide on, and the readings stay in the receipt where a reader sees them.
 DEFAULT_GATE_PROFILE = "full"
 GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
     "full": {gate: tuple(components) for gate, components in GATE_COMPONENTS.items()},
@@ -255,7 +262,6 @@ GATE_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
         "exposures_and_rates": ("p95_relative_error",),
         "release_accuracy": ("p95_relative_error",),
         "interval_quality": ("coverage_deviation", "mean_interval_score"),
-        "reserve_skill": ("skill_loss",),
     },
 }
 
@@ -757,6 +763,16 @@ def _snap_to_endpoint(number: float, endpoint: float) -> float:
     if math.isclose(number, endpoint, rel_tol=1e-12, abs_tol=1e-12):
         return float(endpoint)
     return number
+
+
+def _exceeds(value: float, ceiling: float | None) -> bool:
+    """Say whether one reading is above a published bar.
+
+    A component the freeze published no bar for cannot be exceeded. Nothing fails on it
+    and nothing is separated by it, which is exactly what a component that decides
+    nothing has to mean everywhere the receipt is read.
+    """
+    return ceiling is not None and value > ceiling
 
 
 def _number(value: Any, gate: str, component: str) -> float:
@@ -1535,7 +1551,8 @@ def _validate_reserve_calibration_candidate(
         f"{row['reference_line']}/{row['world']}"
         for row in references
         if any(
-            row["metrics"]["reserve_skill"][component] > reserve_ceilings[component]
+            _exceeds(row["metrics"]["reserve_skill"][component],
+                     reserve_ceilings[component])
             for component in GATE_COMPONENTS["reserve_skill"]
         )
     ]
@@ -1563,8 +1580,9 @@ def _validate_reserve_calibration_candidate(
         )
     passed_proportional = [
         row["world"] for row in proportional
-        if all(
-            row["metrics"]["reserve_skill"][component] <= reserve_ceilings[component]
+        if not any(
+            _exceeds(row["metrics"]["reserve_skill"][component],
+                     reserve_ceilings[component])
             for component in GATE_COMPONENTS["reserve_skill"]
         )
     ]
@@ -1904,8 +1922,9 @@ def _build_reserve_qualification_audit(
             "world": source["world"],
             "evidence_id": source["evidence_id"],
             "q95_feasible": receipt["feasible"],
-            "reserve_skill_pass": all(
-                source["metrics"]["reserve_skill"][component] <= ceilings[component]
+            "reserve_skill_pass": not any(
+                _exceeds(source["metrics"]["reserve_skill"][component],
+                         ceilings[component])
                 for component in GATE_COMPONENTS["reserve_skill"]
             ),
             **{
@@ -2912,7 +2931,8 @@ def _calibrate_components(references: list[dict[str, Any]],
                           replicates: list[dict[str, Any]],
                           lines: list[str], worlds: list[str],
                           eligible_cells_by_world: Mapping[str, list[Any]],
-                          eligibility_audit_by_world: Mapping[str, dict[str, Any]]) \
+                          eligibility_audit_by_world: Mapping[str, dict[str, Any]],
+                          profile_selection: Mapping[str, Sequence[str]]) \
         -> dict[str, Any]:
     """Calibrate each composite jointly, independently within each reference line.
 
@@ -2921,6 +2941,14 @@ def _calibrate_components(references: list[dict[str, Any]],
     the 102 independent reports for each line, then the largest of the three line p99s is
     the common gate ceiling.  Thus no line is hidden by pooling and component multiplicity
     cannot inflate the registered one-percent gate-level false-fail rate.
+
+    A calibrated bar that reaches the top of its component's attainable range is not a
+    bar. When the profile decides that component the freeze refuses, as it always has.
+    When the profile does not decide it, the component is published with no bar: the
+    receipt carries the value the calibration produced, the range it reached, and the
+    reason, and nothing compares a submission against it. A profile is a selection over
+    the gates that decide, and a component it leaves out cannot make a verdict either by
+    passing everything or by stopping the freeze.
     """
 
     gates: dict[str, Any] = {}
@@ -2990,28 +3018,43 @@ def _calibrate_components(references: list[dict[str, Any]],
         for component in components:
             normalizer = normalizers[component]
             _, attainable_high = COMPONENT_RANGES[(gate, component)]
-            value = severity_ceiling * normalizer
+            calibrated_value = severity_ceiling * normalizer
+            value: float | None = calibrated_value
+            unpublishable: dict[str, Any] | None = None
+            decides = component in profile_selection.get(gate, ())
             if attainable_high is not None:
                 # A bar at the top of the component's attainable range is not a bar. No
                 # submission can exceed it and no control can fail on it, so the component
                 # decides nothing and the gate is weaker than its receipt reads. The
-                # freeze refuses rather than publishing one.
-                if value >= attainable_high or math.isclose(
-                    value, attainable_high, rel_tol=1e-9, abs_tol=1e-12
+                # freeze refuses when the profile decides on it, and publishes it with no
+                # bar and a named reason when the profile does not.
+                if calibrated_value >= attainable_high or math.isclose(
+                    calibrated_value, attainable_high, rel_tol=1e-9, abs_tol=1e-12
                 ):
-                    raise EvidenceError(
-                        f"{gate}/{component}: the calibrated bar "
-                        f"{value:.12g} reaches its attainable ceiling "
-                        f"{attainable_high:.12g}, so the component cannot fail"
+                    reason = (
+                        f"the calibrated bar {calibrated_value:.12g} reaches its "
+                        f"attainable ceiling {attainable_high:.12g}, so the component "
+                        f"cannot fail"
                     )
-                value = min(value, attainable_high)
+                    if decides:
+                        raise EvidenceError(f"{gate}/{component}: {reason}")
+                    unpublishable = {
+                        "calibrated_value": calibrated_value,
+                        "attainable_ceiling": attainable_high,
+                        "reason": reason,
+                        "decides_under_profile": False,
+                    }
+                    value = None
+                else:
+                    value = min(calibrated_value, attainable_high)
             reference_witnesses = [
                 {
                     "reference_line": entry["reference_line"],
                     "world": entry["world"],
                     "evidence_id": entry["evidence_id"],
                     "value": entry["metrics"][gate][component],
-                    "pass": entry["metrics"][gate][component] <= value,
+                    "pass": None if value is None
+                    else entry["metrics"][gate][component] <= value,
                 }
                 for entry in sorted(
                     references, key=lambda row: (row["reference_line"], row["world"])
@@ -3023,6 +3066,8 @@ def _calibrate_components(references: list[dict[str, Any]],
             ).hexdigest()
             record: dict[str, Any] = {
                 "value": value,
+                "publishable": value is not None,
+                "unpublishable": unpublishable,
                 "direction": "ceiling",
                 "range": list(COMPONENT_RANGES[(gate, component)]),
                 "normalizer": normalizer,
@@ -3071,7 +3116,7 @@ def _calibrate_components(references: list[dict[str, Any]],
                 },
                 "component_exceedance_rate_at_joint_ceiling_by_reference_line": {
                     line: sum(
-                        row["component_values"][component] > value
+                        row["component_values"][component] > calibrated_value
                         for row in severity_rows[line]
                     ) / sample_count_per_line
                     for line in lines
@@ -3172,8 +3217,10 @@ def _control_matrix(
                     component: {
                         "value": row["metrics"][gate][component],
                         "ceiling": gates[gate]["components"][component]["value"],
-                        "exceeds": row["metrics"][gate][component]
-                        > gates[gate]["components"][component]["value"],
+                        "exceeds": _exceeds(
+                            row["metrics"][gate][component],
+                            gates[gate]["components"][component]["value"],
+                        ),
                     }
                     for component in components
                 }
@@ -3240,9 +3287,11 @@ def _profile_separation(
     A control whose registered primary gate decides under the profile is judged on that
     gate, exactly as the registered battery is judged. A control whose primary gate does
     not decide has to fail some other gated gate on every world to separate anything, so
-    a control that only fails the tail block separates nothing under a profile that does
-    not gate the tail. Those controls are named as deletion candidates for the profile:
-    under it they no longer test the surface a participant is scored on.
+    a control that fails only the tail block, or only the reserve block, separates
+    nothing under a profile that gates neither. Those controls are named as deletion
+    candidates for the profile: under it they no longer test the surface a participant is
+    scored on. A component the freeze published no bar for cannot be failed at all, so a
+    control that depended on it separates nothing under any profile and is named here.
     """
 
     def fails_gated(record: Mapping[str, Any], gate: str,
@@ -3401,8 +3450,12 @@ def _empty_result(blockers: Sequence[str], *, expected_world_count: int,
         "gate_profile": gate_profile,
         "gate_profile_selection": {gate: list(components)
                                    for gate, components in selection.items()},
+        "reported_only_gates": [gate for gate in GATE_COMPONENTS
+                                if gate not in selection],
         "gates": {},
         "blockers": list(blockers),
+        "reference_failures": [],
+        "ungated_reference_failures": [],
         "target_false_fail_rate": TARGET_FALSE_FAIL_RATE,
         "quantile": QUANTILE,
         "qualification_world_count": expected_world_count,
@@ -3530,7 +3583,7 @@ def calibrate_composite_bars(
         )
         gates = _calibrate_components(
             references, replicates, lines, worlds, eligible_cells_by_world,
-            eligibility_audit_by_world,
+            eligibility_audit_by_world, profile_selection,
         )
         reserve_red_team_measurement = _validate_reserve_red_team_measurement(
             reserve_red_team_audit, references, diagnostics
@@ -3557,8 +3610,8 @@ def calibrate_composite_bars(
             gated = profile_selection.get(gate, ())
             failures = [
                 component for component in components
-                if entry["metrics"][gate][component]
-                > gates[gate]["components"][component]["value"]
+                if _exceeds(entry["metrics"][gate][component],
+                            gates[gate]["components"][component]["value"])
             ]
             if not failures:
                 continue
@@ -3929,6 +3982,22 @@ def _append_gate_profile(lines: list[str], bars: Mapping[str, Any]) -> None:
             )
     else:
         lines.append("  - none")
+    gates = bars.get("gates")
+    gates = gates if isinstance(gates, Mapping) else {}
+    unpublished = [
+        f"{gate}/{component}"
+        for gate in GATE_COMPONENTS
+        for component in GATE_COMPONENTS[gate]
+        if isinstance(gates.get(gate), Mapping)
+        and isinstance(gates[gate].get("components"), Mapping)
+        and isinstance(gates[gate]["components"].get(component), Mapping)
+        and gates[gate]["components"][component].get("value") is None
+    ]
+    lines.append(
+        "- components published with no bar, because the calibrated value reaches the "
+        "top of the component's attainable range: "
+        + (", ".join(unpublished) if unpublished else "none")
+    )
     support = bars.get("control_support")
     profile_support = support.get("gate_profile") \
         if isinstance(support, Mapping) else None
@@ -4128,6 +4197,20 @@ def _append_authenticated_evidence(lines: list[str], bars: Mapping[str, Any]) ->
     lines.append("")
 
 
+def _bar_value_lines(bar: Mapping[str, Any]) -> list[str]:
+    """Render one component's published bar, or say why it has none."""
+    if bar.get("value") is None:
+        unpublishable = bar.get("unpublishable")
+        unpublishable = unpublishable if isinstance(unpublishable, Mapping) else {}
+        return [
+            "    value: no bar published",
+            f"    calibrated value: "
+            f"{float(unpublishable.get('calibrated_value', float('nan'))):.12g}",
+            f"    reason: {unpublishable.get('reason', 'unrecorded')}",
+        ]
+    return [f"    value: {float(bar['value']):.12g}"]
+
+
 def _append_reference_gate_results(
     lines: list[str],
     bars: Mapping[str, Any],
@@ -4164,8 +4247,13 @@ def _append_reference_gate_results(
         for world in bars.get("qualification_worlds", []):
             pair = (line, world)
             rows = [by_component[component].get(pair) for component in GATE_COMPONENTS[gate]]
-            passed = bool(rows) and all(
-                isinstance(row, Mapping) and row.get("pass") is True for row in rows
+            compared = [row for row in rows
+                        if isinstance(row, Mapping) and row.get("pass") is not None]
+            passed = bool(compared) and all(
+                row.get("pass") is True for row in compared
+            )
+            verdict = "pass" if passed else (
+                "no published bar" if not compared else "fail"
             )
             evidence_ids = sorted({
                 str(row.get("evidence_id"))
@@ -4174,8 +4262,7 @@ def _append_reference_gate_results(
             })
             evidence = evidence_ids[0] if len(evidence_ids) == 1 else "missing"
             lines.append(
-                f"    - {line}/{world}: {'pass' if passed else 'fail'}; "
-                f"evidence `{evidence}`"
+                f"    - {line}/{world}: {verdict}; evidence `{evidence}`"
             )
 
 
@@ -4224,7 +4311,7 @@ def render_freeze_report(bars: Mapping[str, Any]) -> str:
                 bar = record["components"][component]
                 lines.extend([
                     f"  - {component}",
-                    f"    value: {bar['value']:.12g}",
+                    *_bar_value_lines(bar),
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
                     f"    fixed normalizer: {bar['normalizer']:.12g}",
@@ -4338,7 +4425,7 @@ def render_provenance(bars: Mapping[str, Any]) -> str:
                 bar = record["components"][component]
                 lines.extend([
                     f"  - {component}",
-                    f"    value: {bar['value']:.12g}",
+                    *_bar_value_lines(bar),
                     "    attainable range: "
                     + json.dumps(bar["range"], separators=(",", ":")),
                     f"    fixed normalizer: {bar['normalizer']:.12g}",

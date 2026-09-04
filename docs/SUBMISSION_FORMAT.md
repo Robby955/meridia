@@ -136,9 +136,16 @@ bars stop scoring rather than supplying a default threshold.
 
 The same document names the gate profile it froze under, and a profile selects which of
 those five decide. Under the default `full` profile all five decide. Under `lite` the tail
-block is measured and reported while exposures and rates, release accuracy, interval
-quality, and reserve skill decide. Every verdict names the profile it came from, and a bar
-document frozen under one profile cannot be scored under another.
+block and the reserve block are measured and reported while exposures and rates, release
+accuracy, and interval quality decide. Every verdict names the profile it came from, and a
+bar document frozen under one profile cannot be scored under another.
+
+A component whose calibrated ceiling reaches the top of its attainable range is not a
+ceiling: nothing can exceed it. Where the profile decides that component the freeze
+refuses. Where it does not, the bar document publishes the component with a null value, the
+value the calibration produced, and the reason, and no submission is compared against it.
+The regional shortfall probability is carried that way under `lite` on the current world
+set.
 
 ## Participant input columns
 

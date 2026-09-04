@@ -101,8 +101,9 @@ def test_every_profile_is_a_selection_over_the_five_frozen_gates():
         for gate, components in COMPOSITE_GATE_COMPONENTS.items()
     }
     lite = gate_profile_selection("lite")
-    assert "tail_calibration" not in lite
-    assert lite["reserve_skill"] == ("skill_loss",)
+    assert set(lite) == {
+        "exposures_and_rates", "release_accuracy", "interval_quality"}
+    assert "tail_calibration" not in lite and "reserve_skill" not in lite
     with pytest.raises(ValueError):
         gate_profile_selection("tail_only")
     with pytest.raises(freeze.EvidenceError):
@@ -121,8 +122,8 @@ def test_lite_passes_a_submission_whose_tails_are_wrong(tmp_path):
     assert [detail.split()[0] for detail in tail["ungated_failures"]] == [
         "q95_width_relative_error"]
     reserve = report["gate_results"]["reserve_skill"]
-    assert reserve["gated"] is True and reserve["pass"] is True
-    assert reserve["gated_components"] == ["skill_loss"]
+    assert reserve["gated"] is False and reserve["pass"] is None
+    assert reserve["gated_components"] == [] and reserve["reasons"] == []
     # The tail block is still measured on the same submission, and the mean liability the
     # reserve file filed is still recomputed against the sealed ensemble mean.
     assert report["composite_metrics"]["tail_calibration"][
@@ -194,31 +195,35 @@ def test_the_profile_name_reaches_the_bars_the_report_and_the_verdict(tmp_path):
         assert verdict["gate_profile"] == profile
     lite_report = freeze.render_freeze_report(_bars("lite"))
     assert "tail_calibration (reported, decides nothing)" in lite_report
-    assert "reserve_skill (decides on skill_loss)" in lite_report
+    assert "reserve_skill (reported, decides nothing)" in lite_report
     full_report = freeze.render_freeze_report(_bars("full"))
     assert "tail_calibration (decides on pooled_exceedance_deviation, " \
         "q95_width_relative_error, es95_width_relative_error)" in full_report
 
 
-def test_a_control_that_fails_only_tail_gates_is_a_lite_deletion_candidate():
+def test_a_control_that_fails_only_tail_or_reserve_gates_is_a_lite_deletion_candidate():
     freeze = _freeze()
     lite, full = _bars("lite"), _bars("full")
+    reported_controls = set(TAIL_CONTROLS) | set(
+        freeze.SCIENTIFIC_CONTROLS_BY_GATE["reserve_skill"])
     lite_support = lite["control_support"]["gate_profile"]
     assert lite_support["name"] == "lite"
-    assert lite_support["reported_only_gates"] == ["tail_calibration"]
-    assert lite_support["deletion_candidate_controls"] == sorted(TAIL_CONTROLS)
+    assert lite_support["reported_only_gates"] == [
+        "tail_calibration", "reserve_skill"]
+    assert lite_support["deletion_candidate_controls"] == sorted(reported_controls)
     for record in lite_support["deletion_candidates"]:
-        assert record["primary_gate"] == "tail_calibration"
+        assert record["primary_gate"] in ("tail_calibration", "reserve_skill")
         assert record["primary_gate_decides"] is False
         assert record["failed_gated_worlds"] == []
         assert record["unseparated_worlds"] == list(lite["qualification_worlds"])
     assert set(lite_support["separating_controls"]) == \
-        set(freeze.REQUIRED_SCIENTIFIC_CONTROLS) - set(TAIL_CONTROLS)
-    # Under lite those six wrong tail methods pass the task, so the report names them.
+        set(freeze.REQUIRED_SCIENTIFIC_CONTROLS) - reported_controls
+    # Under lite those wrong tail and wrong reserve methods pass the task, so the
+    # report names them.
     for text in (freeze.render_freeze_report(lite), freeze.render_provenance(lite)):
         assert "lite profile deletion candidates" in text
         named = text.split("lite profile deletion candidates")[1]
-        assert all(name in named for name in TAIL_CONTROLS)
+        assert all(name in named for name in reported_controls)
     # The registered per-primary-gate battery is unchanged, and full names nobody.
     assert full["control_support"]["gate_profile"]["deletion_candidate_controls"] == []
     assert lite["control_support"]["deletion_candidates"] == []
@@ -266,8 +271,9 @@ def test_an_ungated_component_never_produces_a_reason():
                       for gate, components in COMPOSITE_GATE_COMPONENTS.items()}}
     lite = evaluate_composite_gates(metrics, bars, True, "lite")
     assert [gate for gate, result in lite.items() if result["gated"]] == [
-        "exposures_and_rates", "release_accuracy", "interval_quality", "reserve_skill"]
+        "exposures_and_rates", "release_accuracy", "interval_quality"]
     assert all(result["pass"] for result in lite.values() if result["gated"])
+    assert lite["reserve_skill"]["pass"] is None
     assert lite["reserve_skill"]["ungated_failures"] == [
         "worst_regional_shortfall_probability 0.9 > 0.5"]
     assert lite["tail_calibration"]["pass"] is None
@@ -280,3 +286,20 @@ def test_an_ungated_component_never_produces_a_reason():
     assert full["reserve_skill"]["pass"] is False
     assert full["reserve_skill"]["reasons"] == [
         "worst_regional_shortfall_probability 0.9 > 0.5"]
+
+
+def test_a_refused_freeze_still_names_the_profile_and_what_it_reports():
+    """A fail-closed document says which gates would have decided and which would not."""
+    freeze = _freeze()
+    for profile, reported in (("full", []),
+                              ("lite", ["tail_calibration", "reserve_skill"])):
+        refused = freeze.calibrate_composite_bars(
+            [], None, [], gate_profile=profile
+        )
+        assert refused["frozen"] is False and refused["blockers"]
+        assert refused["gate_profile"] == profile
+        assert refused["reported_only_gates"] == reported
+        assert refused["reference_failures"] == []
+        assert refused["ungated_reference_failures"] == []
+        text = freeze.render_freeze_report(refused)
+        assert f"PROFILE: {profile}" in text
